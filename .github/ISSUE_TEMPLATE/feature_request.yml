@@ -1,0 +1,56 @@
+name: Feature request
+description: Propose a capability or improvement.
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Changes to **security, privacy, evidence semantics, community safety, or
+        Scrambler design** start with an ADR before implementation — see
+        [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md) and
+        [docs/adr](../tree/main/docs/adr). Model output may *explain* but must never
+        *decide*.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Operator outcome
+      description: What should the operator be able to do, and which threat or failure mode does it address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Observation (network/device/identity collection)
+        - Intelligence (exposure scoring, findings, visualization)
+        - Security (policy, signing, hardening)
+        - Experience (dashboard, UX, accessibility, docs)
+        - Research (privacy, evidence methodology)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: evidence-privacy
+    attributes:
+      label: Evidence & privacy impact
+      description: What is collected, transmitted, retained, or deleted? What evidence class and false-positive context apply?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Acknowledgements
+      options:
+        - label: I read CONTRIBUTING.md and the relevant contract docs.
+          required: true
+        - label: If this touches security, privacy, evidence, community safety, or Scrambler design, I will open an ADR.
+          required: true
