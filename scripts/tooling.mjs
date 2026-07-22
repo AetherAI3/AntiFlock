@@ -250,7 +250,12 @@ export function runAndroidTests(label = "Android reference JVM tests") {
   if (!requireFile("apps/android/settings.gradle.kts", "Android Gradle settings")) return false;
 
   const wrapper = process.platform === "win32" ? "gradlew.bat" : "gradlew";
-  if (existsSync(join(androidDirectory, wrapper))) {
+  const wrapperPath = join(androidDirectory, wrapper);
+  if (!existsSync(wrapperPath)) {
+    process.stderr.write("The checked-in Android Gradle wrapper is required.\n");
+    return false;
+  }
+  if (commandExists("java")) {
     const command = process.platform === "win32" ? join(androidDirectory, wrapper) : `./${wrapper}`;
     return runStep(label, command, ["--no-daemon", "test"], {
       cwd: androidDirectory,
@@ -258,19 +263,11 @@ export function runAndroidTests(label = "Android reference JVM tests") {
     });
   }
 
-  const gradle = process.platform === "win32" ? "gradle.bat" : "gradle";
-  if (commandExists(gradle)) {
-    return runStep(`${label} (Gradle ${versions.gradle} expected)`, gradle, ["--no-daemon", "test"], {
-      cwd: androidDirectory,
-      timeout: 900_000,
-    });
-  }
-
-  if (!dockerAvailable()) return missingTool(label, "Gradle", versions.gradleImage);
+  if (!dockerAvailable()) return missingTool(label, "Java 17", versions.gradleImage);
   return runStep(
-    `${label} (Gradle ${versions.gradle} container)`,
+    `${label} (wrapper in pinned JDK 17 container)`,
     "docker",
-    containerArgs(versions.gradleImage, ["gradle", "--no-daemon", "test"], {
+    containerArgs(versions.gradleImage, ["bash", "./gradlew", "--no-daemon", "test"], {
       containerEnv: { GRADLE_USER_HOME: "/home/gradle/.gradle" },
       containerWorkdir: "/workspace/apps/android",
       volumes: ["antiflock-gradle-cache:/home/gradle/.gradle"],

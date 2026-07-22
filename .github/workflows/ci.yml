@@ -98,7 +98,6 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
         with:
-          gradle-version: "9.6.1"
           cache-provider: basic
       - name: Run the pure Kotlin/JVM Android reference tests
         run: node scripts/verify.mjs --section android
