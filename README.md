@@ -72,7 +72,7 @@ The repository is a modular monolith with explicit adapter boundaries:
 - `apps/android/` is the Android Guard reference client.
 - `sdk/typescript/` is the AntiFlock Secure Action SDK.
 
-Read [the architecture overview](docs/architecture/overview.md) and
+Read [the architecture overview](docs/architecture.md) and
 [threat model](docs/threat-model.md) before changing a security boundary.
 
 ## Status

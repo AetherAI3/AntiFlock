@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "loop.ratchet-turn/v1",
+  "turn": 2,
+  "capability": "locked security contracts and canonical schemas",
+  "classification": "verified-improvement",
+  "baseline": 0,
+  "remeasured": 2,
+  "tolerance": 0,
+  "harness": "node scripts/acceptance.mjs",
+  "evidence": [
+    "contracts gate passed",
+    "schemas gate passed",
+    "Buf 1.72.0 STANDARD lint passed",
+    "Buf descriptor build passed",
+    "git diff --check passed",
+    "independent safety and compatibility review passed"
+  ],
+  "commit": "a7fdbd8",
+  "confidence_block": {
+    "confidence": 0.97,
+    "risk": "medium",
+    "evidence": ["schema-lint", "descriptor-build", "link-check", "adversarial-review", "fresh-remeasurement"],
+    "unknown": [
+      "Public name and trademark clearance remain external decisions.",
+      "Jurisdiction-specific retention and dataset license decisions remain open.",
+      "Generated-language interoperability is not yet tested."
+    ],
+    "missing_evidence": ["external legal review", "cross-language interoperability suite"]
+  }
+}
