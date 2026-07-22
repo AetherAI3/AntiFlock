@@ -1,0 +1,28 @@
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Runtime state and secrets
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.db-shm
+*.db-wal
+*.pem
+*.key
+
+# Build output
+bin/
+dist/
+coverage/
+node_modules/
+apps/**/build/
+apps/**/.gradle/
+
+# Local tooling caches
+.cache/
+.tools/
+
