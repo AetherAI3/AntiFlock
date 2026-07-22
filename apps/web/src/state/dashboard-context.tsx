@@ -67,7 +67,7 @@ interface DashboardContextValue {
 
 const DashboardContext = createContext<DashboardContextValue | null>(null);
 
-const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_ANTIFLOCK_API_URL ?? "";
+const DEFAULT_API_BASE = "";
 
 function operationId(prefix: string): string {
   return `${prefix}-${globalThis.crypto.randomUUID()}`;
@@ -131,9 +131,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const storedBase = window.localStorage.getItem("antiflock.apiBase");
       const storedFallback = window.localStorage.getItem("antiflock.demoFallback");
-      if (storedBase !== null) setApiBase(storedBase);
+      window.localStorage.removeItem("antiflock.apiBase");
       if (storedFallback !== null) setDemoFallback(storedFallback !== "false");
     }, 0);
     return () => window.clearTimeout(timer);
@@ -373,10 +372,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const updateConnectionSettings = useCallback((nextApiBase: string, nextDemoFallback: boolean) => {
-    const normalized = nextApiBase.trim().replace(/\/$/, "");
-    window.localStorage.setItem("antiflock.apiBase", normalized);
+    if (nextApiBase.trim() !== "") {
+      setCommandFeedback({ kind: "error", message: "Direct browser Core origins are unsupported. Use the authenticated same-origin private proxy." });
+      return;
+    }
+    window.localStorage.removeItem("antiflock.apiBase");
     window.localStorage.setItem("antiflock.demoFallback", String(nextDemoFallback));
-    setApiBase(normalized);
+    setApiBase("");
     setDemoFallback(nextDemoFallback);
     setCommandFeedback({ kind: "success", message: "Connection settings saved. Dashboard projections will be reloaded." });
   }, []);

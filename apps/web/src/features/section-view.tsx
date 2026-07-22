@@ -555,15 +555,14 @@ function ScramblerView() {
 
 function SettingsView() {
   const { apiBase, demoFallback, updateConnectionSettings, streamStatus, mode, lastRefresh, failedEndpoints } = useDashboard();
-  const [nextBase, setNextBase] = useState(apiBase);
   const [nextFallback, setNextFallback] = useState(demoFallback);
   return (
     <div className="view-stack settings-view">
       <div className="view-intro"><div><p className="eyebrow">Local dashboard settings</p><h2>Core connection</h2><p>Connection settings stay on this browser. They do not alter endpoint protection, agent policy, or mesh configuration.</p></div></div>
       <div className="settings-layout">
         <Panel labelledBy="connection-settings-title"><PanelHeader title="Projection source" eyebrow="REST + durable SSE" id="connection-settings-title" />
-          <form className="settings-form" onSubmit={(event) => { event.preventDefault(); updateConnectionSettings(nextBase, nextFallback); }}>
-            <label><span>AntiFlock Core base URL</span><input type="url" inputMode="url" value={nextBase} onChange={(event) => setNextBase(event.target.value)} placeholder="Same origin (leave blank)" aria-describedby="api-help" /><small id="api-help">Leave blank when Core serves the dashboard on the same origin. No secret is stored here.</small></label>
+          <form className="settings-form" onSubmit={(event) => { event.preventDefault(); updateConnectionSettings("", nextFallback); }}>
+              <label><span>AntiFlock Core connection</span><input value="Same-origin private proxy" readOnly aria-readonly="true" aria-describedby="api-help" /><small id="api-help">The browser accepts live state only through the dashboard&apos;s server-authenticated proxy. Core credentials never enter browser storage.</small></label>
             <label><span>SSE projection endpoint</span><input value="/v1/stream?topics=…" readOnly aria-readonly="true" /><small>Durable cursors resume through the event stream. The stream carries projections, not packet payloads.</small></label>
             <label className="toggle-control"><input type="checkbox" checked={nextFallback} onChange={(event) => setNextFallback(event.target.checked)} /><span><strong>Use deterministic demo fallback</strong><small>If Core is unavailable, label and show the coffee-shop fixture instead of a blank console.</small></span></label>
             <button className="button button-primary" type="submit">Save and reconnect</button>
