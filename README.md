@@ -40,7 +40,7 @@ Useful commands:
 
 ```bash
 make test       # all Go and JavaScript tests
-make verify     # formatting, tests, builds, and locked acceptance gates
+make verify     # formatting, tests, builds, and reference acceptance gates
 make lab        # coffee-shop failure and recovery scenario
 make down       # stop the local stack
 ```

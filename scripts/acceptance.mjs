@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { goPackagePatterns } from "./tooling.mjs";
+import { versions } from "./tooling.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const strict = process.argv.includes("--strict");
@@ -21,6 +21,31 @@ function pathsGate(id, title, paths) {
     passed: missing.length === 0,
     evidence: missing.length === 0 ? paths : [],
     missing,
+  };
+}
+
+function workingNameContractsGate(paths, packagePaths) {
+  const gate = pathsGate("contracts", "Locked security, privacy, and working-name contracts", paths);
+  const publishable = [];
+  for (const packagePath of packagePaths) {
+    const absolute = join(root, packagePath);
+    if (!existsSync(absolute)) {
+      publishable.push(packagePath);
+      continue;
+    }
+    try {
+      if (JSON.parse(readFileSync(absolute, "utf8")).private !== true) {
+        publishable.push(`${packagePath}#private=true`);
+      }
+    } catch {
+      publishable.push(`${packagePath}#valid-json`);
+    }
+  }
+  return {
+    ...gate,
+    passed: gate.passed && publishable.length === 0,
+    evidence: gate.passed && publishable.length === 0 ? [...gate.evidence, ...packagePaths] : [],
+    missing: [...gate.missing, ...publishable],
   };
 }
 
@@ -52,6 +77,25 @@ function run(command, args, cwd = root, timeout = 180_000) {
   };
 }
 
+function combine(results) {
+  const failed = results.find((result) => !result.passed);
+  return {
+    command: results.map((result) => result.command).join(" && "),
+    passed: failed === undefined,
+    status: failed?.status ?? 0,
+    stdout: results
+      .map((result) => result.stdout)
+      .filter(Boolean)
+      .join("\n"),
+    stderr: results
+      .map((result) => result.stderr)
+      .filter(Boolean)
+      .join("\n"),
+    error: failed?.error,
+    steps: results,
+  };
+}
+
 function runnableGate(id, title, prerequisites, runner) {
   const missing = prerequisites.filter((path) => !pathExists(path));
   if (missing.length > 0) {
@@ -69,14 +113,48 @@ function runnableGate(id, title, prerequisites, runner) {
   };
 }
 
-function goTest() {
+const goScopes = Object.freeze({
+  core: Object.freeze([
+    "./api/gen/go/...",
+    "./internal/...",
+    "./cmd/antiflock-core",
+    "./cmd/antiflockctl",
+    "./core/config",
+    "./core/retention",
+    "./core/server",
+  ]),
+  eventSpine: Object.freeze([
+    "./core/audit",
+    "./core/enrollment",
+    "./core/events",
+    "./core/identity",
+    "./core/storage",
+  ]),
+  decisionPlane: Object.freeze([
+    "./core/actions",
+    "./core/findings",
+    "./core/policy",
+    "./core/posture",
+    "./core/scrambler",
+  ]),
+  agent: Object.freeze([
+    "./adapters/...",
+    "./agent/...",
+    "./cmd/antiflock-agent",
+    "./cmd/antiflock-sim",
+  ]),
+  coffeeShop: Object.freeze(["./tests/end-to-end"]),
+});
+
+function goTest(packagePatterns, extraArgs = []) {
+  const args = ["test", "-count=1", ...extraArgs, ...packagePatterns];
   if (commandExists("go")) {
-    return run("go", ["test", ...goPackagePatterns], root, 300_000);
+    return run("go", args, root, 300_000);
   }
 
   if (!commandExists("docker")) {
     return {
-      command: `go test ${goPackagePatterns.join(" ")}`,
+      command: `go ${args.join(" ")}`,
       passed: false,
       status: null,
       stderr: "Neither Go nor Docker is available.",
@@ -102,15 +180,79 @@ function goTest() {
       "CGO_ENABLED=0",
       "-v",
       `${root}:/workspace`,
+      "-v",
+      "antiflock-go-mod:/go/pkg/mod",
+      "-v",
+      "antiflock-go-build:/root/.cache/go-build",
       "-w",
       "/workspace",
-      "golang:1.26.5-bookworm",
+      versions.goImage,
       "go",
-      "test",
-      ...goPackagePatterns,
+      ...args,
     ],
     root,
     600_000,
+  );
+}
+
+function androidTest() {
+  const directory = join(root, "apps", "android");
+  const wrapper = process.platform === "win32" ? "gradlew.bat" : "gradlew";
+  const wrapperPath = join(directory, wrapper);
+  if (!existsSync(wrapperPath)) {
+    return {
+      command: `${wrapper} --no-daemon test`,
+      passed: false,
+      status: null,
+      stderr: "The checked-in Android Gradle wrapper is missing.",
+    };
+  }
+
+  if (commandExists("java")) {
+    const command = process.platform === "win32" ? wrapperPath : `./${wrapper}`;
+    return run(command, ["--no-daemon", "test"], directory, 900_000);
+  }
+
+  if (!commandExists("docker")) {
+    return {
+      command: `${wrapper} --no-daemon test`,
+      passed: false,
+      status: null,
+      stderr: "Neither Java nor Docker is available.",
+    };
+  }
+
+  const dockerInfo = run("docker", ["info", "--format", "{{.ServerVersion}}"], root, 30_000);
+  if (!dockerInfo.passed) {
+    return {
+      command: "docker info",
+      passed: false,
+      status: dockerInfo.status,
+      stderr: "Docker is installed but its engine is unavailable.",
+    };
+  }
+
+  return run(
+    "docker",
+    [
+      "run",
+      "--rm",
+      "-e",
+      "GRADLE_USER_HOME=/home/gradle/.gradle",
+      "-v",
+      `${root}:/workspace`,
+      "-v",
+      "antiflock-gradle-cache:/home/gradle/.gradle",
+      "-w",
+      "/workspace/apps/android",
+      versions.gradleImage,
+      "bash",
+      "./gradlew",
+      "--no-daemon",
+      "test",
+    ],
+    root,
+    900_000,
   );
 }
 
@@ -126,7 +268,7 @@ function npmTest(directory) {
 }
 
 const gates = [
-  pathsGate("contracts", "Locked security and privacy contracts", [
+  workingNameContractsGate([
     "LICENSE",
     "SECURITY.md",
     "GOVERNANCE.md",
@@ -137,8 +279,15 @@ const gates = [
     "docs/protection-states.md",
     "docs/community-intelligence-policy.md",
     "docs/scrambler-safety-model.md",
+  ], [
+    "package.json",
+    "apps/web/package.json",
+    "apps/aether-demo/package.json",
+    "sdk/typescript/package.json",
   ]),
-  pathsGate("schemas", "Canonical versioned protocol schemas", [
+  runnableGate("schemas", "Canonical protocol schemas format, lint, build, and generated-code parity", [
+    "buf.yaml",
+    "buf.gen.yaml",
     "api/proto/antiflock/v1/common.proto",
     "api/proto/antiflock/v1/event.proto",
     "api/proto/antiflock/v1/finding.proto",
@@ -146,51 +295,54 @@ const gates = [
     "api/proto/antiflock/v1/policy.proto",
     "api/proto/antiflock/v1/plan.proto",
     "api/proto/antiflock/v1/action.proto",
-  ]),
-  runnableGate("core", "Core modules and tests", ["go.mod", "cmd/antiflock-core/main.go"], goTest),
-  pathsGate("event-spine", "Identity, enrollment, SQLite event spine, projections, and audit", [
+  ], () => run(process.execPath, ["scripts/verify.mjs", "--section", "proto"], root, 600_000)),
+  runnableGate("core", "Core API, configuration, retention, and CLI behavior", [
+    "go.mod",
+    "cmd/antiflock-core/main.go",
+  ], () => goTest(goScopes.core)),
+  runnableGate("event-spine", "Durable identity, enrollment, event, projection, and audit behavior", [
+    "go.mod",
     "core/storage/migrations/001_initial.sql",
-    "core/identity/identity.go",
-    "core/enrollment/service.go",
-    "core/events/store.go",
-    "core/audit/service.go",
-  ]),
-  pathsGate("decision-plane", "Deterministic posture, policy, findings, action gate, and Scrambler planner", [
+  ], () => goTest(goScopes.eventSpine)),
+  runnableGate("decision-plane", "Fail-closed posture, policy, finding, action, and Scrambler behavior", [
+    "go.mod",
     "core/posture/engine.go",
-    "core/policy/compiler.go",
-    "core/findings/service.go",
-    "core/actions/gate.go",
-    "core/scrambler/planner.go",
-  ]),
-  pathsGate("agent", "Simulator, Linux observation, mesh probes, enforcement, verification, and rollback", [
+  ], () => goTest(goScopes.decisionPlane)),
+  runnableGate("agent", "Agent observation, mesh probing, enforcement, verification, and rollback behavior", [
+    "go.mod",
     "cmd/antiflock-agent/main.go",
-    "cmd/antiflock-sim/main.go",
-    "agent/collectors/collectors.go",
-    "agent/enforcement/enforcer.go",
-    "adapters/mesh/tailscale/probe.go",
-    "adapters/mesh/headscale/client.go",
-  ]),
-  runnableGate("web", "Third-Eye dashboard build and tests", ["apps/web/package.json"], () => npmTest("apps/web")),
-  runnableGate("secure-action-sdk", "Secure Action SDK and Aether demonstration", ["sdk/typescript/package.json"], () => npmTest("sdk/typescript")),
-  pathsGate("android", "Android Guard reference JVM state machine and fail-closed policy", [
+  ], () => goTest(goScopes.agent)),
+  runnableGate("web", "Third-Eye dashboard rendering, live-data, and proxy behavior", [
+    "apps/web/package.json",
+  ], () => npmTest("apps/web")),
+  runnableGate("secure-action-sdk", "Secure Action SDK and Aether fail-closed lifecycle behavior", [
+    "sdk/typescript/package.json",
+    "apps/aether-demo/package.json",
+  ], () => combine([
+    npmTest("sdk/typescript"),
+    npmTest("apps/aether-demo"),
+  ])),
+  runnableGate("android", "Android Guard reference state-machine and fail-closed adapter behavior", [
     "apps/android/settings.gradle.kts",
-    "apps/android/guard-domain/src/main/kotlin/ai/aether/antiflock/guard/domain/GuardEvaluator.kt",
-    "apps/android/guard-domain/src/test/kotlin/ai/aether/antiflock/guard/domain/GuardDomainTest.kt",
-    "apps/android/platform-adapters/src/test/kotlin/ai/aether/antiflock/guard/platform/AndroidGuardCoordinatorTest.kt",
-    "apps/android/reference-app/src/main/kotlin/ai/aether/antiflock/guard/reference/Main.kt",
-  ]),
+    "apps/android/gradle/wrapper/gradle-wrapper.jar",
+    "apps/android/gradle/wrapper/gradle-wrapper.properties",
+  ], androidTest),
   runnableGate("coffee-shop", "Auditable coffee-shop failure and recovery acceptance scenario", [
     "tests/end-to-end/coffee_shop_test.go",
     "go.mod",
-  ], goTest),
+  ], () => goTest(
+    goScopes.coffeeShop,
+    ["-run", "^TestCoffeeShopFailureHoldRecoveryAndRelease$"],
+  )),
 ];
 
 const passed = gates.filter((gate) => gate.passed).length;
 const report = {
-  schemaVersion: "antiflock.acceptance/v1",
+  schemaVersion: "antiflock.reference-vertical-slice-acceptance/v1",
+  title: "AntiFlock reference vertical slice acceptance",
   measuredAt: new Date().toISOString(),
   harness: "node scripts/acceptance.mjs",
-  metric: "locked_vertical_slice_gates_passed",
+  metric: "reference_vertical_slice_gates_passed",
   direction: "higher-is-better",
   value: passed,
   total: gates.length,
