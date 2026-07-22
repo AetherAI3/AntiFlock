@@ -21,6 +21,7 @@
     "format": "node scripts/format.mjs",
     "lint": "node scripts/verify.mjs --lint-only",
     "test:tooling": "node --test scripts/dev-environment.test.mjs",
+    "test:sdk:live": "node scripts/sdk-live-e2e.mjs",
     "test": "node scripts/test-all.mjs",
     "verify": "node scripts/verify.mjs",
     "acceptance": "node scripts/acceptance.mjs",
