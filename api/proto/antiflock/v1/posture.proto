@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/capabilities.proto";
+import "antiflock/v1/common.proto";
+import "antiflock/v1/evidence.proto";
+import "google/protobuf/timestamp.proto";
+
+// UNKNOWN means insufficient evidence. UNAVAILABLE means the evaluator cannot
+// provide a current result. Neither may be interpreted as PROTECTED.
+enum ProtectionState {
+  PROTECTION_STATE_UNSPECIFIED = 0;
+  PROTECTION_STATE_PROTECTED = 1;
+  PROTECTION_STATE_DEGRADED = 2;
+  PROTECTION_STATE_SUSPICIOUS = 3;
+  PROTECTION_STATE_EXPOSED = 4;
+  PROTECTION_STATE_UNKNOWN = 5;
+  PROTECTION_STATE_UNAVAILABLE = 6;
+}
+
+enum EnforcementState {
+  ENFORCEMENT_STATE_UNSPECIFIED = 0;
+  ENFORCEMENT_STATE_OBSERVING = 1;
+  ENFORCEMENT_STATE_CONNECTING = 2;
+  ENFORCEMENT_STATE_VERIFYING = 3;
+  ENFORCEMENT_STATE_ALLOWING = 4;
+  ENFORCEMENT_STATE_HOLDING = 5;
+  ENFORCEMENT_STATE_BLOCKING = 6;
+  ENFORCEMENT_STATE_RECOVERING = 7;
+  ENFORCEMENT_STATE_UNAVAILABLE = 8;
+}
+
+message PostureReason {
+  string rule_id = 1;
+  string reason_code = 2;
+  ProtectionState contributed_state = 3;
+  string current_fact = 4;
+  string expected_fact = 5;
+  EvidenceClaim claim = 6;
+  repeated CapabilityRequirement required_capabilities = 7;
+}
+
+message ProtectionSnapshot {
+  string id = 1;
+  string deployment_id = 2;
+  string node_id = 3;
+  string policy_id = 4;
+  uint64 policy_revision = 5;
+  ProtectionState state = 6;
+  EnforcementState enforcement_state = 7;
+  google.protobuf.Timestamp evaluated_at = 8;
+  google.protobuf.Timestamp valid_until = 9;
+  repeated PostureReason reasons = 10;
+  repeated Capability capabilities_considered = 11;
+  float confidence = 12;
+  string recommended_response = 13;
+}
+
+message ProtectionTransition {
+  string id = 1;
+  string node_id = 2;
+  string previous_snapshot_id = 3;
+  string current_snapshot_id = 4;
+  ProtectionState from_state = 5;
+  ProtectionState to_state = 6;
+  google.protobuf.Timestamp occurred_at = 7;
+  repeated string reason_codes = 8;
+}
+
+message GetPostureRequest {
+  string node_id = 1;
+  string policy_id = 2;
+}
+
+message GetPostureResponse {
+  ProtectionSnapshot snapshot = 1;
+}
+
+message ListPostureRequest {
+  repeated ProtectionState states = 1;
+  PageRequest page = 2;
+}
+
+message ListPostureResponse {
+  repeated ProtectionSnapshot snapshots = 1;
+  PageResponse page = 2;
+}
+
+service PostureService {
+  rpc GetPosture(GetPostureRequest) returns (GetPostureResponse);
+  rpc ListPosture(ListPostureRequest) returns (ListPostureResponse);
+}

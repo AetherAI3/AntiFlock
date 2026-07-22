@@ -1,0 +1,114 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/common.proto";
+import "antiflock/v1/evidence.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+enum EntityType {
+  ENTITY_TYPE_UNSPECIFIED = 0;
+  ENTITY_TYPE_OPERATOR = 1;
+  ENTITY_TYPE_IDENTITY = 2;
+  ENTITY_TYPE_DEVICE = 3;
+  ENTITY_TYPE_AGENT = 4;
+  ENTITY_TYPE_NETWORK = 5;
+  ENTITY_TYPE_MESH_NODE = 6;
+  ENTITY_TYPE_GATEWAY = 7;
+  ENTITY_TYPE_RELAY = 8;
+  ENTITY_TYPE_EXIT_NODE = 9;
+  ENTITY_TYPE_DNS_RESOLVER = 10;
+  ENTITY_TYPE_DESTINATION_SERVICE = 11;
+  ENTITY_TYPE_PROVIDER = 12;
+  ENTITY_TYPE_DOMAIN = 13;
+  ENTITY_TYPE_PUBLIC_SERVICE = 14;
+  ENTITY_TYPE_REPORTED_INFRASTRUCTURE = 15;
+  ENTITY_TYPE_UNKNOWN_INFRASTRUCTURE = 16;
+}
+
+enum RelationshipType {
+  RELATIONSHIP_TYPE_UNSPECIFIED = 0;
+  RELATIONSHIP_TYPE_OWNS = 1;
+  RELATIONSHIP_TYPE_AUTHORIZED = 2;
+  RELATIONSHIP_TYPE_RUNS = 3;
+  RELATIONSHIP_TYPE_CONNECTED_TO = 4;
+  RELATIONSHIP_TYPE_ROUTES_THROUGH = 5;
+  RELATIONSHIP_TYPE_RESOLVES_THROUGH = 6;
+  RELATIONSHIP_TYPE_EXITS_THROUGH = 7;
+  RELATIONSHIP_TYPE_CONTACTED = 8;
+  RELATIONSHIP_TYPE_HOSTED_BY = 9;
+  RELATIONSHIP_TYPE_MAY_OBSERVE = 10;
+  RELATIONSHIP_TYPE_REPORTED_NEAR = 11;
+  RELATIONSHIP_TYPE_VERIFIED_ASSET = 12;
+}
+
+message TopologyEntity {
+  ResourceMetadata metadata = 1;
+  EntityType type = 2;
+  string display_name = 3;
+  google.protobuf.Struct attributes = 4;
+  Sensitivity sensitivity = 5;
+  repeated EvidenceReference evidence = 6;
+}
+
+message TopologyRelationship {
+  ResourceMetadata metadata = 1;
+  string source_entity_id = 2;
+  string target_entity_id = 3;
+  RelationshipType type = 4;
+  EvidenceClass classification = 5;
+  float confidence = 6;
+  google.protobuf.Timestamp first_observed_at = 7;
+  google.protobuf.Timestamp last_observed_at = 8;
+  google.protobuf.Timestamp expires_at = 9;
+  repeated EvidenceReference evidence = 10;
+}
+
+message PathHop {
+  uint32 position = 1;
+  string entity_id = 2;
+  string relationship_id = 3;
+  string logical_role = 4;
+  EvidenceClass classification = 5;
+  float confidence = 6;
+}
+
+message TopologyPath {
+  string id = 1;
+  string application_id = 2;
+  string source_node_id = 3;
+  string destination_entity_id = 4;
+  repeated PathHop hops = 5;
+  google.protobuf.Timestamp observed_at = 6;
+  bool complete_visibility = 7;
+  repeated EvidenceReference evidence = 8;
+}
+
+message GetTopologyRequest {
+  repeated EntityType entity_types = 1;
+  google.protobuf.Timestamp observed_after = 2;
+  PageRequest page = 3;
+}
+
+message GetTopologyResponse {
+  repeated TopologyEntity entities = 1;
+  repeated TopologyRelationship relationships = 2;
+  PageResponse page = 3;
+}
+
+message ListPathsRequest {
+  string node_id = 1;
+  string application_id = 2;
+  PageRequest page = 3;
+}
+
+message ListPathsResponse {
+  repeated TopologyPath paths = 1;
+  PageResponse page = 2;
+}
+
+service TopologyService {
+  rpc GetTopology(GetTopologyRequest) returns (GetTopologyResponse);
+  rpc ListPaths(ListPathsRequest) returns (ListPathsResponse);
+}

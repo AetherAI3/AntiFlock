@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// EvidenceClass records how a claim is known. It is independent from
+// confidence, severity, freshness, and subscription status.
+enum EvidenceClass {
+  EVIDENCE_CLASS_UNSPECIFIED = 0;
+  EVIDENCE_CLASS_DETECTED = 1;
+  EVIDENCE_CLASS_VERIFIED = 2;
+  EVIDENCE_CLASS_REPORTED = 3;
+  EVIDENCE_CLASS_INFERRED = 4;
+  EVIDENCE_CLASS_SUSPECTED = 5;
+  EVIDENCE_CLASS_UNKNOWN = 6;
+}
+
+enum EvidenceSourceType {
+  EVIDENCE_SOURCE_TYPE_UNSPECIFIED = 0;
+  EVIDENCE_SOURCE_TYPE_LOCAL_SENSOR = 1;
+  EVIDENCE_SOURCE_TYPE_AUTHORIZED_GATEWAY = 2;
+  EVIDENCE_SOURCE_TYPE_PROVIDER_API = 3;
+  EVIDENCE_SOURCE_TYPE_PUBLIC_RECORD = 4;
+  EVIDENCE_SOURCE_TYPE_PUBLIC_DATASET = 5;
+  EVIDENCE_SOURCE_TYPE_COMMUNITY_REPORT = 6;
+  EVIDENCE_SOURCE_TYPE_TRUSTED_REVIEWER = 7;
+  EVIDENCE_SOURCE_TYPE_DETERMINISTIC_RULE = 8;
+  EVIDENCE_SOURCE_TYPE_OPERATOR_DECLARATION = 9;
+}
+
+enum EvidenceRole {
+  EVIDENCE_ROLE_UNSPECIFIED = 0;
+  EVIDENCE_ROLE_SUPPORTING = 1;
+  EVIDENCE_ROLE_CONTRADICTING = 2;
+  EVIDENCE_ROLE_CONTEXT = 3;
+}
+
+message EvidenceReference {
+  string id = 1;
+  EvidenceRole role = 2;
+  EvidenceClass classification = 3;
+  EvidenceSourceType source_type = 4;
+  string source_name = 5;
+  string source_uri = 6;
+  google.protobuf.Timestamp observed_at = 7;
+  google.protobuf.Timestamp received_at = 8;
+  google.protobuf.Timestamp last_verified_at = 9;
+  google.protobuf.Timestamp expires_at = 10;
+  // Ingress MUST reject non-finite values or values outside [0, 1].
+  float confidence = 11;
+  Sensitivity sensitivity = 12;
+  LocationPrecision location_precision = 13;
+  string summary = 14;
+  IntegrityDigest integrity = 15;
+  string source_license = 16;
+  map<string, string> attributes = 17;
+}
+
+message VerificationRecord {
+  string method_id = 1;
+  string method_version = 2;
+  google.protobuf.Timestamp verified_at = 3;
+  repeated string independent_source_ids = 4;
+  ActorReference reviewer = 5;
+  string notes = 6;
+}
+
+message EvidenceClaim {
+  string id = 1;
+  string reason_code = 2;
+  string statement = 3;
+  EvidenceClass classification = 4;
+  float confidence = 5;
+  google.protobuf.Timestamp first_observed_at = 6;
+  google.protobuf.Timestamp last_observed_at = 7;
+  google.protobuf.Timestamp expires_at = 8;
+  string explanation = 9;
+  string recommended_response = 10;
+  string false_positive_explanation = 11;
+  repeated EvidenceReference evidence = 12;
+  VerificationRecord verification = 13;
+  Sensitivity sensitivity = 14;
+}

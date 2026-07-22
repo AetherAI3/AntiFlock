@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/common.proto";
+import "antiflock/v1/evidence.proto";
+import "google/protobuf/timestamp.proto";
+
+enum FindingSeverity {
+  FINDING_SEVERITY_UNSPECIFIED = 0;
+  FINDING_SEVERITY_INFORMATIONAL = 1;
+  FINDING_SEVERITY_LOW = 2;
+  FINDING_SEVERITY_MEDIUM = 3;
+  FINDING_SEVERITY_HIGH = 4;
+  FINDING_SEVERITY_CRITICAL = 5;
+}
+
+enum FindingStatus {
+  FINDING_STATUS_UNSPECIFIED = 0;
+  FINDING_STATUS_OPEN = 1;
+  FINDING_STATUS_ACKNOWLEDGED = 2;
+  FINDING_STATUS_RESOLVED = 3;
+  FINDING_STATUS_DISMISSED = 4;
+  FINDING_STATUS_SUPPRESSED_BY_EXCEPTION = 5;
+}
+
+message Finding {
+  ResourceMetadata metadata = 1;
+  string deployment_id = 2;
+  string node_id = 3;
+  string policy_id = 4;
+  string rule_id = 5;
+  string reason_code = 6;
+  FindingSeverity severity = 7;
+  FindingStatus status = 8;
+  string title = 9;
+  string condition = 10;
+  string consequence = 11;
+  string current_fact = 12;
+  string expected_fact = 13;
+  EvidenceClaim claim = 14;
+  google.protobuf.Timestamp first_seen_at = 15;
+  google.protobuf.Timestamp last_seen_at = 16;
+  google.protobuf.Timestamp resolved_at = 17;
+  string resolution_reason_code = 18;
+  string exception_id = 19;
+}
+
+message FindingTransition {
+  string finding_id = 1;
+  FindingStatus from_status = 2;
+  FindingStatus to_status = 3;
+  ActorReference actor = 4;
+  string reason_code = 5;
+  string note = 6;
+  google.protobuf.Timestamp occurred_at = 7;
+}
+
+message ListFindingsRequest {
+  repeated FindingStatus statuses = 1;
+  repeated FindingSeverity severities = 2;
+  string node_id = 3;
+  PageRequest page = 4;
+}
+
+message ListFindingsResponse {
+  repeated Finding findings = 1;
+  PageResponse page = 2;
+}
+
+message GetFindingRequest {
+  string finding_id = 1;
+}
+
+message GetFindingResponse {
+  Finding finding = 1;
+}
+
+message FindingTransitionInput {
+  string finding_id = 1;
+  uint64 expected_revision = 2;
+  string operation_id = 3;
+  string reason_code = 4;
+  string note = 5;
+}
+
+message AcknowledgeFindingRequest {
+  FindingTransitionInput transition = 1;
+}
+
+message AcknowledgeFindingResponse {
+  Finding finding = 1;
+}
+
+message ResolveFindingRequest {
+  FindingTransitionInput transition = 1;
+}
+
+message ResolveFindingResponse {
+  Finding finding = 1;
+}
+
+message DismissFindingRequest {
+  FindingTransitionInput transition = 1;
+}
+
+message DismissFindingResponse {
+  Finding finding = 1;
+}
+
+service FindingService {
+  rpc ListFindings(ListFindingsRequest) returns (ListFindingsResponse);
+  rpc GetFinding(GetFindingRequest) returns (GetFindingResponse);
+  rpc AcknowledgeFinding(AcknowledgeFindingRequest) returns (AcknowledgeFindingResponse);
+  rpc ResolveFinding(ResolveFindingRequest) returns (ResolveFindingResponse);
+  rpc DismissFinding(DismissFindingRequest) returns (DismissFindingResponse);
+}

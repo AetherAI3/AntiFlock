@@ -1,0 +1,114 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Sensitivity controls collection, display, export, and retention. It is not
+// an evidence class or authorization grant.
+enum Sensitivity {
+  SENSITIVITY_UNSPECIFIED = 0;
+  SENSITIVITY_PUBLIC = 1;
+  SENSITIVITY_INTERNAL = 2;
+  SENSITIVITY_OPERATOR_PRIVATE = 3;
+  SENSITIVITY_RESTRICTED = 4;
+  SENSITIVITY_SECRET = 5;
+}
+
+// LocationPrecision describes the disclosed precision, not the accuracy of a
+// sensor. Exact continuous operator location remains local by default.
+enum LocationPrecision {
+  LOCATION_PRECISION_UNSPECIFIED = 0;
+  LOCATION_PRECISION_WITHHELD = 1;
+  LOCATION_PRECISION_REGION = 2;
+  LOCATION_PRECISION_CITY = 3;
+  LOCATION_PRECISION_NEIGHBORHOOD = 4;
+  LOCATION_PRECISION_BLOCK = 5;
+  LOCATION_PRECISION_EXACT = 6;
+}
+
+enum SignatureAlgorithm {
+  SIGNATURE_ALGORITHM_UNSPECIFIED = 0;
+  SIGNATURE_ALGORITHM_ED25519 = 1;
+  SIGNATURE_ALGORITHM_ECDSA_P256_SHA256 = 2;
+}
+
+enum SignatureEncoding {
+  SIGNATURE_ENCODING_UNSPECIFIED = 0;
+  SIGNATURE_ENCODING_PROTOBUF_DETERMINISTIC_V1 = 1;
+}
+
+message ResourceMetadata {
+  string id = 1;
+  uint64 revision = 2;
+  google.protobuf.Timestamp created_at = 3;
+  google.protobuf.Timestamp updated_at = 4;
+  map<string, string> labels = 5;
+}
+
+message ResourceReference {
+  string resource_type = 1;
+  string resource_id = 2;
+  uint64 revision = 3;
+}
+
+message ActorReference {
+  string principal_id = 1;
+  string node_id = 2;
+  string application_id = 3;
+}
+
+message GeoPoint {
+  double latitude = 1;
+  double longitude = 2;
+}
+
+message Location {
+  // Geometry MUST be omitted when precision is WITHHELD.
+  GeoPoint point = 1;
+  LocationPrecision precision = 2;
+  // Radius makes deliberate precision reduction explicit.
+  uint32 radius_meters = 3;
+  string region_code = 4;
+}
+
+message IntegrityDigest {
+  // Lower-case algorithm name, for example sha256.
+  string algorithm = 1;
+  bytes digest = 2;
+}
+
+message Signature {
+  string key_id = 1;
+  SignatureAlgorithm algorithm = 2;
+  bytes value = 3;
+  google.protobuf.Timestamp signed_at = 4;
+  SignatureEncoding encoding = 5;
+  IntegrityDigest signed_content_digest = 6;
+  // Domain prevents a valid signature from being replayed as another object
+  // type, for example antiflock.plan.v1 or antiflock.event.v1.
+  string domain = 7;
+}
+
+message PageRequest {
+  uint32 page_size = 1;
+  string page_token = 2;
+}
+
+message PageResponse {
+  string next_page_token = 1;
+}
+
+message FieldViolation {
+  string field = 1;
+  string reason_code = 2;
+  string description = 3;
+}
+
+message ApiError {
+  string reason_code = 1;
+  string safe_message = 2;
+  string operation_id = 3;
+  bool retryable = 4;
+  repeated FieldViolation field_violations = 5;
+}

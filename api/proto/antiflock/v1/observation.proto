@@ -1,0 +1,206 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/common.proto";
+import "antiflock/v1/evidence.proto";
+import "google/protobuf/timestamp.proto";
+
+enum NetworkTrust {
+  NETWORK_TRUST_UNSPECIFIED = 0;
+  NETWORK_TRUST_TRUSTED = 1;
+  NETWORK_TRUST_UNTRUSTED = 2;
+  NETWORK_TRUST_UNKNOWN = 3;
+}
+
+enum WifiSecurity {
+  WIFI_SECURITY_UNSPECIFIED = 0;
+  WIFI_SECURITY_OPEN = 1;
+  WIFI_SECURITY_WEP = 2;
+  WIFI_SECURITY_WPA_PERSONAL = 3;
+  WIFI_SECURITY_WPA_ENTERPRISE = 4;
+  WIFI_SECURITY_WPA2_PERSONAL = 5;
+  WIFI_SECURITY_WPA2_ENTERPRISE = 6;
+  WIFI_SECURITY_WPA3_PERSONAL = 7;
+  WIFI_SECURITY_WPA3_ENTERPRISE = 8;
+  WIFI_SECURITY_OWE = 9;
+  WIFI_SECURITY_UNKNOWN = 10;
+}
+
+enum TransportProtocol {
+  TRANSPORT_PROTOCOL_UNSPECIFIED = 0;
+  TRANSPORT_PROTOCOL_TCP = 1;
+  TRANSPORT_PROTOCOL_UDP = 2;
+  TRANSPORT_PROTOCOL_ICMP = 3;
+  TRANSPORT_PROTOCOL_OTHER = 4;
+}
+
+enum FlowDirection {
+  FLOW_DIRECTION_UNSPECIFIED = 0;
+  FLOW_DIRECTION_INBOUND = 1;
+  FLOW_DIRECTION_OUTBOUND = 2;
+  FLOW_DIRECTION_LATERAL = 3;
+  FLOW_DIRECTION_UNKNOWN = 4;
+}
+
+enum MeshConnectionType {
+  MESH_CONNECTION_TYPE_UNSPECIFIED = 0;
+  MESH_CONNECTION_TYPE_DIRECT = 1;
+  MESH_CONNECTION_TYPE_RELAYED = 2;
+  MESH_CONNECTION_TYPE_DISCONNECTED = 3;
+  MESH_CONNECTION_TYPE_UNKNOWN = 4;
+}
+
+enum ProcessAttributionQuality {
+  PROCESS_ATTRIBUTION_QUALITY_UNSPECIFIED = 0;
+  PROCESS_ATTRIBUTION_QUALITY_EXACT = 1;
+  PROCESS_ATTRIBUTION_QUALITY_BEST_EFFORT = 2;
+  PROCESS_ATTRIBUTION_QUALITY_UNAVAILABLE = 3;
+}
+
+message NetworkAddress {
+  string address = 1;
+  uint32 prefix_length = 2;
+  string address_family = 3;
+}
+
+message NetworkInterfaceObservation {
+  string interface_id = 1;
+  string name = 2;
+  string type = 3;
+  bool up = 4;
+  uint32 mtu = 5;
+  repeated NetworkAddress addresses = 6;
+  google.protobuf.Timestamp observed_at = 7;
+}
+
+message GatewayObservation {
+  string interface_id = 1;
+  string address = 2;
+  string hardware_address_hash = 3;
+  NetworkTrust trust = 4;
+  google.protobuf.Timestamp observed_at = 5;
+  repeated EvidenceReference evidence = 6;
+}
+
+message RouteObservation {
+  string route_id = 1;
+  string destination = 2;
+  string gateway = 3;
+  string interface_id = 4;
+  uint32 metric = 5;
+  bool default_route = 6;
+  bool policy_route = 7;
+  google.protobuf.Timestamp observed_at = 8;
+}
+
+message DnsObservation {
+  repeated string resolver_addresses = 1;
+  repeated string search_domains = 2;
+  string source = 3;
+  bool path_verified = 4;
+  google.protobuf.Timestamp observed_at = 5;
+  repeated EvidenceReference evidence = 6;
+}
+
+message WifiObservation {
+  // SSID and BSSID are operator-private by default and may be redacted.
+  string ssid = 1;
+  string bssid_hash = 2;
+  WifiSecurity security = 3;
+  NetworkTrust trust = 4;
+  bool known_network = 5;
+  int32 signal_dbm = 6;
+  google.protobuf.Timestamp observed_at = 7;
+}
+
+message ProcessReference {
+  string process_id = 1;
+  string executable_name = 2;
+  string executable_path_hash = 3;
+  string application_id = 4;
+  ProcessAttributionQuality attribution_quality = 5;
+}
+
+message FlowEndpoint {
+  string address = 1;
+  uint32 port = 2;
+  string hostname = 3;
+}
+
+// FlowObservation contains metadata only. Packet or application payloads are
+// prohibited from this message.
+message FlowObservation {
+  string flow_id = 1;
+  FlowEndpoint local = 2;
+  FlowEndpoint remote = 3;
+  TransportProtocol protocol = 4;
+  FlowDirection direction = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp ended_at = 7;
+  uint64 bytes_sent = 8;
+  uint64 bytes_received = 9;
+  ProcessReference process = 10;
+  string egress_interface_id = 11;
+  string mesh_path_id = 12;
+  Sensitivity sensitivity = 13;
+}
+
+message ListeningServiceObservation {
+  string service_id = 1;
+  string address = 2;
+  uint32 port = 3;
+  TransportProtocol protocol = 4;
+  ProcessReference process = 5;
+  google.protobuf.Timestamp first_observed_at = 6;
+  google.protobuf.Timestamp last_observed_at = 7;
+}
+
+message MeshPeerObservation {
+  string provider = 1;
+  string provider_peer_id = 2;
+  string node_id = 3;
+  repeated string mesh_addresses = 4;
+  MeshConnectionType connection_type = 5;
+  string relay_region = 6;
+  google.protobuf.Timestamp last_handshake_at = 7;
+  bool authorized = 8;
+}
+
+message MeshPathObservation {
+  string path_id = 1;
+  string provider = 2;
+  string source_node_id = 3;
+  string destination_node_id = 4;
+  MeshConnectionType connection_type = 5;
+  string relay_region = 6;
+  string exit_node_id = 7;
+  bool approved_exit_active = 8;
+  bool tunnel_healthy = 9;
+  google.protobuf.Timestamp observed_at = 10;
+  repeated EvidenceReference evidence = 11;
+}
+
+message TrustStoreObservation {
+  string store_id = 1;
+  IntegrityDigest content_digest = 2;
+  uint32 certificate_count = 3;
+  google.protobuf.Timestamp observed_at = 4;
+}
+
+message ObservationSnapshot {
+  string snapshot_id = 1;
+  string node_id = 2;
+  string boot_id = 3;
+  google.protobuf.Timestamp observed_at = 4;
+  repeated NetworkInterfaceObservation interfaces = 5;
+  repeated GatewayObservation gateways = 6;
+  repeated RouteObservation routes = 7;
+  DnsObservation dns = 8;
+  WifiObservation wifi = 9;
+  repeated MeshPeerObservation mesh_peers = 10;
+  repeated MeshPathObservation mesh_paths = 11;
+  repeated FlowObservation flows = 12;
+  repeated ListeningServiceObservation listening_services = 13;
+  TrustStoreObservation trust_store = 14;
+}

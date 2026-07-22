@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/common.proto";
+import "antiflock/v1/evidence.proto";
+import "google/protobuf/timestamp.proto";
+
+enum IndicatorType {
+  INDICATOR_TYPE_UNSPECIFIED = 0;
+  INDICATOR_TYPE_IP_ADDRESS = 1;
+  INDICATOR_TYPE_DOMAIN = 2;
+  INDICATOR_TYPE_CERTIFICATE = 3;
+  INDICATOR_TYPE_NETWORK_PROVIDER = 4;
+  INDICATOR_TYPE_WIRELESS_SIGNATURE = 5;
+  INDICATOR_TYPE_PUBLIC_INFRASTRUCTURE = 6;
+}
+
+enum IntelligenceStatus {
+  INTELLIGENCE_STATUS_UNSPECIFIED = 0;
+  INTELLIGENCE_STATUS_ACTIVE = 1;
+  INTELLIGENCE_STATUS_STALE = 2;
+  INTELLIGENCE_STATUS_DISPUTED = 3;
+  INTELLIGENCE_STATUS_REVOKED = 4;
+  INTELLIGENCE_STATUS_EXPIRED = 5;
+}
+
+message Indicator {
+  IndicatorType type = 1;
+  // Value may be an opaque or hashed representation when plaintext is not
+  // required for matching.
+  string value = 2;
+  Sensitivity sensitivity = 3;
+}
+
+message IntelligenceRecord {
+  ResourceMetadata metadata = 1;
+  Indicator indicator = 2;
+  IntelligenceStatus status = 3;
+  EvidenceClaim claim = 4;
+  repeated string tags = 5;
+  google.protobuf.Timestamp first_seen_at = 6;
+  google.protobuf.Timestamp last_seen_at = 7;
+  google.protobuf.Timestamp expires_at = 8;
+}
+
+message IntelligencePackManifest {
+  string id = 1;
+  string version = 2;
+  repeated string region_codes = 3;
+  repeated IndicatorType indicator_types = 4;
+  google.protobuf.Timestamp generated_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  IntegrityDigest content_digest = 7;
+  uint64 content_bytes = 8;
+  repeated string source_licenses = 9;
+  Signature signature = 10;
+}
+
+message GetIntelligencePackRequest {
+  string pack_id = 1;
+  string version = 2;
+}
+
+message GetIntelligencePackResponse {
+  IntelligencePackManifest manifest = 1;
+  uint64 offset = 2;
+  bytes data = 3;
+}
+
+message LookupIntelligenceRequest {
+  repeated Indicator indicators = 1;
+}
+
+message LookupIntelligenceResponse {
+  repeated IntelligenceRecord records = 1;
+}
+
+service IntelligenceService {
+  rpc GetIntelligencePack(GetIntelligencePackRequest) returns (stream GetIntelligencePackResponse);
+  rpc LookupIntelligence(LookupIntelligenceRequest) returns (LookupIntelligenceResponse);
+}

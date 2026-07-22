@@ -1,0 +1,165 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/capabilities.proto";
+import "antiflock/v1/common.proto";
+import "antiflock/v1/evidence.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+enum PlanStatus {
+  PLAN_STATUS_UNSPECIFIED = 0;
+  PLAN_STATUS_DRAFT = 1;
+  PLAN_STATUS_SIGNED = 2;
+  PLAN_STATUS_DELIVERED = 3;
+  PLAN_STATUS_PREPARED = 4;
+  PLAN_STATUS_APPLYING = 5;
+  PLAN_STATUS_VERIFYING = 6;
+  PLAN_STATUS_COMMITTED = 7;
+  PLAN_STATUS_FAILED = 8;
+  PLAN_STATUS_ROLLING_BACK = 9;
+  PLAN_STATUS_ROLLED_BACK = 10;
+  PLAN_STATUS_EXPIRED = 11;
+  PLAN_STATUS_REJECTED = 12;
+}
+
+enum PlanOperationType {
+  PLAN_OPERATION_TYPE_UNSPECIFIED = 0;
+  PLAN_OPERATION_TYPE_FIREWALL = 1;
+  PLAN_OPERATION_TYPE_ROUTE = 2;
+  PLAN_OPERATION_TYPE_DNS = 3;
+  PLAN_OPERATION_TYPE_MESH = 4;
+  PLAN_OPERATION_TYPE_SERVICE = 5;
+  PLAN_OPERATION_TYPE_EXCEPTION = 6;
+  PLAN_OPERATION_TYPE_SCRAMBLER_TRANSITION = 7;
+  PLAN_OPERATION_TYPE_RECOVERY = 8;
+}
+
+enum CheckPhase {
+  CHECK_PHASE_UNSPECIFIED = 0;
+  CHECK_PHASE_PRECONDITION = 1;
+  CHECK_PHASE_VERIFICATION = 2;
+  CHECK_PHASE_ROLLBACK_VERIFICATION = 3;
+}
+
+enum CheckOutcome {
+  CHECK_OUTCOME_UNSPECIFIED = 0;
+  CHECK_OUTCOME_PENDING = 1;
+  CHECK_OUTCOME_PASSED = 2;
+  CHECK_OUTCOME_FAILED = 3;
+  CHECK_OUTCOME_UNKNOWN = 4;
+  CHECK_OUTCOME_SKIPPED = 5;
+}
+
+message PlanCheck {
+  string id = 1;
+  CheckPhase phase = 2;
+  string check_type = 3;
+  string description = 4;
+  google.protobuf.Struct parameters = 5;
+  bool required = 6;
+  google.protobuf.Duration timeout = 7;
+  repeated CapabilityRequirement required_capabilities = 8;
+}
+
+message PlanOperation {
+  string id = 1;
+  PlanOperationType type = 2;
+  string target = 3;
+  string description = 4;
+  google.protobuf.Struct parameters = 5;
+  google.protobuf.Duration timeout = 6;
+  repeated CapabilityRequirement required_capabilities = 7;
+}
+
+message Plan {
+  string id = 1;
+  string deployment_id = 2;
+  string node_id = 3;
+  string policy_id = 4;
+  uint64 policy_revision = 5;
+  uint64 revision = 6;
+  bytes nonce = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp expires_at = 9;
+  PlanStatus status = 10;
+  repeated PlanCheck preconditions = 11;
+  repeated PlanOperation actions = 12;
+  repeated PlanCheck verifications = 13;
+  // Rollback operations execute in listed order and must be locally complete.
+  repeated PlanOperation rollback = 14;
+  repeated string recovery_allowlist = 15;
+  Signature signature = 16;
+  string human_readable_dry_run = 17;
+  Sensitivity sensitivity = 18;
+}
+
+message CheckResult {
+  string check_id = 1;
+  CheckOutcome outcome = 2;
+  string reason_code = 3;
+  string safe_message = 4;
+  google.protobuf.Timestamp checked_at = 5;
+  repeated EvidenceReference evidence = 6;
+}
+
+message OperationResult {
+  string operation_id = 1;
+  bool succeeded = 2;
+  string reason_code = 3;
+  string safe_message = 4;
+  google.protobuf.Timestamp started_at = 5;
+  google.protobuf.Timestamp completed_at = 6;
+}
+
+message PlanExecutionResult {
+  string plan_id = 1;
+  string node_id = 2;
+  uint64 plan_revision = 3;
+  PlanStatus status = 4;
+  repeated CheckResult precondition_results = 5;
+  repeated OperationResult operation_results = 6;
+  repeated CheckResult verification_results = 7;
+  repeated OperationResult rollback_results = 8;
+  google.protobuf.Timestamp completed_at = 9;
+  string reason_code = 10;
+  Signature node_signature = 11;
+}
+
+message GetPlanRequest {
+  string plan_id = 1;
+}
+
+message GetPlanResponse {
+  Plan plan = 1;
+}
+
+message PlanExecutionInput {
+  string plan_id = 1;
+  uint64 expected_revision = 2;
+  string operation_id = 3;
+}
+
+message ApplyPlanRequest {
+  PlanExecutionInput execution = 1;
+}
+
+message ApplyPlanResponse {
+  PlanExecutionResult result = 1;
+}
+
+message RollbackPlanRequest {
+  PlanExecutionInput execution = 1;
+}
+
+message RollbackPlanResponse {
+  PlanExecutionResult result = 1;
+}
+
+service PlanService {
+  rpc GetPlan(GetPlanRequest) returns (GetPlanResponse);
+  rpc ApplyPlan(ApplyPlanRequest) returns (ApplyPlanResponse);
+  rpc RollbackPlan(RollbackPlanRequest) returns (RollbackPlanResponse);
+}

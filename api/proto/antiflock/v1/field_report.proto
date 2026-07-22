@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/common.proto";
+import "antiflock/v1/evidence.proto";
+import "google/protobuf/timestamp.proto";
+
+enum FieldReportCategory {
+  FIELD_REPORT_CATEGORY_UNSPECIFIED = 0;
+  FIELD_REPORT_CATEGORY_FIXED_ALPR = 1;
+  FIELD_REPORT_CATEGORY_PUBLIC_CAMERA_CLUSTER = 2;
+  FIELD_REPORT_CATEGORY_PUBLIC_CAMERA_REGISTRY = 3;
+  FIELD_REPORT_CATEGORY_PUBLIC_SAFETY_SENSOR = 4;
+  FIELD_REPORT_CATEGORY_GUNSHOT_DETECTION_SENSOR = 5;
+  FIELD_REPORT_CATEGORY_PUBLIC_WIFI_ACCESS_POINT = 6;
+  FIELD_REPORT_CATEGORY_SUSPECTED_ACCESS_POINT_IMPERSONATION = 7;
+  FIELD_REPORT_CATEGORY_PERSISTENT_WIRELESS_TRACKER_SIGNAL = 8;
+  FIELD_REPORT_CATEGORY_PUBLICLY_DOCUMENTED_MONITORING_DEPLOYMENT = 9;
+  FIELD_REPORT_CATEGORY_NETWORK_OUTAGE_OR_INTERFERENCE = 10;
+  FIELD_REPORT_CATEGORY_REMOVED_OR_INCORRECT_MARKER = 11;
+}
+
+enum FieldReportStatus {
+  FIELD_REPORT_STATUS_UNSPECIFIED = 0;
+  FIELD_REPORT_STATUS_UNREVIEWED = 1;
+  FIELD_REPORT_STATUS_COMMUNITY_CORROBORATED = 2;
+  FIELD_REPORT_STATUS_DOCUMENT_SUPPORTED = 3;
+  FIELD_REPORT_STATUS_TECHNICAL_SIGNATURE_OBSERVED = 4;
+  FIELD_REPORT_STATUS_MAINTAINER_VERIFIED = 5;
+  FIELD_REPORT_STATUS_STALE = 6;
+  FIELD_REPORT_STATUS_DISPUTED = 7;
+  FIELD_REPORT_STATUS_REMOVED = 8;
+  FIELD_REPORT_STATUS_REJECTED = 9;
+}
+
+message FieldReport {
+  ResourceMetadata metadata = 1;
+  FieldReportCategory category = 2;
+  Location location = 3;
+  string orientation = 4;
+  string manufacturer = 5;
+  google.protobuf.Timestamp observed_at = 6;
+  google.protobuf.Timestamp last_verified_at = 7;
+  google.protobuf.Timestamp expires_at = 8;
+  EvidenceClass classification = 9;
+  float confidence = 10;
+  FieldReportStatus status = 11;
+  repeated EvidenceReference evidence = 12;
+  string source_license = 13;
+  // Publicly exposed reporter reference is pseudonymous and non-identifying.
+  string reporter_reference = 14;
+  string public_summary = 15;
+  string safety_review_reason_code = 16;
+}
+
+message SubmitFieldReportRequest {
+  FieldReport report = 1;
+  string operation_id = 2;
+  // Confirms deliberate submission; it does not authorize continuous location.
+  bool submitter_confirmed_publication = 3;
+}
+
+message SubmitFieldReportResponse {
+  FieldReport report = 1;
+}
+
+message ListFieldReportsRequest {
+  // Server-side queries use regions, not an operator's exact live location.
+  repeated string region_codes = 1;
+  repeated FieldReportCategory categories = 2;
+  repeated FieldReportStatus statuses = 3;
+  google.protobuf.Timestamp fresh_after = 4;
+  PageRequest page = 5;
+}
+
+message ListFieldReportsResponse {
+  repeated FieldReport reports = 1;
+  PageResponse page = 2;
+}
+
+message ModerateFieldReportRequest {
+  string report_id = 1;
+  uint64 expected_revision = 2;
+  FieldReportStatus status = 3;
+  string reason_code = 4;
+  string operation_id = 5;
+}
+
+message ModerateFieldReportResponse {
+  FieldReport report = 1;
+}
+
+message DisputeFieldReportRequest {
+  string report_id = 1;
+  string reason_code = 2;
+  string explanation = 3;
+  repeated EvidenceReference evidence = 4;
+  string operation_id = 5;
+}
+
+message DisputeFieldReportResponse {
+  FieldReport report = 1;
+}
+
+service FieldReportService {
+  rpc SubmitFieldReport(SubmitFieldReportRequest) returns (SubmitFieldReportResponse);
+  rpc ListFieldReports(ListFieldReportsRequest) returns (ListFieldReportsResponse);
+  rpc ModerateFieldReport(ModerateFieldReportRequest) returns (ModerateFieldReportResponse);
+  rpc DisputeFieldReport(DisputeFieldReportRequest) returns (DisputeFieldReportResponse);
+}

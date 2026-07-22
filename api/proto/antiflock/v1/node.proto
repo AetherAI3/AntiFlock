@@ -1,0 +1,119 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/capabilities.proto";
+import "antiflock/v1/common.proto";
+import "antiflock/v1/identity.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+
+enum NodeType {
+  NODE_TYPE_UNSPECIFIED = 0;
+  NODE_TYPE_DESKTOP = 1;
+  NODE_TYPE_LAPTOP = 2;
+  NODE_TYPE_PHONE = 3;
+  NODE_TYPE_TABLET = 4;
+  NODE_TYPE_SERVER = 5;
+  NODE_TYPE_GATEWAY = 6;
+  NODE_TYPE_ROUTER = 7;
+  NODE_TYPE_AGENT = 8;
+}
+
+enum NodeStatus {
+  NODE_STATUS_UNSPECIFIED = 0;
+  NODE_STATUS_PENDING = 1;
+  NODE_STATUS_ACTIVE = 2;
+  NODE_STATUS_SUSPENDED = 3;
+  NODE_STATUS_REVOKED = 4;
+  NODE_STATUS_STALE = 5;
+}
+
+message Node {
+  ResourceMetadata metadata = 1;
+  string deployment_id = 2;
+  NodeType type = 3;
+  NodeStatus status = 4;
+  string display_name = 5;
+  string platform = 6;
+  string platform_version = 7;
+  string agent_version = 8;
+  CredentialMetadata credential = 9;
+  repeated ProviderIdentityAssociation provider_identities = 10;
+  CapabilityManifest capabilities = 11;
+  google.protobuf.Timestamp enrolled_at = 12;
+  google.protobuf.Timestamp last_seen_at = 13;
+  uint64 last_policy_revision = 14;
+  uint64 last_plan_revision = 15;
+}
+
+message NodeHeartbeat {
+  string node_id = 1;
+  string boot_id = 2;
+  google.protobuf.Timestamp observed_at = 3;
+  uint64 last_event_sequence = 4;
+  uint64 policy_revision = 5;
+  uint64 plan_revision = 6;
+  google.protobuf.Timestamp cached_policy_expires_at = 7;
+  repeated string health_reason_codes = 8;
+}
+
+message ListNodesRequest {
+  PageRequest page = 1;
+  repeated NodeStatus statuses = 2;
+}
+
+message ListNodesResponse {
+  repeated Node nodes = 1;
+  PageResponse page = 2;
+}
+
+message GetNodeRequest {
+  string node_id = 1;
+}
+
+message GetNodeResponse {
+  Node node = 1;
+}
+
+message UpdateNodeRequest {
+  Node node = 1;
+  google.protobuf.FieldMask update_mask = 2;
+  uint64 expected_revision = 3;
+  string operation_id = 4;
+}
+
+message UpdateNodeResponse {
+  Node node = 1;
+}
+
+message NodeStatusChangeInput {
+  string node_id = 1;
+  uint64 expected_revision = 2;
+  string reason_code = 3;
+  string operation_id = 4;
+}
+
+message SuspendNodeRequest {
+  NodeStatusChangeInput change = 1;
+}
+
+message SuspendNodeResponse {
+  Node node = 1;
+}
+
+message RevokeNodeRequest {
+  NodeStatusChangeInput change = 1;
+}
+
+message RevokeNodeResponse {
+  Node node = 1;
+}
+
+service NodeService {
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+  rpc GetNode(GetNodeRequest) returns (GetNodeResponse);
+  rpc UpdateNode(UpdateNodeRequest) returns (UpdateNodeResponse);
+  rpc SuspendNode(SuspendNodeRequest) returns (SuspendNodeResponse);
+  rpc RevokeNode(RevokeNodeRequest) returns (RevokeNodeResponse);
+}
