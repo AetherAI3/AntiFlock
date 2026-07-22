@@ -1,15 +1,16 @@
-SHELL := /bin/sh
-
-.PHONY: dev down lab test verify fmt lint build clean
+.PHONY: dev dev-env down lab test verify fmt lint build clean
 
 dev:
-	docker compose up --build
+	node scripts/compose.mjs dev
+
+dev-env:
+	node scripts/dev-env.mjs
 
 down:
-	docker compose down --remove-orphans
+	node scripts/compose.mjs down
 
 lab:
-	docker compose --profile lab up --build --abort-on-container-exit lab
+	node scripts/compose.mjs lab
 
 test:
 	node scripts/test-all.mjs
@@ -18,15 +19,14 @@ verify:
 	node scripts/verify.mjs
 
 fmt:
-	docker run --rm -v "$(CURDIR):/workspace" -w /workspace golang:1.26.5-bookworm gofmt -w $$(find . -name '*.go' -not -path './apps/*')
+	node scripts/format.mjs
 
 lint:
-	docker run --rm -e CGO_ENABLED=0 -v "$(CURDIR):/workspace" -w /workspace golang:1.26.5-bookworm go vet ./...
+	node scripts/verify.mjs --lint-only
 
 build:
-	docker compose build
+	node scripts/compose.mjs build
 
 clean:
-	docker compose down --remove-orphans --volumes
-	rm -rf bin coverage apps/web/dist sdk/typescript/dist
-
+	node scripts/compose.mjs clean
+	node scripts/clean.mjs

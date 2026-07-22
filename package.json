@@ -12,9 +12,15 @@
     "sdk/typescript"
   ],
   "scripts": {
-    "dev": "docker compose up --build",
-    "down": "docker compose down",
-    "lab": "docker compose --profile lab up --build --abort-on-container-exit lab",
+    "dev": "node scripts/compose.mjs dev",
+    "down": "node scripts/compose.mjs down",
+    "lab": "node scripts/compose.mjs lab",
+    "build": "node scripts/compose.mjs build",
+    "dev:env": "node scripts/dev-env.mjs",
+    "ci:install": "node scripts/install-js.mjs",
+    "format": "node scripts/format.mjs",
+    "lint": "node scripts/verify.mjs --lint-only",
+    "test:tooling": "node --test scripts/dev-environment.test.mjs",
     "test": "node scripts/test-all.mjs",
     "verify": "node scripts/verify.mjs",
     "acceptance": "node scripts/acceptance.mjs",
@@ -22,4 +28,3 @@
   },
   "license": "Apache-2.0"
 }
-

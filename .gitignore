@@ -8,6 +8,7 @@ Thumbs.db
 .env.*
 !.env.example
 data/
+.antiflock/
 *.db
 *.db-shm
 *.db-wal
@@ -25,4 +26,3 @@ apps/**/.gradle/
 # Local tooling caches
 .cache/
 .tools/
-

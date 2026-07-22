@@ -1,0 +1,13 @@
+* text=auto
+
+*.go text eol=lf
+*.proto text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.kt text eol=lf
+*.kts text eol=lf
+Makefile text eol=lf

@@ -1,39 +1,40 @@
 #!/usr/bin/env node
 
-import { existsSync } from "node:fs";
-import { spawnSync } from "node:child_process";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import {
+  javascriptWorkspaces,
+  requireFile,
+  runAndroidTests,
+  runGoStep,
+  runStep,
+  runWorkspaceScript,
+} from "./tooling.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const failures = [];
 
-function run(label, command, args, cwd = root, timeout = 600_000) {
-  process.stdout.write(`\n==> ${label}\n`);
-  const result = spawnSync(command, args, { cwd, stdio: "inherit", timeout, env: { ...process.env, CI: "1" } });
-  if (result.status !== 0) failures.push(label);
+function check(label, passed) {
+  if (!passed) failures.push(label);
 }
 
-function hasCommand(command) {
-  return spawnSync(process.platform === "win32" ? "where.exe" : "sh", process.platform === "win32" ? [command] : ["-c", `command -v ${command}`], { stdio: "ignore" }).status === 0;
+check(
+  "Tooling tests",
+  runStep("Tooling tests", process.execPath, ["--test", "scripts/dev-environment.test.mjs"], {
+    timeout: 300_000,
+  }),
+);
+
+if (requireFile("go.mod", "Go module")) {
+  check("Go race tests", runGoStep("Go race tests", ["test", "-race", "./..."], { timeout: 900_000 }));
+} else {
+  failures.push("Go race tests");
 }
 
-if (existsSync(join(root, "go.mod"))) {
-  if (hasCommand("go")) {
-    run("Go tests", "go", ["test", "-race", "./..."]);
-  } else {
-    run("Go tests (container)", "docker", ["run", "--rm", "-v", `${root}:/workspace`, "-w", "/workspace", "golang:1.26.5-bookworm", "go", "test", "./..."]);
-  }
+for (const workspace of javascriptWorkspaces) {
+  check(`${workspace} tests`, runWorkspaceScript(workspace, "test", { timeout: 900_000 }));
 }
 
-for (const workspace of ["apps/web", "sdk/typescript", "apps/aether-demo"]) {
-  if (existsSync(join(root, workspace, "package.json"))) {
-    run(`${workspace} tests`, "npm.cmd", ["test", "--prefix", workspace]);
-  }
-}
+check("Android JVM tests", runAndroidTests());
 
 if (failures.length > 0) {
   process.stderr.write(`\nFailed suites: ${failures.join(", ")}\n`);
   process.exitCode = 1;
 }
-

@@ -12,10 +12,9 @@ retention advice:
 
 | Data class | Default local retention | Hosted default | Notes |
 | --- | ---: | ---: | --- |
-| Raw network/flow metadata | 14 days | Off | No payloads. Aggregate before deletion only if the aggregate cannot reconstruct sensitive detail. |
-| Interface, route, DNS, mesh, and posture events | 30 days | Off | Security history may be reduced by the operator. |
+| Local event envelopes, including flow metadata, route, DNS, mesh, and posture events | 14 days | Off | No payloads. Classification and sensitivity overrides may shorten this maximum but cannot extend it. |
 | Open findings and evidence | While open; 30 days after resolution | Off | Preserve source expiry and dispute state. |
-| Policy, plan, bypass, rollback, enrollment, and revocation audit | 90 days | Off | Security-relevant minimal audit; secrets and token values excluded. |
+| Policy, plan, bypass, rollback, enrollment, and revocation audit | No automatic compaction in v1 | Off | Security-relevant minimal audit; secrets and token values excluded. A future 90-day compactor requires an externally witnessed checkpoint design. |
 | Local exact location used for matching | Ephemeral | Never uploaded by default | Do not persist a continuous location trail merely to render nearby markers. |
 | Deliberately submitted field report | Until source expiry/removal policy | Optional | Store submitted precision only; strip metadata and PII. |
 | Downloaded regional packs | Until manifest expiry or replacement | N/A | Delete revoked/expired packs after rollback safety window. |
@@ -29,13 +28,27 @@ retention, never covert collection.
 
 ## Deletion and holds
 
-Scheduled deletion runs even if a projection or integration fails; failures
-produce a visible audit finding. Backups inherit the same class and are
+Scheduled event deletion never advances ahead of a required durable projection.
+A lagging projection pauses source-event deletion and produces a visible audit
+finding; this is an explicit temporary retention extension, not silent data
+loss. Backups inherit the same class and are
 cryptographically expired or deleted on a disclosed bounded schedule.
 Security incident preservation or a valid legal requirement may temporarily
 hold narrowly identified records. The operator is informed when legally and
 operationally permitted, and unrelated data continues expiring.
 
 Exports include schema version, provenance, sensitivity, and expiry metadata.
-Deletion removes derived projections as well as source records unless a
-minimal non-identifying tombstone is required to prevent replay or re-import.
+Deletion removes source records only after every required projection has
+durably consumed them. A canonical chained tombstone records the deleted
+ordinal range, count, policy, and batch digest without retaining event
+contents. SQLite secure deletion and a truncated WAL checkpoint remove the
+committed record bytes from the active database and journal; backup retention
+remains a separate operator responsibility. Independently persisted derived
+projections are outside this event-pruning transaction and require their own
+class-specific deletion before they can be represented as erased.
+
+Audit compaction is disabled in v1. The local signed anchor journal detects
+database-only truncation while it remains intact. Detecting coordinated
+rollback of both the database and local anchor requires a TPM monotonic
+counter, remote witness, or separately protected export and is not claimed.
+The retention tombstone chain has the same whole-database rollback limitation.

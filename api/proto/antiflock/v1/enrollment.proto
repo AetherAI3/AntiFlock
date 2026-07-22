@@ -51,6 +51,10 @@ message EnrollNodeRequest {
   bytes proof_of_possession = 9;
   bytes certificate_signing_request_der = 10;
   CapabilityManifest capabilities = 11;
+  // Optional operator-reviewed stable id for unattended bootstrap. It is
+  // covered by proof_of_possession and must never replace an existing or
+  // previously burned node identity.
+  string requested_node_id = 12;
 }
 
 message EnrollmentRequest {

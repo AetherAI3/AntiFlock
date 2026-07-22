@@ -30,7 +30,10 @@ function commandExists(command) {
 }
 
 function run(command, args, cwd = root, timeout = 180_000) {
-  const result = spawnSync(command, args, {
+  const isWindowsBatch = process.platform === "win32" && /\.(?:bat|cmd)$/i.test(command);
+  const executable = isWindowsBatch ? (process.env.ComSpec ?? "cmd.exe") : command;
+  const executableArgs = isWindowsBatch ? ["/d", "/s", "/c", command, ...args] : args;
+  const result = spawnSync(executable, executableArgs, {
     cwd,
     encoding: "utf8",
     timeout,
@@ -117,7 +120,8 @@ function npmTest(directory) {
   }
   const pkg = JSON.parse(readFileSync(packagePath, "utf8"));
   const script = pkg.scripts?.verify ? "verify" : "test";
-  return run("npm.cmd", ["run", script, "--prefix", directory], root, 300_000);
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  return run(npm, ["run", script, "--prefix", directory], root, 300_000);
 }
 
 const gates = [
@@ -167,11 +171,12 @@ const gates = [
   ]),
   runnableGate("web", "Third-Eye dashboard build and tests", ["apps/web/package.json"], () => npmTest("apps/web")),
   runnableGate("secure-action-sdk", "Secure Action SDK and Aether demonstration", ["sdk/typescript/package.json"], () => npmTest("sdk/typescript")),
-  pathsGate("android", "Android Guard reference state machine and fail-closed policy", [
+  pathsGate("android", "Android Guard reference JVM state machine and fail-closed policy", [
     "apps/android/settings.gradle.kts",
-    "apps/android/app/src/main/AndroidManifest.xml",
-    "apps/android/app/src/main/java/ai/aether/antiflock/posture/ProtectionEvaluator.kt",
-    "apps/android/app/src/test/java/ai/aether/antiflock/posture/ProtectionEvaluatorTest.kt",
+    "apps/android/guard-domain/src/main/kotlin/ai/aether/antiflock/guard/domain/GuardEvaluator.kt",
+    "apps/android/guard-domain/src/test/kotlin/ai/aether/antiflock/guard/domain/GuardDomainTest.kt",
+    "apps/android/platform-adapters/src/test/kotlin/ai/aether/antiflock/guard/platform/AndroidGuardCoordinatorTest.kt",
+    "apps/android/reference-app/src/main/kotlin/ai/aether/antiflock/guard/reference/Main.kt",
   ]),
   runnableGate("coffee-shop", "Auditable coffee-shop failure and recovery acceptance scenario", [
     "tests/end-to-end/coffee_shop_test.go",
@@ -203,4 +208,3 @@ process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 if (strict && passed !== gates.length) {
   process.exitCode = 1;
 }
-

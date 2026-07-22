@@ -2,6 +2,9 @@ server:
   listen: 127.0.0.1:8787
   publicBaseURL: http://127.0.0.1:8787
   trustedProxies: []
+  approvedBindCIDRs: []
+  tlsCertFile: ""
+  tlsKeyFile: ""
 
 storage:
   path: ./data/antiflock.db
@@ -26,4 +29,3 @@ telemetry:
 scrambler:
   executionEnabled: false
   simulationEnabled: true
-

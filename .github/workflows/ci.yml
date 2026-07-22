@@ -4,42 +4,129 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
+env:
+  CI: "1"
+
 jobs:
-  go:
-    runs-on: ubuntu-latest
+  contracts:
+    name: Protobuf contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Set up Buf
+        uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
+        with:
+          version: 1.72.0
+          github_token: ${{ github.token }}
+      - name: Verify formatting, lint, build, and generated Go API
+        run: node scripts/verify.mjs --section proto
+
+  go:
+    name: Go 1.26.5
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: 1.26.5
+          check-latest: false
           cache: true
-      - run: go test -race -coverprofile=coverage.out ./...
-      - run: go vet ./...
-      - run: test -z "$(gofmt -l .)"
+      - name: Verify format, modules, tests, race detector, vet, build, staticcheck, and vulnerabilities
+        run: node scripts/verify.mjs --section go
 
   javascript:
-    runs-on: ubuntu-latest
+    name: Node.js 24 workspaces
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: 24
+          node-version: 24.18.0
           cache: npm
-      - run: npm ci
-      - run: npm run test --workspaces --if-present
-      - run: npm run build --workspaces --if-present
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            apps/aether-demo/package-lock.json
+            sdk/typescript/package-lock.json
+      - name: Install, build, lint, and test every JavaScript workspace
+        run: node scripts/verify.mjs --section javascript --install
+
+  android:
+    name: Android reference JVM tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Set up Java 17
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        with:
+          gradle-version: "9.6.1"
+          cache-provider: basic
+      - name: Run the pure Kotlin/JVM Android reference tests
+        run: node scripts/verify.mjs --section android
 
   acceptance:
-    runs-on: ubuntu-latest
-    needs: [go, javascript]
+    name: Strict acceptance gates
+    runs-on: ubuntu-24.04
+    needs: [contracts, go, javascript, android]
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: 24
-      - run: node scripts/acceptance.mjs --strict
-
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            apps/aether-demo/package-lock.json
+            sdk/typescript/package-lock.json
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: 1.26.5
+          check-latest: false
+          cache: true
+      - name: Install JavaScript workspaces reproducibly
+        run: node scripts/install-js.mjs
+      - name: Run all strict acceptance gates
+        run: node scripts/acceptance.mjs --strict
