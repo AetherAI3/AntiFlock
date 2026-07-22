@@ -6,7 +6,7 @@ import { DashboardProvider } from "../src/state/dashboard-context";
 export const metadata: Metadata = {
   title: {
     default: "AntiFlock Third-Eye",
-    template: "%s · AntiFlock",
+    template: "%s \u00b7 AntiFlock",
   },
   description: "A private-security command layer for protection posture, paths, evidence, devices, policy, field intelligence, footprint, and Scrambler state.",
   applicationName: "AntiFlock Third-Eye",

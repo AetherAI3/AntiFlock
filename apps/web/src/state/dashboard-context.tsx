@@ -315,7 +315,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         ...previous.scrambler,
         state: "PREFLIGHT",
         simulationOnly: true,
-        proposedExit: "home-gateway-backup · iad",
+        proposedExit: "home-gateway-backup \u00b7 iad",
         checks: previous.scrambler.checks.map((check) => ({ ...check, state: check.state === "fail" ? "fail" : "pass" })),
       },
     })),

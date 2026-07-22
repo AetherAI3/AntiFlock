@@ -44,7 +44,7 @@ function OverviewView() {
       <div className="overview-grid">
         <Panel className={`posture-command posture-command-${data.posture.state.toLowerCase()}`} labelledBy="posture-title">
           <div className="posture-command-copy">
-            <p className="eyebrow">Protection posture · {data.posture.reasonCode}</p>
+            <p className="eyebrow">Protection posture &middot; {data.posture.reasonCode}</p>
             <h2 id="posture-title">{data.posture.state}</h2>
             <p className="posture-summary">{data.posture.summary}</p>
             <div className="posture-meta">
@@ -73,7 +73,7 @@ function OverviewView() {
           <dl className="key-value-list">
             <KeyValue label="Trust" value={<StateBadge value={data.overview.environment.trust.toUpperCase()} />} />
             <KeyValue label="Gateway" value={data.overview.environment.gateway} mono />
-            <KeyValue label="Known network" value={data.overview.environment.known ? "Yes" : "No · first seen today"} />
+            <KeyValue label="Known network" value={data.overview.environment.known ? "Yes" : "No \u00b7 first seen today"} />
             <KeyValue label="Changed" value={formatTimestamp(data.overview.environment.changedAt)} />
           </dl>
         </Panel>
@@ -83,7 +83,7 @@ function OverviewView() {
         <section className="interruption-alert" role="alert" aria-labelledby="interruption-title">
           <div className="alert-code" aria-hidden="true">!</div>
           <div className="alert-copy">
-            <p className="eyebrow">Detected · AF-PATH-001</p>
+            <p className="eyebrow">Detected &middot; AF-PATH-001</p>
             <h2 id="interruption-title">Protection interrupted</h2>
             <p>Your approved secure route is unavailable on an untrusted network. Protected traffic has been paused.</p>
             <p className="uncertainty-line"><strong>Active interception is not confirmed.</strong> A broken route and nearby reported infrastructure are separate facts.</p>
@@ -97,7 +97,7 @@ function OverviewView() {
           <div className="alert-actions">
             <button className="button button-primary" type="button" onClick={restoreShield}>{mode === "demo" ? "Restore Shield (demo)" : "Recheck protection"}</button>
             <button className="button button-warning" type="button" onClick={() => heldAction && void sendOnce(heldAction.id)} disabled={!heldAction || pendingCommand === "send-once"}>
-              {pendingCommand === "send-once" ? "Authorizing…" : "Send once"}
+              {pendingCommand === "send-once" ? "Authorizing..." : "Send once"}
             </button>
             <Link className="button button-quiet" href="/field">View environment</Link>
           </div>
@@ -106,7 +106,7 @@ function OverviewView() {
 
       {protectedState && scenario.stage === "recovered" && (
         <section className="recovery-banner" role="status">
-          <div><span className="recovery-check" aria-hidden="true">✓</span></div>
+          <div><span className="recovery-check" aria-hidden="true">&#10003;</span></div>
           <div>
             <p className="eyebrow">Verified recovery</p>
             <h2>Protection restored</h2>
@@ -119,7 +119,7 @@ function OverviewView() {
       <div className="scenario-strip" aria-label="Coffee-shop scenario progression">
         <div>
           <p className="eyebrow">Coffee-shop vertical slice</p>
-          <strong>Step {scenario.step} / 7 · {scenario.label}</strong>
+          <strong>Step {scenario.step} / 7 &middot; {scenario.label}</strong>
         </div>
         <ol>
           {["Join", "Verify", "Detect", "Hold", "Restore", "Confirm", "Release"].map((label, index) => (
@@ -144,11 +144,11 @@ function OverviewView() {
 
       <div className="two-column-grid">
         <Panel labelledBy="active-path-title">
-          <PanelHeader title="Active protected path" eyebrow="Application route" id="active-path-title" action={<Link href="/path">Inspect path →</Link>} />
+          <PanelHeader title="Active protected path" eyebrow="Application route" id="active-path-title" action={<Link href="/path">Inspect path &rarr;</Link>} />
           {currentPath ? <CompactPath segments={currentPath.segments} /> : <EmptyState title="No path projected" text="Core has not reported an application route." />}
         </Panel>
         <Panel labelledBy="recent-events-title">
-          <PanelHeader title="Recent decisions" eyebrow="Append-only timeline" id="recent-events-title" action={<Link href="/activity">Full activity →</Link>} />
+          <PanelHeader title="Recent decisions" eyebrow="Append-only timeline" id="recent-events-title" action={<Link href="/activity">Full activity &rarr;</Link>} />
           <EventList events={data.events.slice(0, 4)} compact />
         </Panel>
       </div>
@@ -243,13 +243,13 @@ function PathView() {
       <div className="view-intro">
         <div><p className="eyebrow">Logical route evidence</p><h2>Path inspection</h2><p>The path is a projection of reported and verified segments. AntiFlock does not imply visibility beyond the evidence shown for each hop.</p></div>
         {data.paths.length > 1 && (
-          <label className="field-control">Path<select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>{data.paths.map((path) => <option value={path.id} key={path.id}>{path.application} → {path.destination}</option>)}</select></label>
+          <label className="field-control">Path<select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>{data.paths.map((path) => <option value={path.id} key={path.id}>{path.application} &rarr; {path.destination}</option>)}</select></label>
         )}
       </div>
       {selected ? (
         <>
           <Panel className="path-hero" labelledBy="path-title">
-            <PanelHeader title={`${selected.application} → ${selected.destination}`} eyebrow="Current path" id="path-title" action={<StateBadge value={selected.state.toUpperCase()} />} />
+            <PanelHeader title={`${selected.application} \u2192 ${selected.destination}`} eyebrow="Current path" id="path-title" action={<StateBadge value={selected.state.toUpperCase()} />} />
             <ol className="path-diagram" aria-label="Detailed application path">
               {selected.segments.map((segment, index) => (
                 <li className={`path-segment path-${segment.state}`} key={segment.id}>
@@ -303,7 +303,7 @@ function ActivityView() {
         <span className="record-count">{filtered.length} / {data.events.length} events</span>
       </div>
       <div className="filter-bar" role="search" aria-label="Filter activity">
-        <label className="search-control"><span>Search timeline</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Event, reason code, destination…" /></label>
+        <label className="search-control"><span>Search timeline</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Event, reason code, destination..." /></label>
         <label className="field-control">Evidence<select value={classification} onChange={(event) => setClassification(event.target.value)}><option value="all">All classes</option>{["Detected", "Verified", "Reported", "Inferred", "Suspected", "Unknown"].map((value) => <option key={value}>{value}</option>)}</select></label>
         <label className="field-control">Severity<select value={severity} onChange={(event) => setSeverity(event.target.value)}><option value="all">All levels</option>{["critical", "high", "medium", "low", "info"].map((value) => <option key={value}>{value}</option>)}</select></label>
       </div>
@@ -365,11 +365,11 @@ function DevicesView() {
     <div className="view-stack">
       <div className="view-intro">
         <div><p className="eyebrow">Stable AntiFlock identity</p><h2>Enrolled devices and agents</h2><p>Mesh-provider identity is observed separately from the AntiFlock credential and reported capability manifest.</p></div>
-        <button className="button button-primary" type="button" onClick={() => void createEnrollmentToken()} disabled={pendingCommand === "enrollment-token"}>{pendingCommand === "enrollment-token" ? "Creating…" : "Create enrollment token"}</button>
+        <button className="button button-primary" type="button" onClick={() => void createEnrollmentToken()} disabled={pendingCommand === "enrollment-token"}>{pendingCommand === "enrollment-token" ? "Creating..." : "Create enrollment token"}</button>
       </div>
       {enrollmentSecret && (
         <Panel className="enrollment-secret" labelledBy="enrollment-secret-title">
-          <PanelHeader title="Copy this enrollment token now" eyebrow="Single use · memory only" id="enrollment-secret-title" />
+          <PanelHeader title="Copy this enrollment token now" eyebrow="Single use &middot; memory only" id="enrollment-secret-title" />
           <p>The dashboard does not persist this credential. It expires {formatTimestamp(enrollmentSecret.expiresAt)} and is permanently consumed by the first valid enrollment request.</p>
           <code>{enrollmentSecret.tokenValue}</code>
           <div className="button-row">
@@ -379,7 +379,7 @@ function DevicesView() {
         </Panel>
       )}
       <div className="filter-bar single-filter" role="search">
-        <label className="search-control"><span>Find a node</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, platform, tag…" /></label>
+        <label className="search-control"><span>Find a node</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, platform, tag..." /></label>
       </div>
       {visible.length ? (
         <div className="device-grid">
@@ -414,7 +414,7 @@ function PoliciesView() {
     <div className="view-stack">
       <div className="view-intro">
         <div><p className="eyebrow">Deterministic policy compiler</p><h2>Protection policies</h2><p>Operator intent compiles against each device capability set. Unsupported controls remain warnings rather than silently disappearing.</p></div>
-        <button className="button button-primary" type="button" onClick={() => void validatePolicy()} disabled={!active || pendingCommand === "policy-validate"}>{pendingCommand === "policy-validate" ? "Validating…" : "Validate active policy"}</button>
+        <button className="button button-primary" type="button" onClick={() => void validatePolicy()} disabled={!active || pendingCommand === "policy-validate"}>{pendingCommand === "policy-validate" ? "Validating..." : "Validate active policy"}</button>
       </div>
       {active ? (
         <div className="policy-layout">
@@ -440,8 +440,8 @@ function PoliciesView() {
           </Panel>
         </div>
       ) : <EmptyState title="No policy profiles" text="Core returned no protection profiles." />}
-      <Panel labelledBy="profiles-title"><PanelHeader title="Available profiles" eyebrow="Observe → Guard → Shield → Scramble" id="profiles-title" />
-        <div className="profile-row">{data.policies.map((policy) => <article key={policy.id}><StateBadge value={policy.mode.toUpperCase()} /><div><strong>{policy.name}</strong><span>Revision {policy.revision} · {policy.targetCount} target{policy.targetCount === 1 ? "" : "s"}</span></div><small>{policy.status}</small></article>)}</div>
+      <Panel labelledBy="profiles-title"><PanelHeader title="Available profiles" eyebrow={"Observe \u2192 Guard \u2192 Shield \u2192 Scramble"} id="profiles-title" />
+        <div className="profile-row">{data.policies.map((policy) => <article key={policy.id}><StateBadge value={policy.mode.toUpperCase()} /><div><strong>{policy.name}</strong><span>Revision {policy.revision} &middot; {policy.targetCount} target{policy.targetCount === 1 ? "" : "s"}</span></div><small>{policy.status}</small></article>)}</div>
       </Panel>
     </div>
   );
@@ -462,7 +462,7 @@ function ActionsView() {
           <header><span className="action-app">AC</span><div><p className="eyebrow">{action.application}</p><h2>{action.actionType}</h2></div><StateBadge value={action.decision} /></header>
           <dl className="action-facts"><KeyValue label="Destination" value={action.destination} mono /><KeyValue label="Data class" value={action.dataClass} /><KeyValue label="Created" value={formatTimestamp(action.createdAt)} /><KeyValue label="Expiry" value={action.expiresAt ? formatTimestamp(action.expiresAt) : "No expiry reported"} /></dl>
           <div className="reason-codes"><span>Decision reasons</span>{action.reasonCodes.map((code) => <code key={code}>{code}</code>)}</div>
-          {action.decision === "HOLD" && <footer><p>Authorization applies only to this application, destination, and action. It does not disable global protection.</p><button className="button button-warning" type="button" onClick={() => void sendOnce(action.id)} disabled={pendingCommand === "send-once" || (mode !== "demo" && !action.oneTimeAuthorization?.enabled)}>{pendingCommand === "send-once" ? "Authorizing…" : action.oneTimeAuthorization?.enabled || mode === "demo" ? "Allow this action once" : "One-time authorization unavailable"}</button></footer>}
+          {action.decision === "HOLD" && <footer><p>Authorization applies only to this application, destination, and action. It does not disable global protection.</p><button className="button button-warning" type="button" onClick={() => void sendOnce(action.id)} disabled={pendingCommand === "send-once" || (mode !== "demo" && !action.oneTimeAuthorization?.enabled)}>{pendingCommand === "send-once" ? "Authorizing..." : action.oneTimeAuthorization?.enabled || mode === "demo" ? "Allow this action once" : "One-time authorization unavailable"}</button></footer>}
         </article>
       ))}</div> : <EmptyState title="No matching actions" text="No secure actions meet this decision filter." />}
       <Panel labelledBy="sdk-boundary-title"><PanelHeader title="Enforcement boundary" eyebrow="Evidence honesty" id="sdk-boundary-title" /><div className="boundary-grid"><div><strong>Universal protection</strong><p>The VPN or firewall can block network egress. A third-party application may show its own pending or failed state.</p></div><div><strong>Integrated protection</strong><p>The Secure Action SDK can hold a specific action, explain the reason, authorize once, and retry after verification.</p></div></div></Panel>
@@ -477,7 +477,7 @@ function FieldView() {
   return (
     <div className="view-stack">
       <section className="field-disclaimer" aria-labelledby="field-disclaimer-title">
-        <div className="report-glyph" aria-hidden="true">RPT</div><div><p className="eyebrow">Reported infrastructure · separate evidence domain</p><h2 id="field-disclaimer-title">Nearby reports do not indicate active network interception</h2><p>These markers come from public or community sources. They are not evidence that a system is observing you specifically or that it caused the current route failure.</p></div>
+        <div className="report-glyph" aria-hidden="true">RPT</div><div><p className="eyebrow">Reported infrastructure &middot; separate evidence domain</p><h2 id="field-disclaimer-title">Nearby reports do not indicate active network interception</h2><p>These markers come from public or community sources. They are not evidence that a system is observing you specifically or that it caused the current route failure.</p></div>
       </section>
       <div className="field-layout">
         <Panel className="field-map-panel" labelledBy="field-map-title">
@@ -495,7 +495,7 @@ function FieldView() {
           </> : <EmptyState title="No report selected" text="Select a marker to inspect its source and freshness." />}
         </Panel>
       </div>
-      <Panel labelledBy="reports-title"><PanelHeader title="Nearby report inventory" eyebrow="Freshness and precision preserved" id="reports-title" /><div className="report-list">{data.fieldReports.length ? data.fieldReports.map((report, index) => <button type="button" onClick={() => setSelectedId(report.id)} aria-pressed={selected?.id === report.id} key={report.id}><span className="report-number">{String(index + 1).padStart(2, "0")}</span><div><strong>{report.label}</strong><small>{report.distance} · {report.locationPrecision}</small></div><EvidenceBadge value={report.classification} /><span>{report.status}</span><time dateTime={report.lastVerifiedAt}>{formatTimestamp(report.lastVerifiedAt)}</time></button>) : <EmptyState title="No nearby reports" text="The active regional pack returned no matching infrastructure reports." />}</div></Panel>
+      <Panel labelledBy="reports-title"><PanelHeader title="Nearby report inventory" eyebrow="Freshness and precision preserved" id="reports-title" /><div className="report-list">{data.fieldReports.length ? data.fieldReports.map((report, index) => <button type="button" onClick={() => setSelectedId(report.id)} aria-pressed={selected?.id === report.id} key={report.id}><span className="report-number">{String(index + 1).padStart(2, "0")}</span><div><strong>{report.label}</strong><small>{report.distance} &middot; {report.locationPrecision}</small></div><EvidenceBadge value={report.classification} /><span>{report.status}</span><time dateTime={report.lastVerifiedAt}>{formatTimestamp(report.lastVerifiedAt)}</time></button>) : <EmptyState title="No nearby reports" text="The active regional pack returned no matching infrastructure reports." />}</div></Panel>
     </div>
   );
 }
@@ -510,7 +510,7 @@ function FootprintView() {
       </section>
       <div className="metric-grid footprint-metrics"><Metric label="Verified assets" value={`${verified} / ${data.footprintAssets.length}`} detail="Ownership challenges completed" state="good" /><Metric label="Public assets" value={data.footprintAssets.filter((asset) => asset.exposure === "public").length} detail="Visible without private access" state="neutral" /><Metric label="Exposure findings" value={data.footprintAssets.reduce((total, asset) => total + asset.findings, 0)} detail="One breach-reference review" state="warn" /><Metric label="Relationships" value={data.footprintRelationships.length} detail="Each edge carries evidence class" state="neutral" /></div>
       <Panel className="footprint-graph-panel" labelledBy="footprint-title">
-        <PanelHeader title="Digital footprint graph" eyebrow="Verified identity → public exposure" id="footprint-title" />
+        <PanelHeader title="Digital footprint graph" eyebrow={"Verified identity \u2192 public exposure"} id="footprint-title" />
         {data.footprintAssets.length ? <div className="footprint-graph">
           <div className="footprint-identity"><small>VERIFIED IDENTITY</small><strong>Local operator</strong><span>Private root</span></div>
           <div className="footprint-assets">{data.footprintAssets.map((asset, index) => <article className={`footprint-asset asset-position-${(index % 6) + 1} exposure-${asset.exposure}`} key={asset.id}><span className="asset-code">{asset.type.slice(0, 2).toUpperCase()}</span><div><small>{asset.type}</small><strong>{asset.label}</strong><span>{asset.exposure} exposure</span></div><StateBadge value={asset.verification.toUpperCase()} /></article>)}</div>
@@ -532,13 +532,13 @@ function ScramblerView() {
   return (
     <div className="view-stack">
       <section className="scrambler-hero">
-        <div><p className="eyebrow">Moving-target defense · controlled transitions</p><h2>{data.scrambler.state}</h2><p>Scrambler proposes state changes, runs preflight, applies only approved candidates, verifies the resulting path, and rolls back when a required check fails.</p><div className="scrambler-tags"><span>Profile {data.scrambler.profile}</span><span>State {data.scrambler.stateId}</span><span>Risk {data.scrambler.risk}</span></div></div>
+        <div><p className="eyebrow">Moving-target defense &middot; controlled transitions</p><h2>{data.scrambler.state}</h2><p>Scrambler proposes state changes, runs preflight, applies only approved candidates, verifies the resulting path, and rolls back when a required check fails.</p><div className="scrambler-tags"><span>Profile {data.scrambler.profile}</span><span>State {data.scrambler.stateId}</span><span>Risk {data.scrambler.risk}</span></div></div>
         <div className="scrambler-dial" aria-label={`Scrambler state ${data.scrambler.state}`}><span className="dial-ring ring-a" aria-hidden="true" /><span className="dial-ring ring-b" aria-hidden="true" /><div><small>STATE</small><strong>{data.scrambler.stateId.split(" ")[0]}</strong><span>{data.scrambler.state}</span></div></div>
       </section>
       <div className="scrambler-layout">
         <Panel labelledBy="transition-title"><PanelHeader title="Candidate transition" eyebrow="Simulation first" id="transition-title" action={<span className="risk-label">{data.scrambler.risk} risk</span>} />
-          <div className="route-transition"><article><small>CURRENT EXIT</small><strong>{data.scrambler.currentExit}</strong><span>{data.posture.state === "PROTECTED" ? "verified" : "not verified"}</span></article><div><span aria-hidden="true">→</span><small>proposed</small></div><article><small>CANDIDATE EXIT</small><strong>{data.scrambler.proposedExit ?? "No candidate"}</strong><span>not applied</span></article></div>
-          <div className="button-row"><button className="button button-primary" type="button" onClick={() => void simulateScrambler()} disabled={pendingCommand === "scrambler-simulate"}>{pendingCommand === "scrambler-simulate" ? "Simulating…" : "Run preflight simulation"}</button><button className="button button-warning" type="button" onClick={() => void activateScrambler()} disabled>Activation outside release boundary</button></div>
+          <div className="route-transition"><article><small>CURRENT EXIT</small><strong>{data.scrambler.currentExit}</strong><span>{data.posture.state === "PROTECTED" ? "verified" : "not verified"}</span></article><div><span aria-hidden="true">&rarr;</span><small>proposed</small></div><article><small>CANDIDATE EXIT</small><strong>{data.scrambler.proposedExit ?? "No candidate"}</strong><span>not applied</span></article></div>
+          <div className="button-row"><button className="button button-primary" type="button" onClick={() => void simulateScrambler()} disabled={pendingCommand === "scrambler-simulate"}>{pendingCommand === "scrambler-simulate" ? "Simulating..." : "Run preflight simulation"}</button><button className="button button-warning" type="button" onClick={() => void activateScrambler()} disabled>Activation outside release boundary</button></div>
           {!ready && <p className="inline-warning">Activation held: {failed} required check{failed === 1 ? "" : "s"} failed and {unknown} remain unknown or pending.</p>}
         </Panel>
         <Panel labelledBy="verification-title"><PanelHeader title="Required verification" eyebrow="All checks must pass" id="verification-title" />
@@ -563,7 +563,7 @@ function SettingsView() {
         <Panel labelledBy="connection-settings-title"><PanelHeader title="Projection source" eyebrow="REST + durable SSE" id="connection-settings-title" />
           <form className="settings-form" onSubmit={(event) => { event.preventDefault(); updateConnectionSettings("", nextFallback); }}>
               <label><span>AntiFlock Core connection</span><input value="Same-origin private proxy" readOnly aria-readonly="true" aria-describedby="api-help" /><small id="api-help">The browser accepts live state only through the dashboard&apos;s server-authenticated proxy. Core credentials never enter browser storage.</small></label>
-            <label><span>SSE projection endpoint</span><input value="/v1/stream?topics=…" readOnly aria-readonly="true" /><small>Durable cursors resume through the event stream. The stream carries projections, not packet payloads.</small></label>
+            <label><span>SSE projection endpoint</span><input value="/v1/stream?topics=..." readOnly aria-readonly="true" /><small>Durable cursors resume through the event stream. The stream carries projections, not packet payloads.</small></label>
             <label className="toggle-control"><input type="checkbox" checked={nextFallback} onChange={(event) => setNextFallback(event.target.checked)} /><span><strong>Use deterministic demo fallback</strong><small>If Core is unavailable, label and show the coffee-shop fixture instead of a blank console.</small></span></label>
             <button className="button button-primary" type="submit">Save and reconnect</button>
           </form>

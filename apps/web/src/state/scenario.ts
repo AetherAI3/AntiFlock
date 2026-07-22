@@ -131,7 +131,7 @@ export function dataForScenario(stage: ScenarioStage, previous?: DashboardData):
       "scenario-bypass",
       "action.bypassed",
       "One action authorized",
-      "A narrow exception allows only Aether Code → api.github.com for this action. Protection remains otherwise fail closed.",
+      "A narrow exception allows only Aether Code \u2192 api.github.com for this action. Protection remains otherwise fail closed.",
       "USER-SCOPED-BYPASS",
     ),
     ...(previous?.events ?? next.events),

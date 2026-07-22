@@ -89,6 +89,11 @@ function booleanValue(source: UnknownRecord, keys: string[], fallback: boolean):
   return typeof value === "boolean" ? value : fallback;
 }
 
+function optionalBooleanValue(source: UnknownRecord, keys: string[], fallback: boolean | null): boolean | null {
+  const value = first(source, ...keys);
+  return typeof value === "boolean" ? value : fallback;
+}
+
 function list(value: unknown, ...keys: string[]): unknown[] {
   if (Array.isArray(value)) return value;
   const source = record(value);
@@ -126,6 +131,7 @@ export function createUnknownLiveData(): DashboardData {
   data.overview = {
     operatorName: "Local operator",
     deploymentName: "AntiFlock deployment",
+    simulation: null,
     environment: {
       name: "Not reported by Core",
       type: "unknown",
@@ -339,7 +345,7 @@ function normalizePaths(value: unknown, fallback: NetworkPath[]): NetworkPath[] 
         stringValue(details, ["exitNodeId", "exit_node_id", "gateway", "address"], ""),
         ...list(first(details, "resolverAddresses", "resolver_addresses")).filter((entry): entry is string => typeof entry === "string"),
       ].filter(Boolean);
-      return values.join(" · ") || "No additional fact was reported";
+      return values.join(" \u00b7 ") || "No additional fact was reported";
     };
     return {
       id: stringValue(path, ["id", "path_id"], `path-${index}`),
@@ -588,6 +594,7 @@ export async function loadDashboard(baseUrl: string, signal: AbortSignal): Promi
     ...data.overview,
     operatorName: stringValue(overview, ["operator_name", "operatorName"], data.overview.operatorName),
     deploymentName: stringValue(overview, ["deployment_name", "deploymentName"], data.overview.deploymentName),
+    simulation: optionalBooleanValue(overview, ["simulation", "simulation_mode", "simulationMode"], data.overview.simulation),
     protectedDevices: numberValue(overview, ["protected_devices", "protectedDevices"], data.nodes.filter((node) => node.protection === "PROTECTED").length),
     totalDevices: numberValue(overview, ["total_devices", "totalDevices", "node_count"], data.nodes.length),
     openFindings: numberValue(overview, ["open_findings", "openFindings", "active_finding_count"], data.findings.filter((finding) => finding.status === "open").length),

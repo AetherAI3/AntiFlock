@@ -315,7 +315,8 @@ code,
 .dot-partial,
 .dot-checking,
 .source-partial,
-.source-checking {
+.source-checking,
+.source-simulation {
   color: var(--amber);
 }
 
@@ -506,6 +507,17 @@ code,
   color: var(--text-soft);
 }
 
+.source-simulation {
+  border-bottom-color: var(--amber-soft);
+  background:
+    repeating-linear-gradient(135deg, rgba(245, 181, 68, 0.045) 0 8px, transparent 8px 16px),
+    rgba(245, 181, 68, 0.04);
+}
+
+.source-simulation .source-label {
+  color: var(--amber);
+}
+
 .source-detail {
   margin-left: auto;
   color: var(--text-muted) !important;
@@ -616,7 +628,9 @@ code,
 }
 
 .posture-command {
+  --posture-art-glow: rgba(85, 227, 213, 0.1);
   position: relative;
+  isolation: isolate;
   display: grid;
   min-height: 330px;
   overflow: hidden;
@@ -626,13 +640,18 @@ code,
 .posture-command::before {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 70% 50%, rgba(85, 227, 213, 0.08), transparent 45%);
+  z-index: 0;
+  background:
+    linear-gradient(90deg, rgba(8, 14, 18, 0.98) 0%, rgba(8, 14, 18, 0.82) 42%, rgba(8, 14, 18, 0.3) 100%),
+    radial-gradient(circle at 70% 50%, var(--posture-art-glow), transparent 48%),
+    url("/private-path-evidence.png") center right / cover no-repeat;
   content: "";
+  filter: contrast(0.9) saturate(0.75);
   pointer-events: none;
 }
 
-.posture-command-exposed::before {
-  background: radial-gradient(circle at 70% 50%, rgba(255, 103, 108, 0.1), transparent 48%);
+.posture-command-exposed {
+  --posture-art-glow: rgba(255, 103, 108, 0.13);
 }
 
 .posture-command-copy {
@@ -681,6 +700,7 @@ code,
 
 .operator-orbit {
   position: relative;
+  z-index: 1;
   min-height: 330px;
   overflow: hidden;
 }
@@ -1312,7 +1332,7 @@ code,
 .finding-card summary { display: grid; align-items: center; gap: 15px; grid-template-columns: minmax(0, 1fr) auto; padding: 15px 17px; cursor: pointer; list-style: none; }
 .finding-card summary::-webkit-details-marker { display: none; }
 .finding-card summary::after { position: absolute; right: 12px; color: var(--text-muted); content: "+"; font-family: var(--font-mono); }
-.finding-card[open] summary::after { content: "−"; }
+.finding-card[open] summary::after { content: "\2212"; }
 .finding-summary-main { display: grid; gap: 2px; padding-right: 18px; }
 .finding-rule { color: var(--amber); font-family: var(--font-mono); font-size: 8px; }
 .finding-summary-main strong { font-size: 14px; }

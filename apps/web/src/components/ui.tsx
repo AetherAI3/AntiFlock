@@ -63,7 +63,7 @@ export function Metric({ label, value, detail, state = "neutral" }: { label: str
 export function EmptyState({ title, text, action }: { title: string; text: string; action?: ReactNode }) {
   return (
     <div className="empty-state" role="status">
-      <span className="empty-symbol" aria-hidden="true">∅</span>
+      <span className="empty-symbol" aria-hidden="true">&empty;</span>
       <h3>{title}</h3>
       <p>{text}</p>
       {action}

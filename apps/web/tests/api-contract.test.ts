@@ -48,6 +48,7 @@ test("partial live state never presents demo fixtures as telemetry", () => {
   assert.equal(live.footprintAssets.length, 0);
   assert.equal(live.actions.length, 0);
   assert.equal(live.overview.currentExit, "Not reported by Core");
+  assert.equal(live.overview.simulation, null);
 });
 
 test("partial Core responses preserve canonical projections and mark other areas unavailable", async () => {
@@ -67,6 +68,7 @@ test("partial Core responses preserve canonical projections and mark other areas
         recent_events: [],
         current_exit: "gateway-1",
         exit_verified: true,
+        simulation: true,
       });
     }
     return new Response("Unavailable", { status: 503 });
@@ -78,6 +80,7 @@ test("partial Core responses preserve canonical projections and mark other areas
     assert.equal(result.data.nodes[0]?.name, "Gateway");
     assert.equal(result.data.fieldReports.length, 0);
     assert.equal(result.data.overview.environment.name, "Not reported by Core");
+    assert.equal(result.data.overview.simulation, true);
     assert.ok(result.failedEndpoints.includes("/v1/field/reports"));
   } finally {
     globalThis.fetch = originalFetch;

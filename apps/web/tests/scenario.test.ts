@@ -54,5 +54,5 @@ test("send-once bypass is narrow, expiring, and does not claim protection", () =
   assert.equal(bypassed.actions[0].decision, "ALLOW_ONCE");
   assert.deepEqual(bypassed.actions[0].reasonCodes, ["USER-SCOPED-BYPASS", "AF-PATH-001"]);
   assert.ok(bypassed.actions[0].expiresAt);
-  assert.match(bypassed.events[0].summary, /only Aether Code → api.github.com for this action/i);
+  assert.match(bypassed.events[0].summary, /only Aether Code \u2192 api.github.com for this action/i);
 });

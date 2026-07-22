@@ -64,6 +64,7 @@ export interface Environment {
 export interface Overview {
   operatorName: string;
   deploymentName: string;
+  simulation: boolean | null;
   environment: Environment;
   protectedDevices: number;
   totalDevices: number;

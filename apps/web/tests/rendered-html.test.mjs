@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+const MOJIBAKE_PATTERN = new RegExp("[\\u00c2\\u00c3\\u00e2\\ufffd]");
+
 async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-${path}`);
@@ -18,7 +20,7 @@ test("server-renders the AntiFlock command shell with honest source state", asyn
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Overview · AntiFlock<\/title>/i);
+  assert.match(html, /<title>Overview \u00b7 AntiFlock<\/title>/i);
   assert.match(html, /AntiFlock/);
   assert.match(html, /Third-Eye Console/);
   assert.match(html, /CHECKING CORE/);
@@ -27,6 +29,7 @@ test("server-renders the AntiFlock command shell with honest source state", asyn
   assert.doesNotMatch(html, /held Aether Code action was released/);
   assert.match(html, /aria-label="Primary navigation"/);
   assert.match(html, /Skip to dashboard content/);
+  assert.doesNotMatch(html, MOJIBAKE_PATTERN);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);
 });
 
@@ -51,6 +54,7 @@ test("server-renders every required route", async () => {
     assert.equal(response.status, 200, route);
     const html = await response.text();
     assert.match(html, /AntiFlock/, route);
+    assert.doesNotMatch(html, MOJIBAKE_PATTERN, route);
   }
 });
 

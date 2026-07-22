@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import type { DashboardSection } from "../api/contracts";
-import { useDashboard } from "../state/dashboard-context";
+import { useDashboard, type DataMode, type StreamStatus } from "../state/dashboard-context";
 
 interface NavItem {
   section: DashboardSection;
@@ -50,9 +50,22 @@ function currentSection(pathname: string): DashboardSection {
   return NAV_ITEMS.some((item) => item.section === candidate) ? (candidate as DashboardSection) : "overview";
 }
 
-function SourceBanner() {
-  const { mode, error, failedEndpoints, streamStatus } = useDashboard();
-  const copy = {
+interface SourceBannerViewProps {
+  mode: DataMode;
+  error: string | null;
+  failedEndpoints: string[];
+  streamStatus: StreamStatus;
+  simulation: boolean | null;
+}
+
+export function SourceBannerView({ mode, error, failedEndpoints, streamStatus, simulation }: SourceBannerViewProps) {
+  const liveSimulation = simulation === true && (mode === "live" || mode === "partial");
+  const copy = liveSimulation ? {
+    label: "LIVE SIMULATION - NOT HOST PROTECTION",
+    text: mode === "partial"
+      ? `Core simulation telemetry is partial; ${failedEndpoints.length} projection${failedEndpoints.length === 1 ? " is" : "s are"} unavailable. Values do not represent protection on this host.`
+      : `Core is serving live simulation telemetry. Event stream: ${streamStatus}. Values do not represent protection on this host.`,
+  } : ({
     checking: {
       label: "CHECKING CORE",
       text: "Establishing the source of truth. Values below remain marked until the Core response is known.",
@@ -73,15 +86,25 @@ function SourceBanner() {
       label: "NO DATA",
       text: "Core is unavailable and demo fallback is disabled. No current protection conclusion can be made.",
     },
-  }[mode];
+  }[mode]);
+  const sourceClass = liveSimulation ? "simulation" : mode;
 
   return (
-    <div className={`source-banner source-${mode}`} role={mode === "error" ? "alert" : "status"}>
+    <div
+      className={`source-banner source-${sourceClass}`}
+      role={mode === "error" ? "alert" : "status"}
+      aria-label={liveSimulation ? "Simulation provenance warning" : undefined}
+    >
       <span className="source-label">{copy.label}</span>
       <span>{copy.text}</span>
       {error && mode !== "live" && <span className="source-detail">Detail: {error}</span>}
     </div>
   );
+}
+
+function SourceBanner() {
+  const { data, mode, error, failedEndpoints, streamStatus } = useDashboard();
+  return <SourceBannerView mode={mode} error={error} failedEndpoints={failedEndpoints} streamStatus={streamStatus} simulation={data.overview.simulation} />;
 }
 
 export function DashboardFrame({ children }: { children: ReactNode }) {
@@ -100,6 +123,7 @@ export function DashboardFrame({ children }: { children: ReactNode }) {
 
   const groups: NavItem["group"][] = ["Command", "Inspect", "Control", "Intelligence"];
   const title = NAV_ITEMS.find((item) => item.section === section)?.label ?? "Overview";
+  const liveSimulation = data.overview.simulation === true && (mode === "live" || mode === "partial");
 
   return (
     <div className="dashboard-shell" data-mode={mode} data-posture={data.posture.state.toLowerCase()}>
@@ -140,7 +164,7 @@ export function DashboardFrame({ children }: { children: ReactNode }) {
         <div className="sidebar-status">
           <div className="sidebar-status-row">
             <span className={`status-dot dot-${mode}`} aria-hidden="true" />
-            <span>{mode === "demo" ? "Local demonstration" : mode === "live" ? "Core connected" : mode === "partial" ? "Core partially connected" : "Checking Core"}</span>
+            <span>{liveSimulation ? "Core simulation" : mode === "demo" ? "Local demonstration" : mode === "live" ? "Core connected" : mode === "partial" ? "Core partially connected" : "Checking Core"}</span>
           </div>
           <div className="sidebar-status-row subtle">
             <span className="mini-code" aria-hidden="true">EV</span>
@@ -163,7 +187,7 @@ export function DashboardFrame({ children }: { children: ReactNode }) {
               </button>
             )}
             <button className="button button-icon" type="button" onClick={() => void refresh()} disabled={isLoading} aria-label="Refresh dashboard projections">
-              <span aria-hidden="true">↻</span>
+              <span aria-hidden="true">&#x21bb;</span>
               <span>{isLoading ? "Checking" : "Refresh"}</span>
             </button>
             <div className={`posture-chip posture-${data.posture.state.toLowerCase()}`}>
@@ -178,7 +202,7 @@ export function DashboardFrame({ children }: { children: ReactNode }) {
         {commandFeedback && (
           <div className={`command-feedback feedback-${commandFeedback.kind}`} role={commandFeedback.kind === "error" ? "alert" : "status"}>
             <span>{commandFeedback.message}</span>
-            <button type="button" onClick={clearFeedback} aria-label="Dismiss message">×</button>
+            <button type="button" onClick={clearFeedback} aria-label="Dismiss message">&times;</button>
           </div>
         )}
 
