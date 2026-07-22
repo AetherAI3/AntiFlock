@@ -269,14 +269,22 @@ export function createDemoData(state: ProtectionState = "EXPOSED"): DashboardDat
     actions: [
       {
         id: "act-aether-send",
+        operationId: "demo-operation-aether-send",
         application: "Aether Code",
+        nodeId: "node-phone",
         actionType: "repository request",
         destination: "api.github.com",
+        destinations: ["api.github.com"],
         dataClass: "repository metadata · sensitive",
         decision: protectedState ? "ALLOW" : exposed ? "HOLD" : "REQUIRE_CONSENT",
         reasonCodes: protectedState ? ["AF-OK-000"] : ["AF-PATH-001", "AF-NET-UNTRUSTED"],
         createdAt: T.held,
         expiresAt: "2026-07-21T13:47:14.000Z",
+        oneTimeAuthorization: {
+          enabled: !protectedState,
+          maximumExpiresAt: "2026-07-21T13:47:14.000Z",
+          consentReasonCode: "USER_EXPLICIT",
+        },
       },
     ],
     policies: [

@@ -95,8 +95,8 @@ function OverviewView() {
             </div>
           </div>
           <div className="alert-actions">
-            <button className="button button-primary" type="button" onClick={restoreShield}>Restore Shield</button>
-            <button className="button button-warning" type="button" onClick={() => void sendOnce()} disabled={!heldAction || pendingCommand === "send-once"}>
+            <button className="button button-primary" type="button" onClick={restoreShield}>{mode === "demo" ? "Restore Shield (demo)" : "Recheck protection"}</button>
+            <button className="button button-warning" type="button" onClick={() => heldAction && void sendOnce(heldAction.id)} disabled={!heldAction || pendingCommand === "send-once"}>
               {pendingCommand === "send-once" ? "Authorizing…" : "Send once"}
             </button>
             <Link className="button button-quiet" href="/field">View environment</Link>
@@ -358,7 +358,7 @@ function FindingsView() {
 }
 
 function DevicesView() {
-  const { data, createEnrollmentToken, pendingCommand } = useDashboard();
+  const { data, createEnrollmentToken, clearEnrollmentSecret, enrollmentSecret, pendingCommand } = useDashboard();
   const [query, setQuery] = useState("");
   const visible = data.nodes.filter((node) => `${node.name} ${node.platform} ${node.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase()));
   return (
@@ -367,6 +367,17 @@ function DevicesView() {
         <div><p className="eyebrow">Stable AntiFlock identity</p><h2>Enrolled devices and agents</h2><p>Mesh-provider identity is observed separately from the AntiFlock credential and reported capability manifest.</p></div>
         <button className="button button-primary" type="button" onClick={() => void createEnrollmentToken()} disabled={pendingCommand === "enrollment-token"}>{pendingCommand === "enrollment-token" ? "Creating…" : "Create enrollment token"}</button>
       </div>
+      {enrollmentSecret && (
+        <Panel className="enrollment-secret" labelledBy="enrollment-secret-title">
+          <PanelHeader title="Copy this enrollment token now" eyebrow="Single use · memory only" id="enrollment-secret-title" />
+          <p>The dashboard does not persist this credential. It expires {formatTimestamp(enrollmentSecret.expiresAt)} and is permanently consumed by the first valid enrollment request.</p>
+          <code>{enrollmentSecret.tokenValue}</code>
+          <div className="button-row">
+            <button className="button button-primary" type="button" onClick={() => void navigator.clipboard.writeText(enrollmentSecret.tokenValue)}>Copy token</button>
+            <button className="button button-quiet" type="button" onClick={clearEnrollmentSecret}>Forget token</button>
+          </div>
+        </Panel>
+      )}
       <div className="filter-bar single-filter" role="search">
         <label className="search-control"><span>Find a node</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, platform, tag…" /></label>
       </div>
@@ -437,7 +448,7 @@ function PoliciesView() {
 }
 
 function ActionsView() {
-  const { data, sendOnce, pendingCommand } = useDashboard();
+  const { data, mode, sendOnce, pendingCommand } = useDashboard();
   const [decision, setDecision] = useState("all");
   const visible = data.actions.filter((action) => decision === "all" || action.decision === decision);
   return (
@@ -451,7 +462,7 @@ function ActionsView() {
           <header><span className="action-app">AC</span><div><p className="eyebrow">{action.application}</p><h2>{action.actionType}</h2></div><StateBadge value={action.decision} /></header>
           <dl className="action-facts"><KeyValue label="Destination" value={action.destination} mono /><KeyValue label="Data class" value={action.dataClass} /><KeyValue label="Created" value={formatTimestamp(action.createdAt)} /><KeyValue label="Expiry" value={action.expiresAt ? formatTimestamp(action.expiresAt) : "No expiry reported"} /></dl>
           <div className="reason-codes"><span>Decision reasons</span>{action.reasonCodes.map((code) => <code key={code}>{code}</code>)}</div>
-          {action.decision === "HOLD" && <footer><p>Authorization applies only to this application, destination, and action. It does not disable global protection.</p><button className="button button-warning" type="button" onClick={() => void sendOnce()} disabled={pendingCommand === "send-once"}>{pendingCommand === "send-once" ? "Authorizing…" : "Allow this action once"}</button></footer>}
+          {action.decision === "HOLD" && <footer><p>Authorization applies only to this application, destination, and action. It does not disable global protection.</p><button className="button button-warning" type="button" onClick={() => void sendOnce(action.id)} disabled={pendingCommand === "send-once" || (mode !== "demo" && !action.oneTimeAuthorization?.enabled)}>{pendingCommand === "send-once" ? "Authorizing…" : action.oneTimeAuthorization?.enabled || mode === "demo" ? "Allow this action once" : "One-time authorization unavailable"}</button></footer>}
         </article>
       ))}</div> : <EmptyState title="No matching actions" text="No secure actions meet this decision filter." />}
       <Panel labelledBy="sdk-boundary-title"><PanelHeader title="Enforcement boundary" eyebrow="Evidence honesty" id="sdk-boundary-title" /><div className="boundary-grid"><div><strong>Universal protection</strong><p>The VPN or firewall can block network egress. A third-party application may show its own pending or failed state.</p></div><div><strong>Integrated protection</strong><p>The Secure Action SDK can hold a specific action, explain the reason, authorize once, and retry after verification.</p></div></div></Panel>
@@ -514,7 +525,7 @@ function FootprintView() {
 }
 
 function ScramblerView() {
-  const { data, mode, simulateScrambler, activateScrambler, pendingCommand } = useDashboard();
+  const { data, simulateScrambler, activateScrambler, pendingCommand } = useDashboard();
   const failed = data.scrambler.checks.filter((check) => check.state === "fail").length;
   const unknown = data.scrambler.checks.filter((check) => check.state === "unknown" || check.state === "pending").length;
   const ready = failed === 0 && unknown === 0 && data.posture.state === "PROTECTED";
@@ -527,7 +538,7 @@ function ScramblerView() {
       <div className="scrambler-layout">
         <Panel labelledBy="transition-title"><PanelHeader title="Candidate transition" eyebrow="Simulation first" id="transition-title" action={<span className="risk-label">{data.scrambler.risk} risk</span>} />
           <div className="route-transition"><article><small>CURRENT EXIT</small><strong>{data.scrambler.currentExit}</strong><span>{data.posture.state === "PROTECTED" ? "verified" : "not verified"}</span></article><div><span aria-hidden="true">→</span><small>proposed</small></div><article><small>CANDIDATE EXIT</small><strong>{data.scrambler.proposedExit ?? "No candidate"}</strong><span>not applied</span></article></div>
-          <div className="button-row"><button className="button button-primary" type="button" onClick={() => void simulateScrambler()} disabled={pendingCommand === "scrambler-simulate"}>{pendingCommand === "scrambler-simulate" ? "Simulating…" : "Run preflight simulation"}</button><button className="button button-warning" type="button" onClick={() => void activateScrambler()} disabled={!ready || mode === "demo" || pendingCommand === "scrambler-activate"}>{mode === "demo" ? "Activation unavailable in demo" : pendingCommand === "scrambler-activate" ? "Activating…" : "Activate verified candidate"}</button></div>
+          <div className="button-row"><button className="button button-primary" type="button" onClick={() => void simulateScrambler()} disabled={pendingCommand === "scrambler-simulate"}>{pendingCommand === "scrambler-simulate" ? "Simulating…" : "Run preflight simulation"}</button><button className="button button-warning" type="button" onClick={() => void activateScrambler()} disabled>Activation outside release boundary</button></div>
           {!ready && <p className="inline-warning">Activation held: {failed} required check{failed === 1 ? "" : "s"} failed and {unknown} remain unknown or pending.</p>}
         </Panel>
         <Panel labelledBy="verification-title"><PanelHeader title="Required verification" eyebrow="All checks must pass" id="verification-title" />

@@ -24,6 +24,7 @@ export const REST_ENDPOINTS = {
   events: "/v1/events?limit=100",
   findings: "/v1/findings",
   posture: "/v1/posture",
+  actions: "/v1/actions?limit=100",
   fieldReports: "/v1/field/reports",
   footprint: "/v1/footprint",
   scrambler: "/v1/scrambler/state",
@@ -434,6 +435,38 @@ function normalizeScrambler(value: unknown, fallback: ScramblerState): Scrambler
   };
 }
 
+function normalizeActions(value: unknown): DashboardData["actions"] {
+  return list(value, "actions", "items").map((item, index) => {
+    const action = record(item);
+    const scope = record(first(action, "scope"));
+    const authorization = record(first(action, "oneTimeAuthorization", "one_time_authorization"));
+    const destinations = list(first(scope, "destinations"))
+      .filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+    const maximumExpiresAt = stringValue(authorization, ["maximumExpiresAt", "maximum_expires_at"], "");
+    return {
+      id: stringValue(action, ["actionId", "action_id", "id"], `action-${index}`),
+      operationId: stringValue(action, ["operationId", "operation_id"], ""),
+      application: stringValue(action, ["applicationId", "application_id", "application"], "Unknown application"),
+      nodeId: stringValue(action, ["nodeId", "node_id"], ""),
+      actionType: stringValue(scope, ["actionType", "action_type"], "Unknown action"),
+      destination: destinations.join(", ") || "No destination reported",
+      destinations,
+      dataClass: stringValue(scope, ["dataClass", "data_class"], "Unknown"),
+      decision: stringValue(action, ["decision"], "HOLD") as DashboardData["actions"][number]["decision"],
+      reasonCodes: list(first(action, "reasonCodes", "reason_codes")).filter((entry): entry is string => typeof entry === "string"),
+      createdAt: stringValue(action, ["createdAt", "created_at"], new Date(0).toISOString()),
+      expiresAt: stringValue(action, ["expiresAt", "expires_at"], "") || undefined,
+      oneTimeAuthorization: Object.keys(authorization).length
+        ? {
+            enabled: booleanValue(authorization, ["enabled"], false),
+            maximumExpiresAt,
+            consentReasonCode: stringValue(authorization, ["consentReasonCode", "consent_reason_code"], ""),
+          }
+        : undefined,
+    };
+  });
+}
+
 async function fetchProjection(baseUrl: string, path: string, signal: AbortSignal): Promise<unknown> {
   const response = await fetch(resolveUrl(baseUrl, path), {
     headers: { Accept: "application/json" },
@@ -489,6 +522,9 @@ export async function loadDashboard(baseUrl: string, signal: AbortSignal): Promi
   }
   if (payloads.has("findings") || first(overviewPayload, "active_findings")) {
     data.findings = normalizeFindings(payloads.get("findings") ?? first(overviewPayload, "active_findings"), data.findings);
+  }
+  if (payloads.has("actions")) {
+    data.actions = normalizeActions(payloads.get("actions"));
   }
   if (payloads.has("paths") || first(overviewPayload, "current_path")) {
     const rawPaths = payloads.get("paths") ?? { paths: [first(overviewPayload, "current_path")] };
@@ -551,7 +587,12 @@ export async function postCommand<T = unknown>(baseUrl: string, path: string, bo
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null) as { message?: unknown } | null;
+    const safeMessage = typeof errorBody?.message === "string" ? `: ${errorBody.message}` : "";
+    throw new Error(`${response.status} ${response.statusText}${safeMessage}`);
+  }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 

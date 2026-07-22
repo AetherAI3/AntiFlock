@@ -33,6 +33,11 @@ interface CommandFeedback {
   message: string;
 }
 
+interface EnrollmentSecret {
+  tokenValue: string;
+  expiresAt: string;
+}
+
 interface DashboardContextValue {
   data: DashboardData;
   mode: DataMode;
@@ -46,21 +51,65 @@ interface DashboardContextValue {
   scenario: ScenarioState;
   commandFeedback: CommandFeedback | null;
   pendingCommand: string | null;
+  enrollmentSecret: EnrollmentSecret | null;
   refresh: () => Promise<void>;
   updateConnectionSettings: (apiBase: string, demoFallback: boolean) => void;
   replayCoffeeShop: () => void;
   restoreShield: () => void;
-  sendOnce: () => Promise<void>;
+  sendOnce: (actionId: string) => Promise<void>;
   simulateScrambler: () => Promise<void>;
   activateScrambler: () => Promise<void>;
   validatePolicy: () => Promise<void>;
   createEnrollmentToken: () => Promise<void>;
+  clearEnrollmentSecret: () => void;
   clearFeedback: () => void;
 }
 
 const DashboardContext = createContext<DashboardContextValue | null>(null);
 
 const DEFAULT_API_BASE = process.env.NEXT_PUBLIC_ANTIFLOCK_API_URL ?? "";
+
+function operationId(prefix: string): string {
+  return `${prefix}-${globalThis.crypto.randomUUID()}`;
+}
+
+function policyValidationRequest(data: DashboardData): unknown {
+  const profile = data.policies.find((candidate) => candidate.status === "active") ?? data.policies[0];
+  const currentExit = data.scrambler.currentExit && !data.scrambler.currentExit.toLowerCase().includes("not reported")
+    ? data.scrambler.currentExit
+    : "home-gateway";
+  const resolver = data.overview.dnsResolver && !data.overview.dnsResolver.toLowerCase().includes("not reported")
+    ? data.overview.dnsResolver
+    : "resolver.internal";
+  return {
+    profile: {
+      metadata: { id: profile?.id ?? "policy-shielded", revision: String(profile?.revision ?? 1) },
+      apiVersion: "antiflock.policy/v1",
+      mode: "PROTECTION_MODE_GUARD",
+      mesh: { required: true, provider: "tailscale" },
+      egress: {
+        mode: "EGRESS_MODE_TRUSTED_EXIT",
+        failMode: "FAIL_MODE_CLOSED",
+        allowedExitNodeIds: [currentExit],
+        recoveryDestinations: ["core.internal"],
+      },
+      dns: { mode: "DNS_MODE_PROTECTED", allowedResolvers: [resolver], requirePathVerification: true },
+      networks: {
+        requireMeshOnUntrusted: true,
+        untrustedNetworkBypass: "BYPASS_MODE_ONE_TIME",
+        blockOpenWifiWithoutMesh: true,
+      },
+      actions: [{
+        dataClasses: ["repository-source"],
+        applicationIds: ["aether-code"],
+        requireProtectedState: true,
+        bypassMode: "BYPASS_MODE_ONE_TIME",
+      }],
+      telemetry: { flowMetadata: true, payloadCapture: false, retentionDays: 14 },
+      scrambler: { enabled: false },
+    },
+  };
+}
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<DashboardData>(() => createDemoData("EXPOSED"));
@@ -75,8 +124,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [scenario, setScenario] = useState<ScenarioState>(initialScenario);
   const [commandFeedback, setCommandFeedback] = useState<CommandFeedback | null>(null);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const [enrollmentSecret, setEnrollmentSecret] = useState<EnrollmentSecret | null>(null);
   const scenarioTimers = useRef<number[]>([]);
   const refreshTimer = useRef<number | null>(null);
+  const enrollmentTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -141,6 +192,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => () => {
     scenarioTimers.current.forEach((timer) => window.clearTimeout(timer));
+    if (enrollmentTimer.current !== null) window.clearTimeout(enrollmentTimer.current);
   }, []);
 
   const clearScenarioTimers = useCallback(() => {
@@ -167,12 +219,20 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }, [clearScenarioTimers, transitionScenario]);
 
   const restoreShield = useCallback(() => {
+    if (mode !== "demo") {
+      setCommandFeedback({
+        kind: "info",
+        message: "Route restoration is performed by the endpoint agent. The dashboard requested fresh verified telemetry; it did not change network state.",
+      });
+      void refresh();
+      return;
+    }
     clearScenarioTimers();
     transitionScenario("restoring");
     scenarioTimers.current = [
       window.setTimeout(() => transitionScenario("recovered"), 1_900),
     ];
-  }, [clearScenarioTimers, transitionScenario]);
+  }, [clearScenarioTimers, mode, refresh, transitionScenario]);
 
   const runCommand = useCallback(async (
     label: string,
@@ -202,18 +262,47 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
   }, [apiBase, mode, refresh]);
 
-  const sendOnce = useCallback(async () => runCommand(
-    "send-once",
-    COMMAND_ENDPOINTS.authorizeAction(data.actions[0]?.id ?? "unknown"),
-    { scope: "one-action", expires_in: "5m", destination: data.actions[0]?.destination },
-    () => transitionScenario("bypassed"),
-    "A one-action, five-minute exception was authorized and written to the audit trail.",
-  ), [data.actions, runCommand, transitionScenario]);
+  const sendOnce = useCallback(async (actionId: string) => {
+    const action = data.actions.find((candidate) => candidate.id === actionId);
+    if (!action) {
+      setCommandFeedback({ kind: "error", message: "The selected held action is no longer available." });
+      return;
+    }
+    const authorization = action.oneTimeAuthorization;
+    if (mode !== "demo" && (!authorization?.enabled || !authorization.maximumExpiresAt || !action.operationId || !action.destinations.length)) {
+      setCommandFeedback({ kind: "error", message: "Core did not offer a complete, bounded one-time authorization for this action." });
+      return;
+    }
+    await runCommand(
+      "send-once",
+      COMMAND_ENDPOINTS.authorizeAction(action.id),
+      {
+        actionId: action.id,
+        operationId: action.operationId,
+        authorizedDestinations: action.destinations,
+        expiresAt: authorization?.maximumExpiresAt,
+        consentReasonCode: authorization?.consentReasonCode || "USER_EXPLICIT",
+      },
+      () => transitionScenario("bypassed"),
+      "A bounded exception for this action was authorized and written to the audit trail.",
+    );
+  }, [data.actions, mode, runCommand, transitionScenario]);
 
   const simulateScrambler = useCallback(async () => runCommand(
     "scrambler-simulate",
     COMMAND_ENDPOINTS.simulateScrambler,
-    { profile: data.scrambler.profile, apply: false },
+    {
+      nodeId: data.nodes[0]?.id,
+      operationId: operationId("scrambler-simulate"),
+      constraints: {
+        allowedDimensions: ["SCRAMBLER_DIMENSION_EXIT_NODE", "SCRAMBLER_DIMENSION_DNS_PROFILE"],
+        approvedExitNodeIds: [data.scrambler.proposedExit ?? data.scrambler.currentExit],
+        approvedDnsProfileIds: [data.overview.dnsResolver],
+        requiredDestinations: ["core.internal"],
+        maximumTransitionLatency: "30s",
+        operatorConsentRequired: true,
+      },
+    },
     () => setData((previous) => ({
       ...previous,
       scrambler: {
@@ -225,31 +314,63 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       },
     })),
     "Scrambler preflight simulation completed. No network state was changed.",
-  ), [data.scrambler.profile, runCommand]);
+  ), [data.nodes, data.overview.dnsResolver, data.scrambler.currentExit, data.scrambler.proposedExit, runCommand]);
 
-  const activateScrambler = useCallback(async () => runCommand(
-    "scrambler-activate",
-    COMMAND_ENDPOINTS.activateScrambler,
-    { profile: data.scrambler.profile, candidate_exit: data.scrambler.proposedExit },
-    () => setCommandFeedback({ kind: "info", message: "Demo activation remains simulation-only; no route was changed." }),
-    "Scrambler activation was accepted. Transition verification is in progress.",
-  ), [data.scrambler.profile, data.scrambler.proposedExit, runCommand]);
+  const activateScrambler = useCallback(async () => {
+    setCommandFeedback({
+      kind: "info",
+      message: "Scrambler activation is outside this release boundary. Simulation did not change route or DNS state.",
+    });
+  }, []);
 
   const validatePolicy = useCallback(async () => runCommand(
     "policy-validate",
     COMMAND_ENDPOINTS.validatePolicy,
-    { policy_id: data.policies[0]?.id, revision: data.policies[0]?.revision, dry_run: true },
+    policyValidationRequest(data),
     () => undefined,
-    "Shielded policy validation passed for the current capability set.",
-  ), [data.policies, runCommand]);
+    "The policy contract was validated. No plan was compiled or applied.",
+  ), [data, runCommand]);
 
-  const createEnrollmentToken = useCallback(async () => runCommand(
-    "enrollment-token",
-    COMMAND_ENDPOINTS.enrollmentToken,
-    { expires_in: "10m", single_use: true },
-    () => undefined,
-    "A single-use enrollment token was created with a ten-minute expiry.",
-  ), [runCommand]);
+  const createEnrollmentToken = useCallback(async () => {
+    if (mode === "demo" || mode === "checking") {
+      setCommandFeedback({ kind: "info", message: "Demo mode cannot issue enrollment credentials. Connect to a private Core deployment first." });
+      return;
+    }
+    setPendingCommand("enrollment-token");
+    setCommandFeedback(null);
+    try {
+      const result = await postCommand<{ tokenValue?: unknown; token?: { expiresAt?: unknown } }>(
+        apiBase,
+        COMMAND_ENDPOINTS.enrollmentToken,
+        {
+          allowedNodeType: "NODE_TYPE_AGENT",
+          allowedTags: ["operator-approved"],
+          operationId: operationId("enrollment-token"),
+        },
+      );
+      if (typeof result.tokenValue !== "string" || !result.tokenValue.startsWith("af_enroll_v1.") || typeof result.token?.expiresAt !== "string") {
+        throw new Error("Core returned an invalid enrollment credential response.");
+      }
+      setEnrollmentSecret({ tokenValue: result.tokenValue, expiresAt: result.token.expiresAt });
+      if (enrollmentTimer.current !== null) window.clearTimeout(enrollmentTimer.current);
+      const remaining = Math.max(0, Math.min(15 * 60_000, Date.parse(result.token.expiresAt) - Date.now()));
+      enrollmentTimer.current = window.setTimeout(() => setEnrollmentSecret(null), remaining);
+      setCommandFeedback({ kind: "success", message: "A single-use enrollment token was created. Copy it now; this dashboard does not persist it." });
+    } catch (reason) {
+      setCommandFeedback({
+        kind: "error",
+        message: reason instanceof Error ? `Command failed: ${reason.message}` : "Enrollment token creation failed.",
+      });
+    } finally {
+      setPendingCommand(null);
+    }
+  }, [apiBase, mode]);
+
+  const clearEnrollmentSecret = useCallback(() => {
+    if (enrollmentTimer.current !== null) window.clearTimeout(enrollmentTimer.current);
+    enrollmentTimer.current = null;
+    setEnrollmentSecret(null);
+  }, []);
 
   const updateConnectionSettings = useCallback((nextApiBase: string, nextDemoFallback: boolean) => {
     const normalized = nextApiBase.trim().replace(/\/$/, "");
@@ -273,6 +394,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     scenario,
     commandFeedback,
     pendingCommand,
+    enrollmentSecret,
     refresh,
     updateConnectionSettings,
     replayCoffeeShop,
@@ -282,6 +404,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     activateScrambler,
     validatePolicy,
     createEnrollmentToken,
+    clearEnrollmentSecret,
     clearFeedback: () => setCommandFeedback(null),
   }), [
     data,
@@ -296,6 +419,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     scenario,
     commandFeedback,
     pendingCommand,
+    enrollmentSecret,
     refresh,
     updateConnectionSettings,
     replayCoffeeShop,
@@ -305,6 +429,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     activateScrambler,
     validatePolicy,
     createEnrollmentToken,
+    clearEnrollmentSecret,
   ]);
 
   return <DashboardContext.Provider value={value}>{children}</DashboardContext.Provider>;

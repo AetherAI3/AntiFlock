@@ -12,6 +12,7 @@ test("documents every dashboard REST projection and command surface", () => {
     "/v1/events?limit=100",
     "/v1/findings",
     "/v1/posture",
+    "/v1/actions?limit=100",
     "/v1/field/reports",
     "/v1/footprint",
     "/v1/scrambler/state",
@@ -78,6 +79,36 @@ test("partial Core responses preserve canonical projections and mark other areas
     assert.equal(result.data.fieldReports.length, 0);
     assert.equal(result.data.overview.environment.name, "Not reported by Core");
     assert.ok(result.failedEndpoints.includes("/v1/field/reports"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("hydrates bounded one-time authorization metadata from the live action projection", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/v1/actions?")) {
+      return Response.json({ actions: [{
+        actionId: "action-1",
+        operationId: "operation-1",
+        applicationId: "aether-code",
+        nodeId: "node-1",
+        decision: "HOLD",
+        reasonCodes: ["AF-PATH-001"],
+        scope: { actionType: "repository request", destinations: ["api.github.com"], dataClass: "repository-source" },
+        createdAt: "2026-07-21T13:42:00Z",
+        oneTimeAuthorization: { enabled: true, maximumExpiresAt: "2026-07-21T13:47:00Z", consentReasonCode: "USER_EXPLICIT" },
+      }] });
+    }
+    if (url.endsWith("/v1/overview")) return Response.json({});
+    return new Response("Unavailable", { status: 503 });
+  }) as typeof fetch;
+  try {
+    const result = await loadDashboard("https://core.internal", new AbortController().signal);
+    assert.equal(result.data.actions[0]?.id, "action-1");
+    assert.deepEqual(result.data.actions[0]?.destinations, ["api.github.com"]);
+    assert.equal(result.data.actions[0]?.oneTimeAuthorization?.consentReasonCode, "USER_EXPLICIT");
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -166,14 +166,22 @@ export interface Finding {
 
 export interface SecureAction {
   id: string;
+  operationId: string;
   application: string;
+  nodeId: string;
   actionType: string;
   destination: string;
+  destinations: string[];
   dataClass: string;
   decision: "ALLOW" | "HOLD" | "BLOCK" | "REQUIRE_CONSENT" | "ALLOW_ONCE";
   reasonCodes: string[];
   createdAt: string;
   expiresAt?: string;
+  oneTimeAuthorization?: {
+    enabled: boolean;
+    maximumExpiresAt: string;
+    consentReasonCode: string;
+  };
 }
 
 export interface PolicyRule {

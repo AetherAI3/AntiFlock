@@ -1,0 +1,8 @@
+.git
+.wrangler
+.next
+dist
+node_modules
+coverage
+*.log
+*.tsbuildinfo

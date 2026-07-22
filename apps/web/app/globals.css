@@ -1332,6 +1332,10 @@ code,
 .data-table th { border-bottom: 1px solid var(--line-strong); padding: 8px 9px; color: var(--text-muted); font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.06em; text-align: left; text-transform: uppercase; }
 .data-table td { border-bottom: 1px solid var(--line); padding: 9px; vertical-align: top; }
 
+.enrollment-secret { border-color: color-mix(in srgb, var(--amber) 50%, var(--line)); }
+.enrollment-secret > p { margin: 0 0 12px; color: var(--text-muted); font-size: 11px; }
+.enrollment-secret > code { display: block; overflow-wrap: anywhere; border: 1px solid var(--line); background: var(--surface-strong); padding: 12px; color: var(--amber); font-size: 10px; line-height: 1.6; user-select: all; }
+.enrollment-secret .button-row { margin-top: 12px; }
 .device-grid { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .device-card { min-width: 0; border: 1px solid var(--line); background: var(--surface); }
 .device-card header { display: grid; align-items: center; gap: 10px; grid-template-columns: 42px 1fr auto; border-bottom: 1px solid var(--line); padding: 14px; }
