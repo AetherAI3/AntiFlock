@@ -1,0 +1,24 @@
+{
+  "name": "@aether/antiflock-coffee-shop-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prebuild": "npm --prefix ../../sdk/typescript install --ignore-scripts && npm --prefix ../../sdk/typescript run build",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "demo": "npm run build && node dist/src/cli.js"
+  },
+  "dependencies": {
+    "@aether/antiflock-secure-action": "file:../../sdk/typescript"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "Apache-2.0"
+}

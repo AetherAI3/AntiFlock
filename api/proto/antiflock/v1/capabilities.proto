@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+enum CapabilityDomain {
+  CAPABILITY_DOMAIN_UNSPECIFIED = 0;
+  CAPABILITY_DOMAIN_MESH = 1;
+  CAPABILITY_DOMAIN_NETWORK = 2;
+  CAPABILITY_DOMAIN_DNS = 3;
+  CAPABILITY_DOMAIN_FLOW = 4;
+  CAPABILITY_DOMAIN_PROCESS = 5;
+  CAPABILITY_DOMAIN_FIREWALL = 6;
+  CAPABILITY_DOMAIN_IDENTITY = 7;
+  CAPABILITY_DOMAIN_CERTIFICATE = 8;
+  CAPABILITY_DOMAIN_NOTIFICATION = 9;
+  CAPABILITY_DOMAIN_ACTION_GATE = 10;
+  CAPABILITY_DOMAIN_SCRAMBLER = 11;
+}
+
+enum CapabilityOperation {
+  CAPABILITY_OPERATION_UNSPECIFIED = 0;
+  CAPABILITY_OPERATION_OBSERVE = 1;
+  CAPABILITY_OPERATION_ENFORCE = 2;
+  CAPABILITY_OPERATION_VERIFY = 3;
+  CAPABILITY_OPERATION_ROLLBACK = 4;
+}
+
+enum CapabilitySupportLevel {
+  CAPABILITY_SUPPORT_LEVEL_UNSPECIFIED = 0;
+  CAPABILITY_SUPPORT_LEVEL_UNSUPPORTED = 1;
+  CAPABILITY_SUPPORT_LEVEL_PARTIAL = 2;
+  CAPABILITY_SUPPORT_LEVEL_FULL = 3;
+  CAPABILITY_SUPPORT_LEVEL_EXPERIMENTAL = 4;
+}
+
+message Capability {
+  // Stable extensible key, for example network.route.observe.
+  string key = 1;
+  CapabilityDomain domain = 2;
+  repeated CapabilityOperation operations = 3;
+  CapabilitySupportLevel support_level = 4;
+  string implementation = 5;
+  string implementation_version = 6;
+  repeated string constraints = 7;
+  google.protobuf.Timestamp observed_at = 8;
+}
+
+message CapabilityManifest {
+  string node_id = 1;
+  uint64 revision = 2;
+  google.protobuf.Timestamp issued_at = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  repeated Capability capabilities = 5;
+  Signature signature = 6;
+}
+
+message CapabilityRequirement {
+  string key = 1;
+  repeated CapabilityOperation required_operations = 2;
+  CapabilitySupportLevel minimum_support_level = 3;
+}

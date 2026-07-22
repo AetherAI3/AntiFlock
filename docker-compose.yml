@@ -1,0 +1,143 @@
+name: antiflock
+
+services:
+  core:
+    build:
+      context: .
+      dockerfile: deploy/docker/core.Dockerfile
+    command: ["antiflock-core", "serve", "--config", "/etc/antiflock/config.yaml"]
+    environment:
+      ANTIFLOCK_LISTEN: 172.30.0.10:8787
+      ANTIFLOCK_DATA_DIR: /var/lib/antiflock
+      ANTIFLOCK_DEMO_MODE: "true"
+      ANTIFLOCK_DEMO_ALLOW_INSECURE_PRIVATE_HTTP: "true"
+      ANTIFLOCK_ALLOW_PUBLIC_BIND: "true"
+      ANTIFLOCK_OPERATOR_TOKEN: ${ANTIFLOCK_OPERATOR_TOKEN:?run node scripts/dev-env.mjs first}
+      ANTIFLOCK_SDK_TOKEN: ${ANTIFLOCK_SDK_TOKEN:?run node scripts/dev-env.mjs first}
+      ANTIFLOCK_AGENT_TOKEN: ${ANTIFLOCK_AGENT_TOKEN:?run node scripts/dev-env.mjs first}
+      ANTIFLOCK_SDK_APPLICATION_ID: ${ANTIFLOCK_SDK_APPLICATION_ID:?run node scripts/dev-env.mjs first}
+      # The demo SDK acts for the same node that the simulator enrolls.
+      ANTIFLOCK_SDK_NODE_ID: ${ANTIFLOCK_AGENT_NODE_ID:?run node scripts/dev-env.mjs first}
+      ANTIFLOCK_AGENT_NODE_ID: ${ANTIFLOCK_AGENT_NODE_ID:?run node scripts/dev-env.mjs first}
+    expose:
+      - "8787"
+    volumes:
+      # SQLite state is the Core container's only persistent writable path.
+      - antiflock-data:/var/lib/antiflock
+      - ./configs/demo.yaml:/etc/antiflock/config.yaml:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid,nodev
+    networks:
+      antiflock-demo:
+        ipv4_address: 172.30.0.10
+    healthcheck:
+      test: ["CMD", "antiflockctl", "health", "--url", "http://172.30.0.10:8787"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  simulator:
+    build:
+      context: .
+      dockerfile: deploy/docker/core.Dockerfile
+    command: ["antiflock-sim", "stream"]
+    environment: &simulator-environment
+      ANTIFLOCK_CORE_URL: http://172.30.0.10:8787
+      ANTIFLOCK_DEMO_MODE: "true"
+      ANTIFLOCK_OPERATOR_TOKEN: ${ANTIFLOCK_OPERATOR_TOKEN:?run node scripts/dev-env.mjs first}
+      ANTIFLOCK_AGENT_TOKEN: ${ANTIFLOCK_AGENT_TOKEN:?run node scripts/dev-env.mjs first}
+      ANTIFLOCK_SDK_TOKEN: ${ANTIFLOCK_SDK_TOKEN:?run node scripts/dev-env.mjs first}
+      ANTIFLOCK_SIM_NODE_ID: ${ANTIFLOCK_AGENT_NODE_ID:?run node scripts/dev-env.mjs first}
+      ANTIFLOCK_SIM_APPLICATION_ID: ${ANTIFLOCK_SDK_APPLICATION_ID:?run node scripts/dev-env.mjs first}
+      ANTIFLOCK_SIM_STATE_DIR: /var/lib/antiflock/simulator
+    volumes:
+      # Enrollment keys and stream checkpoints remain writable across restarts.
+      - antiflock-simulator-data:/var/lib/antiflock
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    tmpfs:
+      - /tmp:size=8m,mode=1777,noexec,nosuid,nodev
+    depends_on:
+      core:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - antiflock-demo
+
+  web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile
+    environment:
+      ANTIFLOCK_API_ORIGIN: http://172.30.0.10:8787
+      ANTIFLOCK_OPERATOR_TOKEN: ${ANTIFLOCK_OPERATOR_TOKEN:?run node scripts/dev-env.mjs first}
+      ANTIFLOCK_DASHBOARD_TOKEN: ${ANTIFLOCK_DASHBOARD_TOKEN:?run node scripts/dev-env.mjs first}
+    ports:
+      - "127.0.0.1:4173:4173"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid,nodev
+    depends_on:
+      core:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - antiflock-demo
+      # Docker does not publish host ports from an internal-only network. Keep
+      # Core on the isolated network and give only the authenticated dashboard
+      # a host-facing bridge, still bound exclusively to 127.0.0.1 above.
+      - dashboard-host
+
+  lab:
+    profiles: ["lab"]
+    build:
+      context: .
+      dockerfile: deploy/docker/core.Dockerfile
+    command: ["antiflock-sim", "coffee-shop", "--verify"]
+    environment: *simulator-environment
+    volumes:
+      # The one-shot lab reuses the simulator's durable enrollment identity.
+      - antiflock-simulator-data:/var/lib/antiflock
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    tmpfs:
+      - /tmp:size=8m,mode=1777,noexec,nosuid,nodev
+    depends_on:
+      core:
+        condition: service_healthy
+    networks:
+      - antiflock-demo
+
+volumes:
+  antiflock-data:
+  antiflock-simulator-data:
+
+networks:
+  antiflock-demo:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  dashboard-host:
+    driver: bridge

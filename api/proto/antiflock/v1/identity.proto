@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+enum PrincipalType {
+  PRINCIPAL_TYPE_UNSPECIFIED = 0;
+  PRINCIPAL_TYPE_OPERATOR = 1;
+  PRINCIPAL_TYPE_DELEGATE = 2;
+  PRINCIPAL_TYPE_APPLICATION = 3;
+  PRINCIPAL_TYPE_SERVICE = 4;
+}
+
+enum PrincipalStatus {
+  PRINCIPAL_STATUS_UNSPECIFIED = 0;
+  PRINCIPAL_STATUS_ACTIVE = 1;
+  PRINCIPAL_STATUS_SUSPENDED = 2;
+  PRINCIPAL_STATUS_REVOKED = 3;
+}
+
+enum CredentialStatus {
+  CREDENTIAL_STATUS_UNSPECIFIED = 0;
+  CREDENTIAL_STATUS_ACTIVE = 1;
+  CREDENTIAL_STATUS_EXPIRED = 2;
+  CREDENTIAL_STATUS_REVOKED = 3;
+}
+
+message DeploymentIdentity {
+  ResourceMetadata metadata = 1;
+  string display_name = 2;
+  string authority_key_id = 3;
+  bytes authority_certificate_der = 4;
+  string audit_key_id = 5;
+}
+
+message Principal {
+  ResourceMetadata metadata = 1;
+  string deployment_id = 2;
+  PrincipalType type = 3;
+  PrincipalStatus status = 4;
+  string display_name = 5;
+  repeated string roles = 6;
+}
+
+message CredentialMetadata {
+  string id = 1;
+  string subject_id = 2;
+  string key_id = 3;
+  string key_algorithm = 4;
+  bytes public_key = 5;
+  CredentialStatus status = 6;
+  google.protobuf.Timestamp issued_at = 7;
+  google.protobuf.Timestamp expires_at = 8;
+  google.protobuf.Timestamp revoked_at = 9;
+  string revocation_reason_code = 10;
+}
+
+message ProviderIdentityAssociation {
+  string provider = 1;
+  string provider_tenant_id = 2;
+  string provider_node_id = 3;
+  google.protobuf.Timestamp linked_at = 4;
+  google.protobuf.Timestamp last_verified_at = 5;
+  bool active = 6;
+}

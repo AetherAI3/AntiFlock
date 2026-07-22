@@ -1,0 +1,60 @@
+server:
+  listen: 127.0.0.1:8787
+  publicBaseURL: http://127.0.0.1:8787
+  trustedProxies: []
+  approvedBindCIDRs: []
+  tlsCertFile: ""
+  tlsKeyFile: ""
+
+storage:
+  path: ./data/antiflock.db
+  eventRetention: 336h
+  auditRetention: 0s
+
+identity:
+  stateDirectory: ./data/identity
+  enrollmentTokenTTL: 10m
+
+protection:
+  telemetryStaleAfter: 2m
+  requireMeshOnUntrustedNetworks: true
+  failMode: closed
+  allowOneTimeBypass: true
+  oneTimeBypassTTL: 5m
+  protectedActions:
+    - nodeIds: ["*"]
+      applicationIds: [aether-code]
+      actionTypes: [git.push]
+      dataClasses: [repository-source]
+      sensitivities: [SENSITIVITY_OPERATOR_PRIVATE]
+      allowedDestinations: [github.com]
+      consentRequired: false
+    - nodeIds: ["*"]
+      applicationIds: [antiflock-nano]
+      actionTypes: [scrambler.simulate]
+      dataClasses: [network-control]
+      sensitivities: [SENSITIVITY_OPERATOR_PRIVATE]
+      allowedDestinations: [local://scrambler/simulation]
+      consentRequired: true
+    - nodeIds: ["*"]
+      applicationIds: [antiflock-nano]
+      actionTypes: [watchdog.public_surface.query]
+      dataClasses: [owned-public-surface]
+      sensitivities: [SENSITIVITY_OPERATOR_PRIVATE]
+      allowedDestinations: [provider://fixture-shodan, provider://fixture-broker-registry, provider://fixture-paste-reference]
+      consentRequired: true
+    - nodeIds: ["*"]
+      applicationIds: [antiflock-nano]
+      actionTypes: [watchdog.countermeasure.plan]
+      dataClasses: [owned-public-surface]
+      sensitivities: [SENSITIVITY_OPERATOR_PRIVATE]
+      allowedDestinations: [local://countermeasure/plan]
+      consentRequired: true
+
+telemetry:
+  collectFlowMetadata: true
+  collectPayloads: false
+
+scrambler:
+  executionEnabled: false
+  simulationEnabled: true

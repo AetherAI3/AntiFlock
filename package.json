@@ -1,0 +1,31 @@
+{
+  "name": "antiflock",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted personal private-security operating layer",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "apps/web",
+    "apps/aether-demo",
+    "sdk/typescript"
+  ],
+  "scripts": {
+    "dev": "node scripts/compose.mjs dev",
+    "down": "node scripts/compose.mjs down",
+    "lab": "node scripts/compose.mjs lab",
+    "build": "node scripts/compose.mjs build",
+    "dev:env": "node scripts/dev-env.mjs",
+    "ci:install": "node scripts/install-js.mjs",
+    "format": "node scripts/format.mjs",
+    "lint": "node scripts/verify.mjs --lint-only",
+    "test:tooling": "node --test scripts/dev-environment.test.mjs",
+    "test:sdk:live": "node scripts/sdk-live-e2e.mjs",
+    "test": "node scripts/test-all.mjs",
+    "verify": "node scripts/verify.mjs",
+    "acceptance": "node scripts/acceptance.mjs",
+    "acceptance:strict": "node scripts/acceptance.mjs --strict"
+  },
+  "license": "Apache-2.0"
+}

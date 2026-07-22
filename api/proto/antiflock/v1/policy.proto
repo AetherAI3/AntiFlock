@@ -1,0 +1,137 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/common.proto";
+import "antiflock/v1/plan.proto";
+
+enum ProtectionMode {
+  PROTECTION_MODE_UNSPECIFIED = 0;
+  PROTECTION_MODE_OBSERVE = 1;
+  PROTECTION_MODE_ADVISE = 2;
+  PROTECTION_MODE_GUARD = 3;
+  PROTECTION_MODE_SCRAMBLE = 4;
+}
+
+enum FailMode {
+  FAIL_MODE_UNSPECIFIED = 0;
+  FAIL_MODE_CLOSED = 1;
+  FAIL_MODE_OPEN = 2;
+  FAIL_MODE_POLICY_DEFINED = 3;
+}
+
+enum EgressMode {
+  EGRESS_MODE_UNSPECIFIED = 0;
+  EGRESS_MODE_DIRECT = 1;
+  EGRESS_MODE_MESH = 2;
+  EGRESS_MODE_TRUSTED_EXIT = 3;
+  EGRESS_MODE_LOCAL_ONLY = 4;
+}
+
+enum DnsMode {
+  DNS_MODE_UNSPECIFIED = 0;
+  DNS_MODE_SYSTEM = 1;
+  DNS_MODE_PROTECTED = 2;
+  DNS_MODE_LOCAL_ONLY = 3;
+}
+
+enum BypassMode {
+  BYPASS_MODE_UNSPECIFIED = 0;
+  BYPASS_MODE_DENY = 1;
+  BYPASS_MODE_ONE_TIME = 2;
+  BYPASS_MODE_PERSISTENT_EXCEPTION_WITH_CONSENT = 3;
+}
+
+message MeshPolicy {
+  bool required = 1;
+  string provider = 2;
+}
+
+message EgressPolicy {
+  EgressMode mode = 1;
+  FailMode fail_mode = 2;
+  repeated string allowed_exit_node_ids = 3;
+  repeated string allowed_destinations = 4;
+  repeated string recovery_destinations = 5;
+}
+
+message DnsPolicy {
+  DnsMode mode = 1;
+  repeated string allowed_resolvers = 2;
+  bool require_path_verification = 3;
+}
+
+message NetworkPolicy {
+  bool require_mesh_on_untrusted = 1;
+  BypassMode untrusted_network_bypass = 2;
+  bool block_open_wifi_without_mesh = 3;
+}
+
+message ProtectedActionPolicy {
+  repeated string data_classes = 1;
+  repeated string application_ids = 2;
+  repeated string allowed_destinations = 3;
+  bool require_protected_state = 4;
+  BypassMode bypass_mode = 5;
+}
+
+message TelemetryPolicy {
+  bool flow_metadata = 1;
+  // Payload capture is false by contract for the standard installation. V1
+  // validators reject true until a separately reviewed opt-in contract exists.
+  bool payload_capture = 2;
+  uint32 retention_days = 3;
+}
+
+message ScramblerPolicy {
+  bool enabled = 1;
+  string profile = 2;
+  repeated string allowed_dimensions = 3;
+  bool require_operator_consent = 4;
+}
+
+message ProtectionProfile {
+  ResourceMetadata metadata = 1;
+  string api_version = 2;
+  ProtectionMode mode = 3;
+  MeshPolicy mesh = 4;
+  EgressPolicy egress = 5;
+  DnsPolicy dns = 6;
+  NetworkPolicy networks = 7;
+  repeated ProtectedActionPolicy actions = 8;
+  TelemetryPolicy telemetry = 9;
+  ScramblerPolicy scrambler = 10;
+}
+
+message PolicyViolation {
+  string reason_code = 1;
+  string field = 2;
+  string safe_message = 3;
+  bool warning = 4;
+}
+
+message ValidatePolicyRequest {
+  ProtectionProfile profile = 1;
+}
+
+message ValidatePolicyResponse {
+  bool valid = 1;
+  repeated PolicyViolation violations = 2;
+}
+
+message CompilePolicyRequest {
+  ProtectionProfile profile = 1;
+  repeated string node_ids = 2;
+  bool dry_run_only = 3;
+  string operation_id = 4;
+}
+
+message CompilePolicyResponse {
+  repeated Plan plans = 1;
+  repeated PolicyViolation violations = 2;
+}
+
+service PolicyService {
+  rpc ValidatePolicy(ValidatePolicyRequest) returns (ValidatePolicyResponse);
+  rpc CompilePolicy(CompilePolicyRequest) returns (CompilePolicyResponse);
+}

@@ -1,0 +1,138 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/common.proto";
+import "antiflock/v1/evidence.proto";
+import "google/protobuf/timestamp.proto";
+
+enum FootprintAssetType {
+  FOOTPRINT_ASSET_TYPE_UNSPECIFIED = 0;
+  FOOTPRINT_ASSET_TYPE_DEVICE = 1;
+  FOOTPRINT_ASSET_TYPE_EMAIL_ADDRESS = 2;
+  FOOTPRINT_ASSET_TYPE_PHONE_NUMBER = 3;
+  FOOTPRINT_ASSET_TYPE_USERNAME = 4;
+  FOOTPRINT_ASSET_TYPE_DOMAIN = 5;
+  FOOTPRINT_ASSET_TYPE_PUBLIC_IP_ADDRESS = 6;
+  FOOTPRINT_ASSET_TYPE_CLOUD_SERVICE = 7;
+  FOOTPRINT_ASSET_TYPE_CODE_REPOSITORY = 8;
+  FOOTPRINT_ASSET_TYPE_SOCIAL_PROFILE = 9;
+  FOOTPRINT_ASSET_TYPE_PUBLIC_CERTIFICATE = 10;
+  FOOTPRINT_ASSET_TYPE_HOSTED_APPLICATION = 11;
+  FOOTPRINT_ASSET_TYPE_PUBLIC_SERVICE = 12;
+  FOOTPRINT_ASSET_TYPE_API_ENDPOINT = 13;
+  FOOTPRINT_ASSET_TYPE_DATA_BROKER_RECORD = 14;
+  FOOTPRINT_ASSET_TYPE_BREACH_REFERENCE = 15;
+  FOOTPRINT_ASSET_TYPE_ADVERTISING_IDENTIFIER = 16;
+  FOOTPRINT_ASSET_TYPE_ANALYTICS_RELATIONSHIP = 17;
+}
+
+enum OwnershipVerificationMethod {
+  OWNERSHIP_VERIFICATION_METHOD_UNSPECIFIED = 0;
+  OWNERSHIP_VERIFICATION_METHOD_DNS_CHALLENGE = 1;
+  OWNERSHIP_VERIFICATION_METHOD_EMAIL_CHALLENGE = 2;
+  OWNERSHIP_VERIFICATION_METHOD_REPOSITORY_AUTHORIZATION = 3;
+  OWNERSHIP_VERIFICATION_METHOD_DEVICE_CONFIRMATION = 4;
+  OWNERSHIP_VERIFICATION_METHOD_CLOUD_CONNECTOR = 5;
+  OWNERSHIP_VERIFICATION_METHOD_OPERATOR_DECLARATION = 6;
+  OWNERSHIP_VERIFICATION_METHOD_EXPLICIT_DELEGATION = 7;
+}
+
+enum OwnershipVerificationStatus {
+  OWNERSHIP_VERIFICATION_STATUS_UNSPECIFIED = 0;
+  OWNERSHIP_VERIFICATION_STATUS_PENDING = 1;
+  OWNERSHIP_VERIFICATION_STATUS_VERIFIED = 2;
+  OWNERSHIP_VERIFICATION_STATUS_EXPIRED = 3;
+  OWNERSHIP_VERIFICATION_STATUS_REVOKED = 4;
+  OWNERSHIP_VERIFICATION_STATUS_FAILED = 5;
+}
+
+enum FootprintRelationshipType {
+  FOOTPRINT_RELATIONSHIP_TYPE_UNSPECIFIED = 0;
+  FOOTPRINT_RELATIONSHIP_TYPE_OWNS = 1;
+  FOOTPRINT_RELATIONSHIP_TYPE_USES = 2;
+  FOOTPRINT_RELATIONSHIP_TYPE_HOSTS = 3;
+  FOOTPRINT_RELATIONSHIP_TYPE_RESOLVES_TO = 4;
+  FOOTPRINT_RELATIONSHIP_TYPE_PRESENTS_CERTIFICATE = 5;
+  FOOTPRINT_RELATIONSHIP_TYPE_EXPOSES_SERVICE = 6;
+  FOOTPRINT_RELATIONSHIP_TYPE_ASSOCIATED_PUBLICLY = 7;
+  FOOTPRINT_RELATIONSHIP_TYPE_CONTACTS = 8;
+  FOOTPRINT_RELATIONSHIP_TYPE_PROCESSED_BY = 9;
+  FOOTPRINT_RELATIONSHIP_TYPE_REFERENCED_IN_BREACH = 10;
+}
+
+message OwnershipVerification {
+  string id = 1;
+  OwnershipVerificationMethod method = 2;
+  OwnershipVerificationStatus status = 3;
+  string authorized_principal_id = 4;
+  google.protobuf.Timestamp verified_at = 5;
+  google.protobuf.Timestamp expires_at = 6;
+  google.protobuf.Timestamp revoked_at = 7;
+  repeated EvidenceReference evidence = 8;
+}
+
+message FootprintAsset {
+  ResourceMetadata metadata = 1;
+  FootprintAssetType type = 2;
+  // Display value may be redacted; connectors should use an opaque local ID.
+  string display_value = 3;
+  string normalized_value_hash = 4;
+  Sensitivity sensitivity = 5;
+  OwnershipVerification ownership = 6;
+  repeated EvidenceReference evidence = 7;
+  google.protobuf.Timestamp last_checked_at = 8;
+}
+
+message FootprintRelationship {
+  ResourceMetadata metadata = 1;
+  string source_asset_id = 2;
+  string target_asset_id = 3;
+  FootprintRelationshipType type = 4;
+  EvidenceClass classification = 5;
+  float confidence = 6;
+  repeated EvidenceReference evidence = 7;
+  google.protobuf.Timestamp first_seen_at = 8;
+  google.protobuf.Timestamp last_seen_at = 9;
+  google.protobuf.Timestamp expires_at = 10;
+}
+
+message AddFootprintAssetRequest {
+  FootprintAsset asset = 1;
+  string operation_id = 2;
+  // This is a scope attestation, not proof. No connector, enrichment, or scan
+  // may run until ownership status is VERIFIED by an approved method.
+  bool authority_confirmed = 3;
+}
+
+message AddFootprintAssetResponse {
+  FootprintAsset asset = 1;
+}
+
+message VerifyFootprintAssetRequest {
+  string asset_id = 1;
+  OwnershipVerificationMethod method = 2;
+  string challenge_response = 3;
+  string operation_id = 4;
+}
+
+message VerifyFootprintAssetResponse {
+  FootprintAsset asset = 1;
+}
+
+message ListFootprintRequest {
+  repeated FootprintAssetType asset_types = 1;
+  PageRequest page = 2;
+}
+
+message ListFootprintResponse {
+  repeated FootprintAsset assets = 1;
+  repeated FootprintRelationship relationships = 2;
+  PageResponse page = 3;
+}
+
+service FootprintService {
+  rpc AddFootprintAsset(AddFootprintAssetRequest) returns (AddFootprintAssetResponse);
+  rpc VerifyFootprintAsset(VerifyFootprintAssetRequest) returns (VerifyFootprintAssetResponse);
+  rpc ListFootprint(ListFootprintRequest) returns (ListFootprintResponse);
+}

@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/capabilities.proto";
+import "antiflock/v1/node.proto";
+import "google/protobuf/timestamp.proto";
+
+enum EnrollmentStatus {
+  ENROLLMENT_STATUS_UNSPECIFIED = 0;
+  ENROLLMENT_STATUS_PENDING = 1;
+  ENROLLMENT_STATUS_APPROVED = 2;
+  ENROLLMENT_STATUS_DENIED = 3;
+  ENROLLMENT_STATUS_EXPIRED = 4;
+  ENROLLMENT_STATUS_CONSUMED = 5;
+}
+
+message EnrollmentTokenDescriptor {
+  string id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  google.protobuf.Timestamp consumed_at = 4;
+  string created_by_principal_id = 5;
+  NodeType allowed_node_type = 6;
+  repeated string allowed_tags = 7;
+  EnrollmentStatus status = 8;
+}
+
+message CreateEnrollmentTokenRequest {
+  google.protobuf.Timestamp expires_at = 1;
+  NodeType allowed_node_type = 2;
+  repeated string allowed_tags = 3;
+  string operation_id = 4;
+}
+
+message CreateEnrollmentTokenResponse {
+  EnrollmentTokenDescriptor token = 1;
+  // Returned once. Servers store only a verifier, never this plaintext value.
+  string token_value = 2;
+}
+
+message EnrollNodeRequest {
+  string token_value = 1;
+  string request_id = 2;
+  string display_name = 3;
+  NodeType node_type = 4;
+  string platform = 5;
+  string platform_version = 6;
+  string key_algorithm = 7;
+  bytes public_key = 8;
+  bytes proof_of_possession = 9;
+  bytes certificate_signing_request_der = 10;
+  CapabilityManifest capabilities = 11;
+  // Optional operator-reviewed stable id for unattended bootstrap. It is
+  // covered by proof_of_possession and must never replace an existing or
+  // previously burned node identity.
+  string requested_node_id = 12;
+}
+
+message EnrollmentRequest {
+  string id = 1;
+  string token_id = 2;
+  EnrollmentStatus status = 3;
+  string proposed_node_id = 4;
+  string display_name = 5;
+  NodeType node_type = 6;
+  bytes public_key = 7;
+  CapabilityManifest capabilities = 8;
+  google.protobuf.Timestamp requested_at = 9;
+  google.protobuf.Timestamp expires_at = 10;
+  string decision_reason_code = 11;
+}
+
+message EnrollNodeResponse {
+  EnrollmentRequest enrollment = 1;
+  Node node = 2;
+  bytes node_certificate_chain_der = 3;
+  string agent_endpoint = 4;
+}
+
+message ApproveEnrollmentRequest {
+  string enrollment_id = 1;
+  string operation_id = 2;
+  string reason_code = 3;
+  repeated string approved_tags = 4;
+}
+
+message ApproveEnrollmentResponse {
+  EnrollmentRequest enrollment = 1;
+  Node node = 2;
+  bytes node_certificate_chain_der = 3;
+  string agent_endpoint = 4;
+}
+
+message DenyEnrollmentRequest {
+  string enrollment_id = 1;
+  string operation_id = 2;
+  string reason_code = 3;
+}
+
+message DenyEnrollmentResponse {
+  EnrollmentRequest enrollment = 1;
+}
+
+service EnrollmentService {
+  rpc CreateEnrollmentToken(CreateEnrollmentTokenRequest) returns (CreateEnrollmentTokenResponse);
+  rpc EnrollNode(EnrollNodeRequest) returns (EnrollNodeResponse);
+  rpc ApproveEnrollment(ApproveEnrollmentRequest) returns (ApproveEnrollmentResponse);
+  rpc DenyEnrollment(DenyEnrollmentRequest) returns (DenyEnrollmentResponse);
+}

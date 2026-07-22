@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/common.proto";
+import "antiflock/v1/evidence.proto";
+import "antiflock/v1/node.proto";
+import "antiflock/v1/observation.proto";
+import "antiflock/v1/plan.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+// EventEnvelope is immutable. Corrections are new events that reference the
+// original event through causation_id or payload fields.
+message EventEnvelope {
+  string id = 1;
+  string schema_version = 2;
+  string deployment_id = 3;
+  string node_id = 4;
+  // Stable lower-case kind such as network.route_changed.
+  string kind = 5;
+  google.protobuf.Timestamp observed_at = 6;
+  google.protobuf.Timestamp received_at = 7;
+  uint64 sequence = 8;
+  string boot_id = 9;
+  EvidenceClass classification = 10;
+  float confidence = 11;
+  Sensitivity sensitivity = 12;
+  google.protobuf.Any payload = 13;
+  repeated EvidenceReference evidence = 14;
+  string correlation_id = 15;
+  string causation_id = 16;
+  IntegrityDigest payload_digest = 17;
+  Signature source_signature = 18;
+}
+
+message EventBatch {
+  string batch_id = 1;
+  string node_id = 2;
+  repeated EventEnvelope events = 3;
+}
+
+message RejectedEvent {
+  string event_id = 1;
+  string reason_code = 2;
+  string safe_message = 3;
+}
+
+message EventBatchAck {
+  string batch_id = 1;
+  uint64 highest_contiguous_sequence = 2;
+  repeated RejectedEvent rejected = 3;
+  google.protobuf.Timestamp received_at = 4;
+}
+
+message SubmitEventBatchRequest {
+  EventBatch batch = 1;
+}
+
+message SubmitEventBatchResponse {
+  EventBatchAck ack = 1;
+}
+
+message SubmitSnapshotRequest {
+  string request_id = 1;
+  ObservationSnapshot snapshot = 2;
+}
+
+message SubmitSnapshotResponse {
+  string request_id = 1;
+  string snapshot_id = 2;
+  google.protobuf.Timestamp received_at = 3;
+}
+
+message AgentToCoreFrame {
+  string frame_id = 1;
+  oneof body {
+    NodeHeartbeat heartbeat = 2;
+    EventBatch event_batch = 3;
+    PlanExecutionResult plan_result = 4;
+  }
+}
+
+message CoreToAgentFrame {
+  string frame_id = 1;
+  oneof body {
+    EventBatchAck event_ack = 2;
+    Plan plan = 3;
+    ApiError error = 4;
+  }
+}
+
+message ConnectRequest {
+  AgentToCoreFrame frame = 1;
+}
+
+message ConnectResponse {
+  CoreToAgentFrame frame = 1;
+}
+
+message ListEventsRequest {
+  string cursor = 1;
+  uint32 limit = 2;
+  repeated string kinds = 3;
+  string node_id = 4;
+  google.protobuf.Timestamp observed_after = 5;
+}
+
+message ListEventsResponse {
+  repeated EventEnvelope events = 1;
+  string next_cursor = 2;
+}
+
+service TelemetryService {
+  rpc SubmitEventBatch(SubmitEventBatchRequest) returns (SubmitEventBatchResponse);
+  rpc SubmitSnapshot(SubmitSnapshotRequest) returns (SubmitSnapshotResponse);
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+}
+
+service AgentControlService {
+  rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
+}

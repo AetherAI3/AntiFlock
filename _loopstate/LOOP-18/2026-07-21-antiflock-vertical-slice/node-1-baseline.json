@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "loop.checkpoint/v1",
+  "runId": "2026-07-21-antiflock-vertical-slice",
+  "loopId": "LOOP-18",
+  "node": 1,
+  "target": "C:\\Users\\dkbar\\AntiFlock",
+  "branch": "loop/LOOP-18-2026-07-21",
+  "measuredAt": "2026-07-22T03:30:14.162Z",
+  "harness": "node scripts/acceptance.mjs",
+  "metric": "locked_vertical_slice_gates_passed",
+  "direction": "higher-is-better",
+  "value": 0,
+  "total": 10,
+  "tolerance": 0,
+  "runs": 1,
+  "varianceRationale": "The gate count is deterministic and integer-valued; identical repository state produces the same result.",
+  "environment": {
+    "platform": "win32",
+    "architecture": "x64",
+    "node": "v25.9.0",
+    "goAvailable": false,
+    "dockerAvailable": true
+  },
+  "result": "PASS",
+  "confidence_block": {
+    "confidence": 0.99,
+    "risk": "low",
+    "evidence": [
+      "fresh-harness-execution",
+      "git-status-clean-before-harness-bootstrap",
+      "locked-brief-acceptance-gates"
+    ],
+    "unknown": [
+      "Dynamic implementation gates cannot execute until their prerequisites exist."
+    ],
+    "missing_evidence": [
+      "None for the zero-gate baseline."
+    ]
+  }
+}

@@ -1,0 +1,149 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/evidence.proto";
+import "antiflock/v1/plan.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+enum ScramblerDimension {
+  SCRAMBLER_DIMENSION_UNSPECIFIED = 0;
+  SCRAMBLER_DIMENSION_EXIT_NODE = 1;
+  SCRAMBLER_DIMENSION_DNS_PROFILE = 2;
+  SCRAMBLER_DIMENSION_RELAY_PREFERENCE = 3;
+  SCRAMBLER_DIMENSION_ROUTE_SET = 4;
+  SCRAMBLER_DIMENSION_SERVICE_INSTANCE = 5;
+  SCRAMBLER_DIMENSION_OVERLAY_ADDRESS = 6;
+  SCRAMBLER_DIMENSION_KEY_EPOCH = 7;
+}
+
+enum ScramblerLifecycleState {
+  SCRAMBLER_LIFECYCLE_STATE_UNSPECIFIED = 0;
+  SCRAMBLER_LIFECYCLE_STATE_IDLE = 1;
+  SCRAMBLER_LIFECYCLE_STATE_PLANNING = 2;
+  SCRAMBLER_LIFECYCLE_STATE_PREFLIGHT = 3;
+  SCRAMBLER_LIFECYCLE_STATE_DRAINING = 4;
+  SCRAMBLER_LIFECYCLE_STATE_APPLYING = 5;
+  SCRAMBLER_LIFECYCLE_STATE_VERIFYING = 6;
+  SCRAMBLER_LIFECYCLE_STATE_ACTIVE = 7;
+  SCRAMBLER_LIFECYCLE_STATE_ROLLING_BACK = 8;
+  SCRAMBLER_LIFECYCLE_STATE_RECOVERY_REQUIRED = 9;
+}
+
+enum ScramblerCandidateStatus {
+  SCRAMBLER_CANDIDATE_STATUS_UNSPECIFIED = 0;
+  SCRAMBLER_CANDIDATE_STATUS_PROPOSED = 1;
+  SCRAMBLER_CANDIDATE_STATUS_PREFLIGHT_PASSED = 2;
+  SCRAMBLER_CANDIDATE_STATUS_REJECTED = 3;
+  SCRAMBLER_CANDIDATE_STATUS_SELECTED = 4;
+}
+
+message ScramblerStateValue {
+  ScramblerDimension dimension = 1;
+  string stable_reference = 2;
+  google.protobuf.Struct parameters = 3;
+}
+
+message ScramblerState {
+  string id = 1;
+  string node_id = 2;
+  ScramblerLifecycleState lifecycle_state = 3;
+  repeated ScramblerStateValue values = 4;
+  google.protobuf.Timestamp active_since = 5;
+  google.protobuf.Timestamp verified_at = 6;
+  string active_transition_id = 7;
+  repeated string reason_codes = 8;
+}
+
+message ScramblerConstraints {
+  repeated ScramblerDimension allowed_dimensions = 1;
+  repeated string approved_exit_node_ids = 2;
+  repeated string approved_dns_profile_ids = 3;
+  repeated string critical_peer_ids = 4;
+  repeated string required_destinations = 5;
+  google.protobuf.Duration maximum_transition_latency = 6;
+  bool operator_consent_required = 7;
+}
+
+message ScramblerCandidate {
+  string id = 1;
+  string previous_state_id = 2;
+  repeated ScramblerStateValue proposed_values = 3;
+  ScramblerCandidateStatus status = 4;
+  repeated string rejection_reason_codes = 5;
+  google.protobuf.Duration estimated_disruption = 6;
+  repeated EvidenceReference evidence = 7;
+}
+
+message ScramblerSimulation {
+  string id = 1;
+  string node_id = 2;
+  string current_state_id = 3;
+  ScramblerConstraints constraints = 4;
+  repeated ScramblerCandidate candidates = 5;
+  google.protobuf.Timestamp simulated_at = 6;
+  google.protobuf.Timestamp expires_at = 7;
+  string selected_candidate_id = 8;
+}
+
+message ScramblerTransition {
+  string id = 1;
+  string simulation_id = 2;
+  string candidate_id = 3;
+  ScramblerLifecycleState state = 4;
+  Plan plan = 5;
+  string previous_state_id = 6;
+  string resulting_state_id = 7;
+  repeated CheckResult verification_results = 8;
+  google.protobuf.Timestamp started_at = 9;
+  google.protobuf.Timestamp completed_at = 10;
+  string reason_code = 11;
+}
+
+message GetScramblerStateRequest {
+  string node_id = 1;
+}
+
+message GetScramblerStateResponse {
+  ScramblerState state = 1;
+}
+
+message SimulateScramblerRequest {
+  string node_id = 1;
+  ScramblerConstraints constraints = 2;
+  string operation_id = 3;
+}
+
+message SimulateScramblerResponse {
+  ScramblerSimulation simulation = 1;
+}
+
+message ActivateScramblerRequest {
+  string simulation_id = 1;
+  string candidate_id = 2;
+  string operation_id = 3;
+  bool operator_consent = 4;
+}
+
+message ActivateScramblerResponse {
+  ScramblerTransition transition = 1;
+}
+
+message RollbackScramblerRequest {
+  string transition_id = 1;
+  string operation_id = 2;
+  string reason_code = 3;
+}
+
+message RollbackScramblerResponse {
+  ScramblerTransition transition = 1;
+}
+
+service ScramblerService {
+  rpc GetScramblerState(GetScramblerStateRequest) returns (GetScramblerStateResponse);
+  rpc SimulateScrambler(SimulateScramblerRequest) returns (SimulateScramblerResponse);
+  rpc ActivateScrambler(ActivateScramblerRequest) returns (ActivateScramblerResponse);
+  rpc RollbackScrambler(RollbackScramblerRequest) returns (RollbackScramblerResponse);
+}

@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package antiflock.v1;
+
+import "antiflock/v1/common.proto";
+import "antiflock/v1/posture.proto";
+import "google/protobuf/timestamp.proto";
+
+enum SecureActionDecisionType {
+  SECURE_ACTION_DECISION_TYPE_UNSPECIFIED = 0;
+  SECURE_ACTION_DECISION_TYPE_ALLOW = 1;
+  SECURE_ACTION_DECISION_TYPE_HOLD = 2;
+  SECURE_ACTION_DECISION_TYPE_BLOCK = 3;
+  SECURE_ACTION_DECISION_TYPE_REQUIRE_CONSENT = 4;
+  SECURE_ACTION_DECISION_TYPE_ALLOW_ONCE = 5;
+}
+
+enum SecureActionStatus {
+  SECURE_ACTION_STATUS_UNSPECIFIED = 0;
+  SECURE_ACTION_STATUS_EVALUATING = 1;
+  SECURE_ACTION_STATUS_HELD = 2;
+  SECURE_ACTION_STATUS_ALLOWED = 3;
+  SECURE_ACTION_STATUS_BLOCKED = 4;
+  SECURE_ACTION_STATUS_BYPASSED = 5;
+  SECURE_ACTION_STATUS_EXPIRED = 6;
+  SECURE_ACTION_STATUS_COMPLETED = 7;
+  SECURE_ACTION_STATUS_CANCELLED = 8;
+}
+
+message SecureActionRequest {
+  string id = 1;
+  string application_id = 2;
+  string node_id = 3;
+  string action_type = 4;
+  repeated string destinations = 5;
+  string data_class = 6;
+  Sensitivity sensitivity = 7;
+  google.protobuf.Timestamp deadline = 8;
+  string operation_id = 9;
+}
+
+message SecureActionDecision {
+  string action_id = 1;
+  SecureActionDecisionType decision = 2;
+  SecureActionStatus status = 3;
+  ProtectionSnapshot protection = 4;
+  repeated string reason_codes = 5;
+  // Opaque, scoped, single-use authorization; absent unless consent occurred.
+  string authorization = 6;
+  google.protobuf.Timestamp expires_at = 7;
+  string user_message = 8;
+  string recommended_response = 9;
+  // Opaque keyed binding to the complete request, verdict, and protection
+  // snapshot evaluated for this decision.
+  // AuthorizeSecureAction implementations must reject a missing or mismatched
+  // binding rather than trusting caller-supplied request fields.
+  string request_binding = 10;
+}
+
+message EvaluateSecureActionRequest {
+  SecureActionRequest action = 1;
+}
+
+message EvaluateSecureActionResponse {
+  SecureActionDecision decision = 1;
+}
+
+message AuthorizeSecureActionRequest {
+  string action_id = 1;
+  string operation_id = 2;
+  repeated string authorized_destinations = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  string consent_reason_code = 5;
+}
+
+message AuthorizeSecureActionResponse {
+  SecureActionDecision decision = 1;
+}
+
+service ActionGateService {
+  rpc EvaluateSecureAction(EvaluateSecureActionRequest) returns (EvaluateSecureActionResponse);
+  rpc AuthorizeSecureAction(AuthorizeSecureActionRequest) returns (AuthorizeSecureActionResponse);
+}
