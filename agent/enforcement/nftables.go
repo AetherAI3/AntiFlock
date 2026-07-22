@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -24,12 +25,15 @@ type NftablesRunner interface {
 	Run(context.Context, string, []string, []byte) error
 }
 
-// NftablesExecRunner invokes exactly nft -f -. It discards command output so
-// provider or host details cannot be copied into safe API messages.
+// NftablesExecRunner invokes exactly a trusted system nft binary with -f -.
+// It discards command output so provider or host details cannot be copied into
+// safe API messages.
 type NftablesExecRunner struct{}
 
+func (NftablesExecRunner) requiresTrustedNftExecutable() {}
+
 func (NftablesExecRunner) Run(ctx context.Context, executable string, arguments []string, input []byte) error {
-	if !isNftExecutable(executable) || !slicesEqual(arguments, []string{"-f", "-"}) || len(input) == 0 || len(input) > 64*1024 {
+	if validateTrustedNftExecutable(executable) != nil || !slicesEqual(arguments, []string{"-f", "-"}) || len(input) == 0 || len(input) > 64*1024 {
 		return errors.New("nftables runner rejected an unsupported command")
 	}
 	command := exec.CommandContext(ctx, executable, arguments...)
@@ -81,8 +85,11 @@ func NewNftablesAdapter(runner NftablesRunner, config NftablesConfig) (*Nftables
 	if config.TableName == "" {
 		config.TableName = "antiflock_guard"
 	}
-	if !isNftExecutable(config.Executable) || !validNftIdentifier(config.TableName) {
+	if !isNftExecutableName(config.Executable) || !validNftIdentifier(config.TableName) {
 		return nil, errors.New("nftables executable or table name is invalid")
+	}
+	if config.EnableApply && nftRunnerRequiresTrustedExecutable(runner) && validateTrustedNftExecutable(config.Executable) != nil {
+		return nil, errors.New("nftables apply requires a trusted absolute system executable")
 	}
 	return &NftablesAdapter{
 		runner: runner, executable: config.Executable, tableName: config.TableName, enableApply: config.EnableApply,
@@ -250,9 +257,75 @@ func validNftIdentifier(value string) bool {
 	return true
 }
 
-func isNftExecutable(value string) bool {
+func isNftExecutableName(value string) bool {
 	base := strings.ToLower(filepath.Base(value))
 	return base == "nft" || base == "nft.exe"
+}
+
+type trustedNftExecutableRunner interface {
+	requiresTrustedNftExecutable()
+}
+
+func nftRunnerRequiresTrustedExecutable(runner NftablesRunner) bool {
+	_, required := runner.(trustedNftExecutableRunner)
+	return required
+}
+
+// validateTrustedNftExecutable rejects PATH lookup, symlinks, non-system
+// locations, mutable binaries, and mutable path components. A root-owned,
+// canonical system path prevents an unprivileged process from replacing the
+// executable after validation and before exec.CommandContext opens it.
+func validateTrustedNftExecutable(value string) error {
+	if !filepath.IsAbs(value) || filepath.Clean(value) != value {
+		return errors.New("nftables executable must be an absolute canonical path")
+	}
+	if !isTrustedNftSystemPath(filepath.ToSlash(value)) {
+		return errors.New("nftables executable is outside trusted system paths")
+	}
+	resolved, err := filepath.EvalSymlinks(value)
+	if err != nil || resolved != value {
+		return errors.New("nftables executable must not traverse symlinks")
+	}
+	info, err := os.Lstat(value)
+	if err != nil || validateTrustedNftFileMetadata(info.Mode(), nftFileOwnedByRoot(info)) != nil {
+		return errors.New("nftables executable ownership or permissions are unsafe")
+	}
+
+	for directory := filepath.Dir(value); ; directory = filepath.Dir(directory) {
+		info, err = os.Lstat(directory)
+		if err != nil || validateTrustedNftDirectoryMetadata(info.Mode(), nftFileOwnedByRoot(info)) != nil {
+			return errors.New("nftables executable path ownership or permissions are unsafe")
+		}
+		parent := filepath.Dir(directory)
+		if parent == directory {
+			break
+		}
+	}
+	return nil
+}
+
+func isTrustedNftSystemPath(value string) bool {
+	switch value {
+	case "/bin/nft", "/sbin/nft", "/usr/bin/nft", "/usr/sbin/nft":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateTrustedNftFileMetadata(mode os.FileMode, ownedByRoot bool) error {
+	unsafeSpecialBits := os.ModeSetuid | os.ModeSetgid | os.ModeSticky
+	if !ownedByRoot || !mode.IsRegular() || mode.Perm()&0o111 == 0 || mode.Perm()&0o022 != 0 || mode&unsafeSpecialBits != 0 {
+		return errors.New("unsafe nftables executable metadata")
+	}
+	return nil
+}
+
+func validateTrustedNftDirectoryMetadata(mode os.FileMode, ownedByRoot bool) error {
+	if !ownedByRoot || !mode.IsDir() || mode.Perm()&0o022 != 0 {
+		return errors.New("unsafe nftables executable directory metadata")
+	}
+	return nil
 }
 
 func slicesEqual(left, right []string) bool {

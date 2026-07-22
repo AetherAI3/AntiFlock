@@ -3,6 +3,7 @@ package enforcement
 import (
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -110,6 +111,70 @@ func TestNftablesRejectsHostnamesInjectionAndArbitraryCommands(t *testing.T) {
 	}
 	if err := runner.Run(context.Background(), "nft", []string{"list", "ruleset"}, []byte("ignored")); err == nil {
 		t.Fatal("arbitrary nft arguments were accepted")
+	}
+}
+
+func TestNftablesExecRunnerRejectsPathLookupAndUntrustedLocations(t *testing.T) {
+	t.Parallel()
+	input := []byte("add table inet antiflock_guard\n")
+	runner := NftablesExecRunner{}
+	for _, executable := range []string{"nft", "./nft", "/tmp/nft", "/usr/sbin/../sbin/nft"} {
+		if err := runner.Run(context.Background(), executable, []string{"-f", "-"}, input); err == nil {
+			t.Fatalf("untrusted executable %q was accepted", executable)
+		}
+	}
+	if _, err := NewNftablesAdapter(runner, NftablesConfig{EnableApply: true}); err == nil {
+		t.Fatal("production runner accepted the PATH-resolved default executable")
+	}
+	if _, err := NewNftablesAdapter(&runner, NftablesConfig{EnableApply: true}); err == nil {
+		t.Fatal("production runner pointer accepted the PATH-resolved default executable")
+	}
+}
+
+func TestTrustedNftMetadataRequiresRootOwnedNonWritableExecutable(t *testing.T) {
+	t.Parallel()
+	fileCases := []struct {
+		name  string
+		mode  os.FileMode
+		root  bool
+		valid bool
+	}{
+		{name: "safe", mode: 0o755, root: true, valid: true},
+		{name: "not root owned", mode: 0o755, root: false},
+		{name: "group writable", mode: 0o775, root: true},
+		{name: "world writable", mode: 0o757, root: true},
+		{name: "not executable", mode: 0o644, root: true},
+		{name: "setuid", mode: os.ModeSetuid | 0o755, root: true},
+		{name: "setgid", mode: os.ModeSetgid | 0o755, root: true},
+		{name: "directory", mode: os.ModeDir | 0o755, root: true},
+	}
+	for _, testCase := range fileCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := validateTrustedNftFileMetadata(testCase.mode, testCase.root)
+			if (err == nil) != testCase.valid {
+				t.Fatalf("validation error = %v, want valid %t", err, testCase.valid)
+			}
+		})
+	}
+
+	directoryCases := []struct {
+		name  string
+		mode  os.FileMode
+		root  bool
+		valid bool
+	}{
+		{name: "safe", mode: os.ModeDir | 0o755, root: true, valid: true},
+		{name: "not root owned", mode: os.ModeDir | 0o755, root: false},
+		{name: "group writable", mode: os.ModeDir | 0o775, root: true},
+		{name: "regular file", mode: 0o755, root: true},
+	}
+	for _, testCase := range directoryCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := validateTrustedNftDirectoryMetadata(testCase.mode, testCase.root)
+			if (err == nil) != testCase.valid {
+				t.Fatalf("validation error = %v, want valid %t", err, testCase.valid)
+			}
+		})
 	}
 }
 

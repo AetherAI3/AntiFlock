@@ -22,8 +22,17 @@ services:
     expose:
       - "8787"
     volumes:
+      # SQLite state is the Core container's only persistent writable path.
       - antiflock-data:/var/lib/antiflock
       - ./configs/demo.yaml:/etc/antiflock/config.yaml:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid,nodev
     networks:
       antiflock-demo:
         ipv4_address: 172.30.0.10
@@ -50,7 +59,16 @@ services:
       ANTIFLOCK_SIM_APPLICATION_ID: ${ANTIFLOCK_SDK_APPLICATION_ID:?run node scripts/dev-env.mjs first}
       ANTIFLOCK_SIM_STATE_DIR: /var/lib/antiflock/simulator
     volumes:
+      # Enrollment keys and stream checkpoints remain writable across restarts.
       - antiflock-simulator-data:/var/lib/antiflock
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    tmpfs:
+      - /tmp:size=8m,mode=1777,noexec,nosuid,nodev
     depends_on:
       core:
         condition: service_healthy
@@ -68,6 +86,14 @@ services:
       ANTIFLOCK_DASHBOARD_TOKEN: ${ANTIFLOCK_DASHBOARD_TOKEN:?run node scripts/dev-env.mjs first}
     ports:
       - "127.0.0.1:4173:4173"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid,nodev
     depends_on:
       core:
         condition: service_healthy
@@ -87,7 +113,16 @@ services:
     command: ["antiflock-sim", "coffee-shop", "--verify"]
     environment: *simulator-environment
     volumes:
+      # The one-shot lab reuses the simulator's durable enrollment identity.
       - antiflock-simulator-data:/var/lib/antiflock
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    tmpfs:
+      - /tmp:size=8m,mode=1777,noexec,nosuid,nodev
     depends_on:
       core:
         condition: service_healthy
