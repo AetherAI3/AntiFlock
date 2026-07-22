@@ -1,0 +1,25 @@
+{
+  "name": "antiflock",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted personal private-security operating layer",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "apps/web",
+    "apps/aether-demo",
+    "sdk/typescript"
+  ],
+  "scripts": {
+    "dev": "docker compose up --build",
+    "down": "docker compose down",
+    "lab": "docker compose --profile lab up --build --abort-on-container-exit lab",
+    "test": "node scripts/test-all.mjs",
+    "verify": "node scripts/verify.mjs",
+    "acceptance": "node scripts/acceptance.mjs",
+    "acceptance:strict": "node scripts/acceptance.mjs --strict"
+  },
+  "license": "Apache-2.0"
+}
+

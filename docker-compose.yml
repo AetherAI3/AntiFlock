@@ -1,0 +1,62 @@
+name: antiflock
+
+services:
+  core:
+    build:
+      context: .
+      dockerfile: deploy/docker/core.Dockerfile
+    command: ["antiflock-core", "serve", "--config", "/etc/antiflock/config.yaml"]
+    environment:
+      ANTIFLOCK_LISTEN: 0.0.0.0:8787
+      ANTIFLOCK_DATA_DIR: /var/lib/antiflock
+      ANTIFLOCK_DEMO_MODE: "true"
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - antiflock-data:/var/lib/antiflock
+      - ./configs/default.yaml:/etc/antiflock/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "antiflockctl", "health", "--url", "http://127.0.0.1:8787"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  simulator:
+    build:
+      context: .
+      dockerfile: deploy/docker/core.Dockerfile
+    command: ["antiflock-sim", "stream", "--core", "http://core:8787"]
+    environment:
+      ANTIFLOCK_DEMO_MODE: "true"
+    depends_on:
+      core:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile
+    environment:
+      ANTIFLOCK_API_ORIGIN: http://core:8787
+    ports:
+      - "127.0.0.1:4173:4173"
+    depends_on:
+      core:
+        condition: service_healthy
+    restart: unless-stopped
+
+  lab:
+    profiles: ["lab"]
+    build:
+      context: .
+      dockerfile: deploy/docker/core.Dockerfile
+    command: ["antiflock-sim", "coffee-shop", "--core", "http://core:8787", "--verify"]
+    depends_on:
+      core:
+        condition: service_healthy
+
+volumes:
+  antiflock-data:
+

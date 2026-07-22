@@ -1,0 +1,29 @@
+server:
+  listen: 127.0.0.1:8787
+  publicBaseURL: http://127.0.0.1:8787
+  trustedProxies: []
+
+storage:
+  path: ./data/antiflock.db
+  eventRetention: 336h
+  auditRetention: 0s
+
+identity:
+  stateDirectory: ./data/identity
+  enrollmentTokenTTL: 10m
+
+protection:
+  telemetryStaleAfter: 2m
+  requireMeshOnUntrustedNetworks: true
+  failMode: closed
+  allowOneTimeBypass: true
+  oneTimeBypassTTL: 5m
+
+telemetry:
+  collectFlowMetadata: true
+  collectPayloads: false
+
+scrambler:
+  executionEnabled: false
+  simulationEnabled: true
+
