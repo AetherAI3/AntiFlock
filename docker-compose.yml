@@ -74,6 +74,10 @@ services:
     restart: unless-stopped
     networks:
       - antiflock-demo
+      # Docker does not publish host ports from an internal-only network. Keep
+      # Core on the isolated network and give only the authenticated dashboard
+      # a host-facing bridge, still bound exclusively to 127.0.0.1 above.
+      - dashboard-host
 
   lab:
     profiles: ["lab"]
@@ -100,3 +104,5 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
+  dashboard-host:
+    driver: bridge

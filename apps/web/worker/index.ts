@@ -28,7 +28,7 @@ interface ExecutionContext {
 // const imageConfig: ImageConfig = { dangerouslyAllowSVG: true };
 
 const worker = {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env | undefined, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     const accessResponse = await dashboardAccessResponse(request, env);
@@ -38,6 +38,9 @@ const worker = {
     if (coreResponse) return coreResponse;
 
     if (url.pathname === "/_vinext/image") {
+      if (!env?.ASSETS || !env.IMAGES) {
+        return withSecurityHeaders(new Response("Image optimization is unavailable.", { status: 503 }), request.url);
+      }
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];
       const response = await handleImageOptimization(request, {
         fetchAsset: (path) => env.ASSETS.fetch(new Request(new URL(path, request.url))),

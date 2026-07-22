@@ -1,0 +1,15 @@
+*
+!go.mod
+!go.sum
+!adapters/
+!adapters/**
+!agent/
+!agent/**
+!api/
+!api/**
+!cmd/
+!cmd/**
+!core/
+!core/**
+!internal/
+!internal/**

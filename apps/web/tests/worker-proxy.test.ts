@@ -12,7 +12,7 @@ const bindings = {
 };
 
 test("private Core proxy is inert when no server-side bindings exist", async () => {
-  const response = await proxyCoreRequest(new Request("https://dashboard.example/v1/overview"), {}, async () => {
+  const response = await proxyCoreRequest(new Request("https://dashboard.example/v1/overview"), undefined, async () => {
     throw new Error("fetch must not run");
   });
   assert.equal(response, null);

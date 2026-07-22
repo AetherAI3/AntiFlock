@@ -424,7 +424,7 @@ func TestLiveCoffeeShopBootstrapsSignsPersistsReleasesAndVerifies(t *testing.T) 
 	}
 	core.mu.Lock()
 	defer core.mu.Unlock()
-	if core.tokenCalls != 1 || core.enrollCalls != 1 || core.approveCalls != 1 || len(core.events) != 5 {
+	if core.tokenCalls != 1 || core.enrollCalls != 1 || core.approveCalls != 1 || len(core.events) != 9 || core.posture != "PROTECTED" {
 		t.Fatalf("stream was not idempotent: token=%d enroll=%d approve=%d events=%d", core.tokenCalls, core.enrollCalls, core.approveCalls, len(core.events))
 	}
 }

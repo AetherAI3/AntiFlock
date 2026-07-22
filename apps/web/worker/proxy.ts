@@ -8,8 +8,8 @@ export interface CoreProxyEnv {
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-function configured(env: CoreProxyEnv, name: keyof CoreProxyEnv): string {
-  const binding = env[name]?.trim();
+function configured(env: CoreProxyEnv | undefined, name: keyof CoreProxyEnv): string {
+  const binding = env?.[name]?.trim();
   if (binding) return binding;
   if (typeof process !== "undefined") return process.env[name]?.trim() ?? "";
   return "";
@@ -55,7 +55,7 @@ async function sameSecret(left: string, right: string): Promise<boolean> {
   return difference === 0;
 }
 
-export async function dashboardAccessResponse(request: Request, env: CoreProxyEnv): Promise<Response | null> {
+export async function dashboardAccessResponse(request: Request, env?: CoreProxyEnv): Promise<Response | null> {
   const coreOrigin = configured(env, "ANTIFLOCK_API_ORIGIN");
   const operatorToken = configured(env, "ANTIFLOCK_OPERATOR_TOKEN");
   const dashboardToken = configured(env, "ANTIFLOCK_DASHBOARD_TOKEN");
@@ -101,7 +101,7 @@ export function withSecurityHeaders(response: Response, requestURL: string): Res
 
 export async function proxyCoreRequest(
   request: Request,
-  env: CoreProxyEnv,
+  env?: CoreProxyEnv,
   fetcher: Fetcher = fetch,
 ): Promise<Response | null> {
   const incomingURL = new URL(request.url);

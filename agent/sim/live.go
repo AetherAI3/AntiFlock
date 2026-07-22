@@ -658,8 +658,10 @@ func (session *liveSession) sendHeartbeat(ctx context.Context) (string, error) {
 	return wire[0].GetId(), nil
 }
 
-// RunLiveStream bootstraps the simulator and emits signed DETECTED heartbeats.
-// Transient heartbeat failures are reported as safe status records and retried;
+// RunLiveStream bootstraps the simulator and continuously refreshes an explicit
+// simulation-only protected baseline plus signed DETECTED heartbeats. This keeps
+// the developer dashboard useful without claiming anything about the host.
+// Transient refresh failures are reported as safe status records and retried;
 // enrollment or identity failures remain fatal.
 func RunLiveStream(ctx context.Context, config LiveConfig, interval time.Duration, emit func(LiveStreamEvent) error) error {
 	if emit == nil {
@@ -687,14 +689,32 @@ func RunLiveStream(ctx context.Context, config LiveConfig, interval time.Duratio
 		return err
 	}
 	send := func() error {
-		eventID, sendErr := session.sendHeartbeat(ctx)
+		now := client.clock().UTC()
+		runID := fmt.Sprintf("stream-%d", now.UnixNano())
+		if _, sendErr := session.sendCoffeeShopContext(ctx, runID, now); sendErr != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return emitStatus("degraded", "", sendErr.Error())
+		}
+		verificationEventIDs, sendErr := session.sendVerifiedRecovery(ctx, runID, now)
+		if sendErr == nil {
+			sendErr = session.reportPosture(ctx, "PROTECTED", now, verificationEventIDs)
+		}
+		if sendErr == nil {
+			var eventID string
+			eventID, sendErr = session.sendHeartbeat(ctx)
+			if sendErr == nil {
+				return emitStatus("heartbeat", eventID, "")
+			}
+		}
 		if sendErr != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			return emitStatus("degraded", "", sendErr.Error())
 		}
-		return emitStatus("heartbeat", eventID, "")
+		return nil
 	}
 	if err := send(); err != nil && ctx.Err() == nil {
 		return err
@@ -716,7 +736,7 @@ func RunLiveStream(ctx context.Context, config LiveConfig, interval time.Duratio
 func evidenceForSimulation(id string, observedAt time.Time, statement []byte) model.EvidenceReference {
 	digest := sha256.Sum256(statement)
 	verifiedAt := observedAt.UTC()
-	expiresAt := observedAt.UTC().Add(45 * time.Second)
+	expiresAt := observedAt.UTC().Add(90 * time.Second)
 	return model.EvidenceReference{
 		ID: id, Role: "SUPPORTING", Classification: model.EvidenceVerified,
 		SourceType: "DETERMINISTIC_RULE", Source: "AntiFlock deterministic simulator verifier",
@@ -835,7 +855,7 @@ func (session *liveSession) reportPosture(ctx context.Context, state string, obs
 	report := map[string]any{
 		"nodeId": session.client.nodeID, "state": state,
 		"observedAt":   observedAt.UTC().Format(time.RFC3339Nano),
-		"validUntil":   observedAt.UTC().Add(20 * time.Second).Format(time.RFC3339Nano),
+		"validUntil":   observedAt.UTC().Add(90 * time.Second).Format(time.RFC3339Nano),
 		"networkTrust": "UNTRUSTED", "meshConnected": truth, "approvedExitActive": truth,
 		"dnsProtected": truth, "routeProtected": truth, "reasonCodes": reasons,
 		"policyRevision": uint64(7), "verificationEventIds": eventIDs,
