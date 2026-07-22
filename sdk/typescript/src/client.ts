@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   AuditAppendError,
+  InvalidAgentResponseError,
   InvalidSecureActionRequestError,
   OneTimeAuthorizationError,
   SecureActionAbortedError,
@@ -22,7 +23,7 @@ import type {
   SecureActionOutcome,
   SecureActionRequest,
 } from "./types.js";
-import { normalizeRequest, sameScope, scopeForRequest } from "./validation.js";
+import { normalizeRequest, parseDecision, sameScope, scopeForRequest } from "./validation.js";
 
 interface ResolvedClientOptions {
   readonly defaultDeadlineMs: number;
@@ -62,7 +63,9 @@ export class SecureActionClient {
   ): Promise<SecureActionDecision> {
     const normalized = this.#withDeadline(normalizeRequest(request));
     this.#throwIfUnavailable(normalized.deadline!, signal);
-    return await this.#transport.evaluate(normalized, { attempt: 0 }, signal);
+    const decision = parseDecision(await this.#transport.evaluate(normalized, { attempt: 0 }, signal));
+    this.#validateDecisionBinding(decision, normalized);
+    return decision;
   }
 
   async execute<T>(
@@ -89,10 +92,16 @@ export class SecureActionClient {
         attempt,
         ...(priorActionId === undefined ? {} : { priorActionId }),
       };
-      const decision = await this.#transport.evaluate(normalized, context, options.signal);
+      // Treat every transport as untrusted at runtime. Parsing creates a fresh
+      // decision object so a transport-held reference cannot mutate the branch
+      // after validation.
+      const decision = parseDecision(await this.#transport.evaluate(normalized, context, options.signal));
+      this.#validateDecisionBinding(decision, normalized);
       priorActionId = decision.actionId;
       await this.#audit(normalized, decision, "SDK_DECISION_RECEIVED", {}, options.signal, false);
-      await options.onDecision?.(decision, attempt);
+      // Observers receive a separate parsed copy. Their callback must never be
+      // able to rewrite BLOCK/HOLD into an executable decision.
+      await options.onDecision?.(parseDecision(decision), attempt);
 
       switch (decision.decision) {
         case "BLOCK":
@@ -199,10 +208,14 @@ export class SecureActionClient {
               method: "USER_EXPLICIT",
             },
           };
-          const authorizedDecision = await this.#transport.authorizeOnce(
+          const authorizedDecision = parseDecision(await this.#transport.authorizeOnce(
             authorizeRequest,
             options.signal,
-          );
+          ));
+          this.#validateDecisionBinding(authorizedDecision, normalized);
+          if (authorizedDecision.decision !== "ALLOW_ONCE") {
+            throw new OneTimeAuthorizationError("Agent did not return an ALLOW_ONCE authorization");
+          }
           await this.#audit(
             normalized,
             authorizedDecision,
@@ -211,7 +224,7 @@ export class SecureActionClient {
             options.signal,
             false,
           );
-          await options.onDecision?.(authorizedDecision, attempt + 1);
+          await options.onDecision?.(parseDecision(authorizedDecision), attempt + 1);
           this.#validateAuthorization(authorizedDecision.authorization, normalized);
           this.#consumeGrant(authorizedDecision.authorization);
           return await this.#executeAllowed(
@@ -249,7 +262,14 @@ export class SecureActionClient {
       {},
       signal,
       false,
+      decision.decision === "ALLOW_ONCE",
     );
+    // The audit/consume transport is asynchronous and may ignore cancellation.
+    // Recheck every execution bound immediately before crossing into caller code.
+    this.#throwIfUnavailable(request.deadline!, signal);
+    if (decision.decision === "ALLOW_ONCE") {
+      this.#validateAuthorization(decision.authorization, request);
+    }
     let value: T;
     try {
       value = await operation({ request, decision, attempt });
@@ -326,6 +346,22 @@ export class SecureActionClient {
     }
   }
 
+  #validateDecisionBinding(
+    decision: SecureActionDecision,
+    request: SecureActionRequest,
+  ): void {
+    if (decision.actionId !== request.id) {
+      throw new InvalidAgentResponseError(
+        "Agent decision actionId does not match the secure action request",
+      );
+    }
+    if (decision.decision === "ALLOW" && decision.protection.state !== "PROTECTED") {
+      throw new InvalidAgentResponseError(
+        "Agent returned ALLOW without a protected posture",
+      );
+    }
+  }
+
   #consumeGrant(authorization: OneTimeAuthorization): void {
     const now = this.#options.now().getTime();
     for (const [grantId, expiresAt] of this.#consumedGrants) {
@@ -346,6 +382,7 @@ export class SecureActionClient {
     details: Readonly<Record<string, JsonValue>>,
     signal: AbortSignal | undefined,
     actionMayHaveExecuted: boolean,
+    forceRequired = false,
   ): Promise<void> {
     const event: ActionAuditEvent = {
       eventId: this.#options.idFactory(),
@@ -362,7 +399,7 @@ export class SecureActionClient {
     try {
       await this.#transport.appendAudit(event, signal);
     } catch (error) {
-      if (this.#options.auditMode === "required") {
+      if (forceRequired || this.#options.auditMode === "required") {
         throw new AuditAppendError(lifecycle, actionMayHaveExecuted, error);
       }
     }

@@ -62,14 +62,14 @@ export class CoffeeShopAgentTransport implements AgentTransport {
   }
 
   async evaluate(
-    _request: SecureActionRequest,
+    request: SecureActionRequest,
     context: EvaluationContext,
   ): Promise<SecureActionDecision> {
     this.evaluationContexts.push(context);
     if (!this.#protected) {
       return {
         decision: "HOLD",
-        actionId: "demo-held-message",
+        actionId: request.id,
         protection: exposedSnapshot,
         reasonCodes: ["AF-PATH-001", "AF-DNS-002"],
         hold: {
@@ -88,7 +88,7 @@ export class CoffeeShopAgentTransport implements AgentTransport {
     }
     return {
       decision: "ALLOW",
-      actionId: "demo-released-message",
+      actionId: request.id,
       protection: restoredSnapshot,
       reasonCodes: [],
       audit: {

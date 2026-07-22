@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 import {
   AuditAppendError,
   FetchLoopbackTransport,
+  InvalidAgentResponseError,
   OneTimeAuthorizationError,
+  SecureActionAbortedError,
   SecureActionClient,
   parseCanonicalDecisionResponse,
   parseDecision,
@@ -25,6 +27,8 @@ import {
 
 const NOW = "2026-07-21T12:00:00.000Z";
 const LATER = "2026-07-21T12:05:00.000Z";
+const SDK_TOKEN = "sdk-test-token-with-more-than-thirty-two-bytes";
+const OPERATOR_TOKEN = "operator-test-token-with-more-than-thirty-two-bytes";
 
 const exposed: ProtectionSnapshot = {
   state: "EXPOSED",
@@ -69,7 +73,7 @@ function audit(decisionId: string) {
   };
 }
 
-function allow(actionId = "action-1"): SecureActionDecision {
+function allow(actionId = request.id): SecureActionDecision {
   return {
     decision: "ALLOW",
     actionId,
@@ -79,7 +83,7 @@ function allow(actionId = "action-1"): SecureActionDecision {
   };
 }
 
-function hold(actionId = "action-1"): SecureActionDecision {
+function hold(actionId = request.id): SecureActionDecision {
   return {
     decision: "HOLD",
     actionId,
@@ -178,7 +182,7 @@ describe("SecureActionClient", () => {
 
   it("holds, waits for verified restoration, re-evaluates, and then releases", async () => {
     const transport = new ScriptedTransport(
-      [hold("held-action"), allow("released-action")],
+      [hold(), allow()],
       [{ restored: true, snapshot: protectedSnapshot }],
     );
     const decisions: string[] = [];
@@ -192,7 +196,7 @@ describe("SecureActionClient", () => {
     assert.equal(outcome.status === "executed" && outcome.attempts, 1);
     assert.deepEqual(decisions, ["HOLD", "ALLOW"]);
     assert.equal(transport.waits.length, 1);
-    assert.equal(transport.contexts[1]?.priorActionId, "held-action");
+    assert.equal(transport.contexts[1]?.priorActionId, request.id);
     assert.deepEqual(
       transport.audits.map((event) => event.lifecycle),
       [
@@ -250,7 +254,7 @@ describe("SecureActionClient", () => {
     const transport = new ScriptedTransport([
       {
         decision: "BLOCK",
-        actionId: "blocked-action",
+        actionId: request.id,
         protection: exposed,
         reasonCodes: ["AF-PATH-002"],
         audit: audit("decision-block"),
@@ -265,11 +269,58 @@ describe("SecureActionClient", () => {
     assert.equal(executed, false);
   });
 
+  it("does not let an onDecision observer rewrite BLOCK into ALLOW", async () => {
+    const transport = new ScriptedTransport([{
+      decision: "BLOCK",
+      actionId: request.id,
+      protection: exposed,
+      reasonCodes: ["AF-PATH-002"],
+      audit: audit("decision-block"),
+    }]);
+    let executed = false;
+    const outcome = await client(transport).execute(request, () => {
+      executed = true;
+    }, {
+      onDecision: (observed) => {
+        (observed as { decision: string }).decision = "ALLOW";
+      },
+    });
+
+    assert.equal(outcome.status, "blocked");
+    assert.equal(executed, false);
+  });
+
+  it("rejects a decision bound to a different secure action request", async () => {
+    const transport = new ScriptedTransport([allow("different-request")]);
+    let executed = false;
+
+    await assert.rejects(
+      () => client(transport).execute(request, () => { executed = true; }),
+      InvalidAgentResponseError,
+    );
+    assert.equal(executed, false);
+    assert.equal(transport.audits.length, 0);
+  });
+
+  it("rejects plain ALLOW unless the returned posture is protected", async () => {
+    const transport = new ScriptedTransport([{
+      ...allow(),
+      protection: exposed,
+    }]);
+    let executed = false;
+
+    await assert.rejects(
+      () => client(transport).execute(request, () => { executed = true; }),
+      InvalidAgentResponseError,
+    );
+    assert.equal(executed, false);
+  });
+
   it("requires an explicit consent provider and converts consent into ALLOW_ONCE", async () => {
     const authorization = grant();
     const consentDecision: SecureActionDecision = {
       decision: "REQUIRE_CONSENT",
-      actionId: "consent-action",
+      actionId: request.id,
       protection: exposed,
       reasonCodes: ["AF-PATH-001"],
       audit: audit("decision-consent"),
@@ -281,7 +332,7 @@ describe("SecureActionClient", () => {
     };
     const onceDecision: AllowOnceDecision = {
       decision: "ALLOW_ONCE",
-      actionId: "once-action",
+      actionId: request.id,
       protection: exposed,
       reasonCodes: ["USER_AUTHORIZED_ONCE"],
       audit: audit("decision-once"),
@@ -302,7 +353,7 @@ describe("SecureActionClient", () => {
   it("returns consent-required without prompting implicitly", async () => {
     const consentDecision: SecureActionDecision = {
       decision: "REQUIRE_CONSENT",
-      actionId: "consent-action",
+      actionId: request.id,
       protection: exposed,
       reasonCodes: ["AF-PATH-001"],
       audit: audit("decision-consent"),
@@ -323,7 +374,7 @@ describe("SecureActionClient", () => {
   it("records explicit consent decline and keeps the action closed", async () => {
     const consentDecision: SecureActionDecision = {
       decision: "REQUIRE_CONSENT",
-      actionId: "consent-action",
+      actionId: request.id,
       protection: exposed,
       reasonCodes: ["AF-PATH-001"],
       audit: audit("decision-consent"),
@@ -346,7 +397,7 @@ describe("SecureActionClient", () => {
     const authorization = grant("reused-grant");
     const once = (): SecureActionDecision => ({
       decision: "ALLOW_ONCE",
-      actionId: "once-action",
+      actionId: request.id,
       protection: exposed,
       reasonCodes: ["USER_AUTHORIZED_ONCE"],
       audit: audit("decision-once"),
@@ -359,6 +410,101 @@ describe("SecureActionClient", () => {
     await assert.rejects(() => sdk.execute(request, () => "second"), OneTimeAuthorizationError);
   });
 
+  it("requires server-side start consumption for ALLOW_ONCE even in best-effort audit mode", async () => {
+    const authorization = grant("server-consume-required");
+    const transport = new ScriptedTransport([{
+      decision: "ALLOW_ONCE",
+      actionId: request.id,
+      protection: exposed,
+      reasonCodes: ["USER_AUTHORIZED_ONCE"],
+      audit: audit("decision-once"),
+      authorization,
+    }]);
+    transport.failAuditLifecycle = "SDK_ACTION_EXECUTION_STARTED";
+    const sdk = new SecureActionClient(transport, {
+      auditMode: "best-effort",
+      now: () => new Date(NOW),
+      idFactory: () => "event-once-consume",
+    });
+    let executed = false;
+
+    await assert.rejects(
+      () => sdk.execute(request, () => { executed = true; }),
+      (error: unknown) => error instanceof AuditAppendError && error.actionMayHaveExecuted === false,
+    );
+    assert.equal(executed, false);
+  });
+
+  it("rechecks one-time expiry after the server-side consume await", async () => {
+    let currentTime = NOW;
+    const authorization = {
+      ...grant("expires-during-consume"),
+      expiresAt: "2026-07-21T12:01:00.000Z",
+    };
+    const transport = new ScriptedTransport([{
+      decision: "ALLOW_ONCE",
+      actionId: request.id,
+      protection: exposed,
+      reasonCodes: ["USER_AUTHORIZED_ONCE"],
+      audit: audit("decision-once"),
+      authorization,
+    }]);
+    const appendAudit = transport.appendAudit.bind(transport);
+    transport.appendAudit = async (event) => {
+      await appendAudit(event);
+      if (event.lifecycle === "SDK_ACTION_EXECUTION_STARTED") currentTime = "2026-07-21T12:02:00.000Z";
+    };
+    const sdk = new SecureActionClient(transport, {
+      now: () => new Date(currentTime),
+      idFactory: () => "event-expiry-recheck",
+    });
+    let executed = false;
+
+    await assert.rejects(
+      () => sdk.execute(request, () => { executed = true; }),
+      OneTimeAuthorizationError,
+    );
+    assert.equal(executed, false);
+  });
+
+  it("rechecks the request deadline after the execution-start audit await", async () => {
+    let currentTime = NOW;
+    const transport = new ScriptedTransport([allow()]);
+    const appendAudit = transport.appendAudit.bind(transport);
+    transport.appendAudit = async (event) => {
+      await appendAudit(event);
+      if (event.lifecycle === "SDK_ACTION_EXECUTION_STARTED") currentTime = "2026-07-21T12:06:00.000Z";
+    };
+    const sdk = new SecureActionClient(transport, {
+      now: () => new Date(currentTime),
+      idFactory: () => "event-deadline-recheck",
+    });
+    let executed = false;
+
+    await assert.rejects(
+      () => sdk.execute(request, () => { executed = true; }),
+      SecureActionAbortedError,
+    );
+    assert.equal(executed, false);
+  });
+
+  it("rechecks abort state after a transport ignores cancellation", async () => {
+    const controller = new AbortController();
+    const transport = new ScriptedTransport([allow()]);
+    const appendAudit = transport.appendAudit.bind(transport);
+    transport.appendAudit = async (event) => {
+      await appendAudit(event);
+      if (event.lifecycle === "SDK_ACTION_EXECUTION_STARTED") controller.abort();
+    };
+    let executed = false;
+
+    await assert.rejects(
+      () => client(transport).execute(request, () => { executed = true; }, { signal: controller.signal }),
+      SecureActionAbortedError,
+    );
+    assert.equal(executed, false);
+  });
+
   it("rejects a one-time grant for a broader or different scope", async () => {
     const wrongGrant: OneTimeAuthorization = {
       ...grant(),
@@ -367,7 +513,7 @@ describe("SecureActionClient", () => {
     const transport = new ScriptedTransport([
       {
         decision: "ALLOW_ONCE",
-        actionId: "once-action",
+        actionId: request.id,
         protection: exposed,
         reasonCodes: ["USER_AUTHORIZED_ONCE"],
         audit: audit("decision-once"),
@@ -492,14 +638,15 @@ describe("agent response validation", () => {
       () =>
         new FetchLoopbackTransport({
           baseUrl: "https://agent.example",
-          bearerToken: "test-token",
+          bearerToken: SDK_TOKEN,
         }),
       /Refusing non-loopback/,
     );
   });
 
   it("requires authentication for loopback transport by default", () => {
-    assert.throws(() => new FetchLoopbackTransport(), /bearer token is required/);
+    assert.throws(() => new FetchLoopbackTransport(), /bearer token of at least 32 bytes is required/);
+    assert.throws(() => new FetchLoopbackTransport({ bearerToken: "short" }), /at least 32 bytes/);
     assert.doesNotThrow(
       () => new FetchLoopbackTransport({ allowUnauthenticated: true }),
     );
@@ -597,7 +744,7 @@ describe("agent response validation", () => {
     let capturedBody: unknown;
     let capturedAuthorization: string | null = null;
     const transport = new FetchLoopbackTransport({
-      bearerToken: "local-test-token",
+      bearerToken: SDK_TOKEN,
       fetch: async (_input, init) => {
         capturedBody = JSON.parse(String(init?.body));
         capturedAuthorization = new Headers(init?.headers).get("authorization");
@@ -625,17 +772,20 @@ describe("agent response validation", () => {
     const decision = await transport.evaluate(request, { attempt: 0 });
 
     assert.deepEqual(capturedBody, toCanonicalEvaluateRequest(request));
-    assert.equal(capturedAuthorization, "Bearer local-test-token");
+    assert.equal(capturedAuthorization, `Bearer ${SDK_TOKEN}`);
     assert.equal(decision.decision, "ALLOW");
   });
 
   it("maps canonical wait and authorize responses and appends idempotent audit events", async () => {
     const paths: string[] = [];
+    const authorizations: Array<string | null> = [];
     const transport = new FetchLoopbackTransport({
-      bearerToken: "local-test-token",
-      fetch: async (input) => {
+      bearerToken: SDK_TOKEN,
+      authorizationBearerToken: OPERATOR_TOKEN,
+      fetch: async (input, init) => {
         const path = new URL(String(input)).pathname;
         paths.push(path);
+        authorizations.push(new Headers(init?.headers).get("authorization"));
         if (path.endsWith("/wait")) {
           return new Response(
             JSON.stringify({
@@ -709,5 +859,22 @@ describe("agent response validation", () => {
       "/v1/actions/canonical-action-1/authorize",
       "/v1/actions/canonical-action-1/audit",
     ]);
+    assert.deepEqual(authorizations, [`Bearer ${SDK_TOKEN}`, `Bearer ${OPERATOR_TOKEN}`, `Bearer ${SDK_TOKEN}`]);
+  });
+
+  it("fails closed before authorize fetch when no separate operator credential is configured", async () => {
+    let contacted = false;
+    const transport = new FetchLoopbackTransport({
+      bearerToken: SDK_TOKEN,
+      fetch: async () => { contacted = true; return Response.json({}); },
+    });
+    await assert.rejects(() => transport.authorizeOnce({
+      actionId: "canonical-action-1",
+      request,
+      scope: scopeForRequest(request),
+      expiresAt: LATER,
+      consent: { confirmed: true, confirmedAt: NOW, method: "USER_EXPLICIT" },
+    }), /separate operator credential/);
+    assert.equal(contacted, false);
   });
 });

@@ -20,6 +20,8 @@ import type {
 export interface FetchLoopbackTransportOptions {
   readonly baseUrl?: string;
   readonly bearerToken?: string;
+  /** Separate operator credential used only for explicit one-time consent. */
+  readonly authorizationBearerToken?: string;
   readonly clientId?: string;
   readonly requestTimeoutMs?: number;
   readonly allowNonLoopback?: boolean;
@@ -33,6 +35,7 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
 export class FetchLoopbackTransport implements AgentTransport {
   readonly #baseUrl: URL;
   readonly #bearerToken: string | undefined;
+  readonly #authorizationBearerToken: string | undefined;
   readonly #clientId: string;
   readonly #requestTimeoutMs: number;
   readonly #fetch: typeof globalThis.fetch;
@@ -51,15 +54,16 @@ export class FetchLoopbackTransport implements AgentTransport {
     if (!isLoopback && this.#baseUrl.protocol !== "https:") {
       throw new AgentTransportError("Non-loopback AntiFlock endpoints require HTTPS");
     }
-    if (
-      !options.allowUnauthenticated &&
-      (options.bearerToken === undefined || options.bearerToken.trim() === "")
-    ) {
+    if (!options.allowUnauthenticated && !validToken(options.bearerToken)) {
       throw new AgentTransportError(
-        "An AntiFlock agent bearer token is required unless unauthenticated transport is explicitly enabled",
+        "An AntiFlock agent bearer token of at least 32 bytes is required unless unauthenticated transport is explicitly enabled",
       );
     }
+    if (options.authorizationBearerToken !== undefined && !validToken(options.authorizationBearerToken)) {
+      throw new AgentTransportError("The AntiFlock authorization bearer token must contain at least 32 bytes");
+    }
     this.#bearerToken = options.bearerToken;
+    this.#authorizationBearerToken = options.authorizationBearerToken;
     this.#clientId = options.clientId ?? "antiflock-typescript-sdk";
     this.#requestTimeoutMs = options.requestTimeoutMs ?? 15_000;
     this.#fetch = options.fetch ?? globalThis.fetch;
@@ -111,10 +115,17 @@ export class FetchLoopbackTransport implements AgentTransport {
     request: AuthorizeOnceRequest,
     signal?: AbortSignal,
   ): Promise<AllowOnceDecision> {
+    if (this.#authorizationBearerToken === undefined) {
+      throw new AgentTransportError(
+        "One-time authorization requires a separate operator credential or an external operator approval flow",
+      );
+    }
     const raw = await this.#post(
       `v1/actions/${encodeURIComponent(request.actionId)}/authorize`,
       toCanonicalAuthorizeRequest(request),
       signal,
+      this.#requestTimeoutMs,
+      this.#authorizationBearerToken,
     );
     const decision = parseCanonicalDecisionResponse(raw, request.request);
     if (decision.decision !== "ALLOW_ONCE") {
@@ -138,6 +149,7 @@ export class FetchLoopbackTransport implements AgentTransport {
     body: unknown,
     signal?: AbortSignal,
     timeoutMs = this.#requestTimeoutMs,
+    bearerToken = this.#bearerToken,
   ): Promise<unknown> {
     const timeoutController = new AbortController();
     const timeout = setTimeout(() => timeoutController.abort(), Math.max(1, timeoutMs));
@@ -150,8 +162,8 @@ export class FetchLoopbackTransport implements AgentTransport {
         accept: "application/json",
         "x-antiflock-client": this.#clientId,
       };
-      if (this.#bearerToken !== undefined) {
-        headers.authorization = `Bearer ${this.#bearerToken}`;
+      if (bearerToken !== undefined) {
+        headers.authorization = `Bearer ${bearerToken}`;
       }
       const response = await this.#fetch(new URL(path, this.#baseUrl), {
         method: "POST",
@@ -179,4 +191,8 @@ export class FetchLoopbackTransport implements AgentTransport {
       clearTimeout(timeout);
     }
   }
+}
+
+function validToken(value: string | undefined): boolean {
+  return value !== undefined && value.length >= 32 && value.trim() === value && !/[\r\n]/.test(value);
 }

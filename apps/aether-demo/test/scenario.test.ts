@@ -42,7 +42,7 @@ describe("coffee-shop secure action scenario", () => {
     assert.equal(result.status, "executed");
     assert.equal(sent, true);
     assert.deepEqual(decisions, ["HOLD", "ALLOW"]);
-    assert.equal(transport.evaluationContexts[1]?.priorActionId, "demo-held-message");
+    assert.equal(transport.evaluationContexts[1]?.priorActionId, "demo-message-001");
     assert.deepEqual(
       transport.audits.map((event) => event.lifecycle),
       [

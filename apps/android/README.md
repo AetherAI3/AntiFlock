@@ -14,12 +14,16 @@ separate modules:
 - `reference-app`: a console composition that demonstrates blocked and restored
   states without pretending to be an installed Android VPN.
 
-With JDK 17+ and Gradle installed:
+With JDK 17+ installed, use the checked-in wrapper so local and CI builds run
+the same Gradle 9.6.1 distribution. The wrapper verifies the distribution
+against the SHA-256 checksum pinned in `gradle/wrapper/gradle-wrapper.properties`.
 
 ```console
-gradle test
-gradle :reference-app:run
+./gradlew --no-daemon test
+./gradlew --no-daemon :reference-app:run
 ```
+
+On Windows, use `gradlew.bat` in place of `./gradlew`.
 
 ## Production platform work still required
 
