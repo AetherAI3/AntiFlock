@@ -24,6 +24,8 @@ against the SHA-256 checksum pinned in `gradle/wrapper/gradle-wrapper.properties
 ```
 
 On Windows, use `gradlew.bat` in place of `./gradlew`.
+The repository CI verification harness invokes this same checked-in wrapper;
+CI does not select a separate Gradle installation.
 
 ## Production platform work still required
 
