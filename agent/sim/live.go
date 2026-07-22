@@ -794,6 +794,8 @@ func (session *liveSession) sendCoffeeShopContext(ctx context.Context, runID str
 func (session *liveSession) sendVerifiedRecovery(ctx context.Context, runID string, observedAt time.Time) ([]string, error) {
 	meshStatement := []byte(runID + ":simulated healthy approved mesh exit")
 	dnsStatement := []byte(runID + ":simulated verified DNS path")
+	routeStatement := []byte(runID + ":simulated verified policy default route through mesh")
+	egressStatement := []byte(runID + ":simulated external probe verified through the same mesh path")
 	mesh := &antiflockv1.MeshPathObservation{
 		PathId: "simulated-path", Provider: "simulation", SourceNodeId: session.client.nodeID,
 		DestinationNodeId: "simulated-exit", ConnectionType: antiflockv1.MeshConnectionType_MESH_CONNECTION_TYPE_DIRECT,
@@ -801,6 +803,17 @@ func (session *liveSession) sendVerifiedRecovery(ctx context.Context, runID stri
 	}
 	dns := &antiflockv1.DnsObservation{
 		ResolverAddresses: []string{"192.0.2.53"}, Source: "simulation", PathVerified: true, ObservedAt: timestamppb.New(observedAt),
+	}
+	route := &antiflockv1.RouteObservation{
+		RouteId: "simulated-protected-default", Destination: "0.0.0.0/0", InterfaceId: "simulated-mesh0",
+		DefaultRoute: true, PolicyRoute: true, ObservedAt: timestamppb.New(observedAt),
+	}
+	egress := &antiflockv1.FlowObservation{
+		FlowId: runID + "-external-egress-probe", Remote: &antiflockv1.FlowEndpoint{Hostname: "github.com", Port: 443},
+		Protocol:  antiflockv1.TransportProtocol_TRANSPORT_PROTOCOL_TCP,
+		Direction: antiflockv1.FlowDirection_FLOW_DIRECTION_OUTBOUND, StartedAt: timestamppb.New(observedAt),
+		EgressInterfaceId: "simulated-mesh0", MeshPathId: "simulated-path",
+		Sensitivity: antiflockv1.Sensitivity_SENSITIVITY_INTERNAL,
 	}
 	wire, err := session.sendObservations(ctx, []collectors.Observation{
 		{
@@ -813,11 +826,21 @@ func (session *liveSession) sendVerifiedRecovery(ctx context.Context, runID stri
 			Confidence: 1, Sensitivity: model.SensitivityOperatorPrivate, Payload: dns,
 			Evidence: []model.EvidenceReference{evidenceForSimulation(runID+":dns-evidence", observedAt, dnsStatement)},
 		},
+		{
+			Kind: "network.route_changed", ObservedAt: observedAt, Classification: model.EvidenceVerified,
+			Confidence: 1, Sensitivity: model.SensitivityOperatorPrivate, Payload: route,
+			Evidence: []model.EvidenceReference{evidenceForSimulation(runID+":route-evidence", observedAt, routeStatement)},
+		},
+		{
+			Kind: "flow.started", ObservedAt: observedAt, Classification: model.EvidenceVerified,
+			Confidence: 1, Sensitivity: model.SensitivityOperatorPrivate, Payload: egress,
+			Evidence: []model.EvidenceReference{evidenceForSimulation(runID+":egress-evidence", observedAt, egressStatement)},
+		},
 	})
 	if err != nil {
 		return nil, err
 	}
-	return []string{wire[0].GetId(), wire[1].GetId()}, nil
+	return []string{wire[0].GetId(), wire[1].GetId(), wire[2].GetId(), wire[3].GetId()}, nil
 }
 
 type liveDecision struct {

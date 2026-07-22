@@ -149,6 +149,8 @@ export function parseCanonicalProtectionSnapshot(raw: unknown): ProtectionSnapsh
     return {
       state,
       observedAt: timestamp(value.observedAt, "protection.observedAt"),
+      validUntil: timestamp(value.validUntil, "protection.validUntil"),
+      policyRevision: safeRevision(value.policyRevision),
       networkTrust: networkTrust as ProtectionSnapshot["networkTrust"],
       meshConnected: typeof value.meshConnected === "boolean" ? value.meshConnected : null,
       approvedExitActive:
@@ -178,6 +180,11 @@ export function parseCanonicalProtectionSnapshot(raw: unknown): ProtectionSnapsh
       first(value, "evaluatedAt", "evaluated_at"),
       "protection.evaluatedAt",
     ),
+    validUntil: timestamp(
+      first(value, "validUntil", "valid_until"),
+      "protection.validUntil",
+    ),
+    policyRevision: safeRevision(first(value, "policyRevision", "policy_revision")),
     networkTrust: "UNKNOWN",
     meshConnected: null,
     approvedExitActive: null,
@@ -224,13 +231,12 @@ export function parseCanonicalDecisionResponse(
       ? protection.reasonCodes
       : stringList(reasonCodesRaw, "decision.reasonCodes");
   const protectionRecord = asRecord(protectionRaw, "protection");
-  const policyRevisionValue = first(protectionRecord, "policyRevision", "policy_revision");
-  const policyRevision = safeRevision(policyRevisionValue);
+  const policyRevision = protection.policyRevision;
   const audit: ActionAuditMetadata = {
-    traceId:
-      typeof protectionRecord.id === "string" && protectionRecord.id !== ""
-        ? protectionRecord.id
-        : request.operationId,
+    // The canonical protection snapshot id identifies evidence, not the
+    // application's idempotency boundary. Bind lifecycle audits to the exact
+    // operation that was evaluated.
+    traceId: request.operationId,
     decisionId: `${request.operationId}:${decision}:${actionId}`,
     policyRevision,
     evaluatedAt: protection.observedAt,

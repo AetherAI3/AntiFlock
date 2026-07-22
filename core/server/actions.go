@@ -106,7 +106,7 @@ func (gate *actionGate) list(ctx context.Context, decision string, limit int) ([
 			ExpiresAt: committed.ExpiresAt, CreatedAt: record.CreatedAt.UTC().Format(time.RFC3339Nano),
 			UpdatedAt: record.UpdatedAt.UTC().Format(time.RFC3339Nano),
 		}
-		if gate.protection.AllowOneTimeBypass && slices.Contains([]string{"HOLD", "REQUIRE_CONSENT", "BLOCK"}, record.Decision) {
+		if gate.protection.AllowOneTimeBypass && gate.oneTimeEligible(committed) {
 			maximum := now.Add(gate.protection.OneTimeBypassTTL)
 			if deadline, parseErr := time.Parse(time.RFC3339Nano, request.Deadline); parseErr == nil && deadline.Before(maximum) {
 				maximum = deadline
@@ -165,33 +165,50 @@ func (gate *actionGate) evaluate(ctx context.Context, request secureActionReques
 		if decodeErr != nil {
 			return decisionView{}, http.StatusInternalServerError, decodeErr
 		}
-		// A held action is a durable identity, not a frozen verdict. Once a newer
-		// protected snapshot is available, re-evaluation releases that same action.
-		if decision.Decision == "HOLD" {
-			now := gate.clock().UTC()
-			posture := gate.posture(request.NodeID, now)
-			priorObserved, _ := time.Parse(time.RFC3339Nano, decision.Protection.ObservedAt)
-			currentObserved, _ := time.Parse(time.RFC3339Nano, posture.ObservedAt)
-			if posture.State == "PROTECTED" && currentObserved.After(priorObserved) {
-				released := gate.decisionBase(request, posture, "ALLOW", posture.ReasonCodes, now)
-				encoded, marshalErr := json.Marshal(released)
-				if marshalErr != nil {
-					return decisionView{}, http.StatusInternalServerError, marshalErr
-				}
-				existing.Decision, existing.DecisionJSON, existing.UpdatedAt, existing.ReleasedAt = "ALLOW", encoded, now, &now
-				actor := principalFromContext(ctx)
-				_, updateErr := gate.audit.AppendWithMutation(ctx, audit.AppendRequest{
-					ActorType: "PRINCIPAL", ActorID: actor.ID, Action: "secure_action.release",
-					ResourceType: "secure_action", ResourceID: request.ID, Outcome: "ALLOW",
-					Details: map[string]any{"operationId": request.OperationID, "policyRevision": posture.PolicyRevision},
-				}, gate.database.UpdateSecureActionMutation(existing))
-				if updateErr != nil {
-					return decisionView{}, http.StatusInternalServerError, updateErr
-				}
-				return released, http.StatusOK, nil
+		now := gate.clock().UTC()
+		// The request and operation id are durable, but an executable verdict is
+		// deliberately short-lived. Explicit one-time grants remain stable until
+		// their own/action expiry; every ordinary ALLOW is recomputed from current
+		// posture, policy, and deadline on retrieval.
+		if decision.Decision == "ALLOW_ONCE" {
+			actionExpired := !deadline.After(now)
+			grantExpired := existing.BypassExpiresAt == nil || !existing.BypassExpiresAt.After(now)
+			if !actionExpired && !grantExpired {
+				return decision, http.StatusOK, nil
 			}
 		}
-		return decision, http.StatusOK, nil
+		fresh := gate.decide(request, gate.posture(request.NodeID, now), deadline, now)
+		if decisionEquivalent(decision, fresh) {
+			if fresh.Decision == "ALLOW" {
+				return fresh, http.StatusOK, nil
+			}
+			return decision, http.StatusOK, nil
+		}
+		encoded, marshalErr := json.Marshal(fresh)
+		if marshalErr != nil {
+			return decisionView{}, http.StatusInternalServerError, marshalErr
+		}
+		existing.Decision, existing.DecisionJSON, existing.UpdatedAt = fresh.Decision, encoded, now
+		existing.BypassExpiresAt = nil
+		if fresh.Decision == "ALLOW" {
+			existing.ReleasedAt = &now
+		} else {
+			existing.ReleasedAt = nil
+		}
+		actor := principalFromContext(ctx)
+		action := "secure_action.reevaluate"
+		if decision.Decision == "HOLD" && fresh.Decision == "ALLOW" {
+			action = "secure_action.release"
+		}
+		_, updateErr := gate.audit.AppendWithMutation(ctx, audit.AppendRequest{
+			ActorType: "PRINCIPAL", ActorID: actor.ID, Action: action,
+			ResourceType: "secure_action", ResourceID: request.ID, Outcome: fresh.Decision,
+			Details: map[string]any{"operationId": request.OperationID, "policyRevision": fresh.Protection.PolicyRevision, "priorDecision": decision.Decision},
+		}, gate.database.UpdateSecureActionMutation(existing))
+		if updateErr != nil {
+			return decisionView{}, http.StatusInternalServerError, updateErr
+		}
+		return fresh, http.StatusOK, nil
 	}
 	if !errors.Is(err, storage.ErrSecureActionNotFound) {
 		return decisionView{}, http.StatusInternalServerError, err
@@ -282,6 +299,16 @@ func (gate *actionGate) authorize(ctx context.Context, actionID string, request 
 	}
 	if record.Decision != "HOLD" && record.Decision != "REQUIRE_CONSENT" && record.Decision != "BLOCK" {
 		return decisionView{}, http.StatusConflict, errors.New("the action is not eligible for a one-time authorization")
+	}
+	if denial := gate.actionPolicyDenial(original); denial != "" {
+		return decisionView{}, http.StatusForbidden, errors.New("one-time authorization cannot expand the active protected action policy")
+	}
+	var prior decisionView
+	if err := json.Unmarshal(record.DecisionJSON, &prior); err != nil {
+		return decisionView{}, http.StatusInternalServerError, errors.New("stored secure action decision is invalid")
+	}
+	if !gate.oneTimeEligible(prior) {
+		return decisionView{}, http.StatusForbidden, errors.New("the committed decision is not eligible for a one-time authorization")
 	}
 	posture := gate.posture(original.NodeID, now)
 	decision := gate.decisionBase(original, posture, "ALLOW_ONCE", []string{"USER_AUTHORIZED_ONCE"}, now)
@@ -378,6 +405,21 @@ func (gate *actionGate) appendLifecycleAudit(ctx context.Context, actionID strin
 	}
 	if request.PolicyRevision != committedDecision.Audit.PolicyRevision {
 		return http.StatusConflict, errors.New("action audit policy revision does not match the committed decision")
+	}
+	if request.Lifecycle == "SDK_ACTION_EXECUTION_STARTED" {
+		deadline, parseErr := time.Parse(time.RFC3339Nano, original.Deadline)
+		if parseErr != nil {
+			return http.StatusInternalServerError, errors.New("stored secure action deadline is invalid")
+		}
+		if !deadline.After(now) {
+			return http.StatusConflict, errors.New("secure action deadline expired before execution start")
+		}
+		if record.Decision == "ALLOW" {
+			fresh := gate.decide(original, gate.posture(original.NodeID, now), deadline, now)
+			if fresh.Decision != "ALLOW" || fresh.Audit.PolicyRevision != request.PolicyRevision {
+				return http.StatusConflict, errors.New("secure action decision is no longer fresh; re-evaluation is required")
+			}
+		}
 	}
 	actor := principalFromContext(ctx)
 	_, err = gate.audit.AppendWithMutation(ctx, audit.AppendRequest{
@@ -482,27 +524,32 @@ func (gate *actionGate) reportPosture(ctx context.Context, report postureReport)
 		return err
 	}
 	evidenceClass := antiflockv1.EvidenceClass_EVIDENCE_CLASS_DETECTED
-	evidenceValidUntil := time.Time{}
+	verified := protectedEvidenceValidation{}
 	if report.State == "PROTECTED" {
 		var err error
-		evidenceValidUntil, err = gate.validateProtectedEvidence(ctx, report, now)
+		verified, err = gate.validateProtectedEvidence(ctx, report, now)
 		if err != nil {
 			return err
 		}
 		report.EvidenceClass = "VERIFIED"
-		evidenceClass = antiflockv1.EvidenceClass_EVIDENCE_CLASS_VERIFIED
 	} else {
 		report.EvidenceClass = "DETECTED"
+	}
+	meshClass, dnsClass, routeClass := evidenceClass, evidenceClass, evidenceClass
+	if verified.mesh && verified.dns && verified.route && verified.egress {
+		meshClass = antiflockv1.EvidenceClass_EVIDENCE_CLASS_VERIFIED
+		dnsClass = antiflockv1.EvidenceClass_EVIDENCE_CLASS_VERIFIED
+		routeClass = antiflockv1.EvidenceClass_EVIDENCE_CLASS_VERIFIED
 	}
 	snapshot, err := gate.postureEngine.Evaluate(postureengine.Input{
 		DeploymentID: gate.deploymentID, NodeID: report.NodeID, PolicyID: "active-protection-profile",
 		PolicyRevision: report.PolicyRevision, EvaluatedAt: mustParsePostureTime(report.ObservedAt),
 		TelemetryAt: mustParsePostureTime(report.ObservedAt), NetworkTrust: report.NetworkTrust,
 		RequireMeshOnUntrusted: gate.protection.RequireMeshOnUntrusted,
-		MeshConnected:          postureFact(report.MeshConnected, evidenceClass, report.ObservedAt),
-		ApprovedExitActive:     postureFact(report.ApprovedExitActive, evidenceClass, report.ObservedAt),
-		DNSProtected:           postureFact(report.DNSProtected, evidenceClass, report.ObservedAt),
-		RouteProtected:         postureFact(report.RouteProtected, evidenceClass, report.ObservedAt),
+		MeshConnected:          postureFact(report.MeshConnected, meshClass, report.ObservedAt),
+		ApprovedExitActive:     postureFact(report.ApprovedExitActive, meshClass, report.ObservedAt),
+		DNSProtected:           postureFact(report.DNSProtected, dnsClass, report.ObservedAt),
+		RouteProtected:         postureFact(report.RouteProtected, routeClass, report.ObservedAt),
 	})
 	if err != nil {
 		return err
@@ -517,8 +564,8 @@ func (gate *actionGate) reportPosture(ctx context.Context, report postureReport)
 	if reportedValidUntil.Before(validUntil) {
 		validUntil = reportedValidUntil
 	}
-	if !evidenceValidUntil.IsZero() && evidenceValidUntil.Before(validUntil) {
-		validUntil = evidenceValidUntil
+	if !verified.validUntil.IsZero() && verified.validUntil.Before(validUntil) {
+		validUntil = verified.validUntil
 	}
 	snapshot.ValidUntil = timestamppb.New(validUntil)
 	report.ValidUntil = validUntil.Format(time.RFC3339Nano)
@@ -533,8 +580,14 @@ func (gate *actionGate) reportPosture(ctx context.Context, report postureReport)
 	if exists {
 		existingTime, _ := time.Parse(time.RFC3339Nano, existing.ObservedAt)
 		incomingTime, _ := time.Parse(time.RFC3339Nano, report.ObservedAt)
-		if incomingTime.Before(existingTime) || (incomingTime.Equal(existingTime) && report.PolicyRevision < existing.PolicyRevision) {
+		if report.PolicyRevision < existing.PolicyRevision || incomingTime.Before(existingTime) {
 			return errors.New("posture report regresses the current snapshot")
+		}
+		if incomingTime.Equal(existingTime) && report.PolicyRevision == existing.PolicyRevision {
+			if !samePostureReport(existing, report) {
+				return errors.New("posture report conflicts with the current snapshot at the same revision and observation time")
+			}
+			return nil
 		}
 	}
 	actor := principalFromContext(ctx)
@@ -602,6 +655,9 @@ func unknownPosture(nodeID string, now time.Time, reason string) protectionView 
 }
 
 func (gate *actionGate) decide(request secureActionRequest, posture protectionView, deadline, now time.Time) decisionView {
+	if denial := gate.actionPolicyDenial(request); denial != "" {
+		return gate.decisionBase(request, posture, "BLOCK", []string{denial}, now)
+	}
 	if !deadline.After(now) {
 		return gate.decisionBase(request, posture, "BLOCK", []string{"AF-ACTION-DEADLINE-EXPIRED"}, now)
 	}
@@ -616,6 +672,56 @@ func (gate *actionGate) decide(request secureActionRequest, posture protectionVi
 	decision.ExpiresAt = expiresAt.UTC().Format(time.RFC3339Nano)
 	decision.Hold = &holdView{ReleaseWhen: "PROTECTION_RESTORED", ExpiresAt: decision.ExpiresAt}
 	return decision
+}
+
+func (gate *actionGate) actionPolicyDenial(request secureActionRequest) string {
+	destinationDenied := false
+	for _, policy := range gate.protection.ProtectedActions {
+		if !policyValueMatches(policy.NodeIDs, request.NodeID) ||
+			!policyValueMatches(policy.ApplicationIDs, request.ApplicationID) ||
+			!policyValueMatches(policy.DataClasses, request.DataClass) {
+			continue
+		}
+		allDestinationsAllowed := true
+		for _, destination := range request.Destinations {
+			if !policyValueMatches(policy.AllowedDestinations, destination) {
+				allDestinationsAllowed = false
+				destinationDenied = true
+				break
+			}
+		}
+		if allDestinationsAllowed {
+			return ""
+		}
+	}
+	if destinationDenied {
+		return "AF-DESTINATION-OUTSIDE-POLICY"
+	}
+	return "AF-ACTION-OUTSIDE-POLICY"
+}
+
+func policyValueMatches(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == "*" || value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func (gate *actionGate) oneTimeEligible(decision decisionView) bool {
+	if !slices.Contains([]string{"HOLD", "REQUIRE_CONSENT", "BLOCK"}, decision.Decision) {
+		return false
+	}
+	return !slices.Contains(decision.ReasonCodes, "AF-ACTION-OUTSIDE-POLICY") &&
+		!slices.Contains(decision.ReasonCodes, "AF-DESTINATION-OUTSIDE-POLICY") &&
+		!slices.Contains(decision.ReasonCodes, "AF-ACTION-DEADLINE-EXPIRED")
+}
+
+func decisionEquivalent(left, right decisionView) bool {
+	return left.Decision == right.Decision && left.Protection.State == right.Protection.State &&
+		left.Protection.ObservedAt == right.Protection.ObservedAt && left.Protection.ValidUntil == right.Protection.ValidUntil &&
+		left.Protection.PolicyRevision == right.Protection.PolicyRevision && sameStrings(left.ReasonCodes, right.ReasonCodes)
 }
 
 func (gate *actionGate) decisionBase(request secureActionRequest, posture protectionView, decision string, reasons []string, now time.Time) decisionView {
@@ -720,31 +826,43 @@ func mustParsePostureTime(value string) time.Time {
 	return parsed.UTC()
 }
 
-func (gate *actionGate) validateProtectedEvidence(ctx context.Context, report postureReport, now time.Time) (time.Time, error) {
-	if len(report.VerificationEventIDs) < 2 {
-		return time.Time{}, errors.New("protected posture requires durable mesh and DNS verification events")
+type protectedEvidenceValidation struct {
+	validUntil time.Time
+	mesh       bool
+	dns        bool
+	route      bool
+	egress     bool
+}
+
+func (gate *actionGate) validateProtectedEvidence(ctx context.Context, report postureReport, now time.Time) (protectedEvidenceValidation, error) {
+	if len(report.VerificationEventIDs) != 4 {
+		return protectedEvidenceValidation{}, errors.New("protected posture requires distinct durable mesh, DNS, route, and external egress verification events")
 	}
 	seen := make(map[string]struct{}, len(report.VerificationEventIDs))
-	meshVerified, dnsVerified := false, false
 	validUntil := now.Add(gate.protection.TelemetryStaleAfter)
+	reportedObservedAt := mustParsePostureTime(report.ObservedAt)
+	meshPathID, routeInterfaceID := "", ""
+	flowMeshPathID, flowInterfaceID := "", ""
+	result := protectedEvidenceValidation{}
 	for _, eventID := range report.VerificationEventIDs {
 		if !bounded(eventID, 128) {
-			return time.Time{}, errors.New("posture verification event id is invalid")
+			return protectedEvidenceValidation{}, errors.New("posture verification event id is invalid")
 		}
 		if _, duplicate := seen[eventID]; duplicate {
-			return time.Time{}, errors.New("posture verification event ids must be unique")
+			return protectedEvidenceValidation{}, errors.New("posture verification event ids must be unique")
 		}
 		seen[eventID] = struct{}{}
 		event, err := gate.database.GetEvent(ctx, eventID)
 		if err != nil {
-			return time.Time{}, errors.New("posture verification event is not durably available")
+			return protectedEvidenceValidation{}, errors.New("posture verification event is not durably available")
 		}
 		if event.DeploymentID != gate.deploymentID || event.NodeID != report.NodeID || event.Classification != model.EvidenceVerified ||
-			now.Sub(event.ObservedAt) > gate.protection.TelemetryStaleAfter || event.ObservedAt.After(now.Add(5*time.Minute)) {
-			return time.Time{}, errors.New("posture verification event is stale, unverified, or belongs to another node")
+			now.Sub(event.ObservedAt) > gate.protection.TelemetryStaleAfter || event.ObservedAt.After(now.Add(5*time.Minute)) ||
+			event.ObservedAt.After(reportedObservedAt) {
+			return protectedEvidenceValidation{}, errors.New("posture verification event is stale, unverified, or belongs to another node")
 		}
 		if err := model.ValidateEvidenceAt(event, now); err != nil {
-			return time.Time{}, errors.New("posture verification event no longer has fresh verified evidence")
+			return protectedEvidenceValidation{}, errors.New("posture verification event no longer has fresh verified evidence")
 		}
 		if eventFreshUntil := event.ObservedAt.Add(gate.protection.TelemetryStaleAfter); eventFreshUntil.Before(validUntil) {
 			validUntil = eventFreshUntil
@@ -756,28 +874,68 @@ func (gate *actionGate) validateProtectedEvidence(ctx context.Context, report po
 		}
 		switch event.Kind {
 		case "mesh.path_changed", "mesh.exit_changed":
-			var observation antiflockv1.MeshPathObservation
-			if err := proto.Unmarshal(event.Payload, &observation); err != nil || !observation.GetTunnelHealthy() || !observation.GetApprovedExitActive() {
-				return time.Time{}, errors.New("mesh posture verification event does not establish a healthy approved exit")
+			if result.mesh {
+				return protectedEvidenceValidation{}, errors.New("protected posture contains duplicate mesh verification evidence")
 			}
-			meshVerified = true
+			var observation antiflockv1.MeshPathObservation
+			if err := proto.Unmarshal(event.Payload, &observation); err != nil || !observation.GetTunnelHealthy() || !observation.GetApprovedExitActive() ||
+				observation.GetSourceNodeId() != report.NodeID || observation.GetPathId() == "" {
+				return protectedEvidenceValidation{}, errors.New("mesh posture verification event does not establish a healthy approved exit for this node")
+			}
+			result.mesh = true
+			meshPathID = observation.GetPathId()
 		case "network.dns_changed":
+			if result.dns {
+				return protectedEvidenceValidation{}, errors.New("protected posture contains duplicate DNS verification evidence")
+			}
 			var observation antiflockv1.DnsObservation
 			if err := proto.Unmarshal(event.Payload, &observation); err != nil || !observation.GetPathVerified() {
-				return time.Time{}, errors.New("DNS posture verification event does not establish a verified path")
+				return protectedEvidenceValidation{}, errors.New("DNS posture verification event does not establish a verified path")
 			}
-			dnsVerified = true
+			result.dns = true
+		case "network.route_changed":
+			if result.route {
+				return protectedEvidenceValidation{}, errors.New("protected posture contains duplicate route verification evidence")
+			}
+			var observation antiflockv1.RouteObservation
+			if err := proto.Unmarshal(event.Payload, &observation); err != nil || !observation.GetDefaultRoute() || !observation.GetPolicyRoute() || observation.GetInterfaceId() == "" ||
+				(observation.GetDestination() != "0.0.0.0/0" && observation.GetDestination() != "::/0") {
+				return protectedEvidenceValidation{}, errors.New("route posture verification event does not establish a protected policy default route")
+			}
+			result.route = true
+			routeInterfaceID = observation.GetInterfaceId()
+		case "flow.started", "flow.updated", "flow.ended":
+			if result.egress {
+				return protectedEvidenceValidation{}, errors.New("protected posture contains duplicate external egress verification evidence")
+			}
+			var observation antiflockv1.FlowObservation
+			if err := proto.Unmarshal(event.Payload, &observation); err != nil ||
+				observation.GetDirection() != antiflockv1.FlowDirection_FLOW_DIRECTION_OUTBOUND ||
+				observation.GetEgressInterfaceId() == "" || observation.GetMeshPathId() == "" ||
+				observation.GetRemote() == nil || (observation.GetRemote().GetAddress() == "" && observation.GetRemote().GetHostname() == "") {
+				return protectedEvidenceValidation{}, errors.New("external egress verification event does not establish an outbound protected path")
+			}
+			result.egress = true
+			flowInterfaceID, flowMeshPathID = observation.GetEgressInterfaceId(), observation.GetMeshPathId()
 		default:
-			return time.Time{}, errors.New("posture verification event kind is not an enforcement input")
+			return protectedEvidenceValidation{}, errors.New("posture verification event kind is not an enforcement input")
 		}
 	}
-	if !meshVerified || !dnsVerified {
-		return time.Time{}, errors.New("protected posture requires verified mesh, approved exit, and DNS path evidence")
+	if !result.mesh || !result.dns || !result.route || !result.egress ||
+		flowInterfaceID != routeInterfaceID || flowMeshPathID != meshPathID {
+		return protectedEvidenceValidation{}, errors.New("protected posture requires bound mesh, DNS, policy-route, and external-egress evidence")
 	}
 	if !validUntil.After(now) {
-		return time.Time{}, errors.New("posture verification evidence has expired")
+		return protectedEvidenceValidation{}, errors.New("posture verification evidence has expired")
 	}
-	return validUntil, nil
+	result.validUntil = validUntil
+	return result, nil
+}
+
+func samePostureReport(left, right postureReport) bool {
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
 }
 
 func decodeStoredDecision(record storage.SecureActionRecord, request secureActionRequest, key []byte) (decisionView, error) {

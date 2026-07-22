@@ -33,6 +33,8 @@ const OPERATOR_TOKEN = "operator-test-token-with-more-than-thirty-two-bytes";
 const exposed: ProtectionSnapshot = {
   state: "EXPOSED",
   observedAt: NOW,
+  validUntil: LATER,
+  policyRevision: 42,
   networkTrust: "UNTRUSTED",
   meshConnected: false,
   approvedExitActive: false,
@@ -43,6 +45,8 @@ const exposed: ProtectionSnapshot = {
 const protectedSnapshot: ProtectionSnapshot = {
   state: "PROTECTED",
   observedAt: "2026-07-21T12:00:10.000Z",
+  validUntil: "2026-07-21T12:04:00.000Z",
+  policyRevision: 42,
   networkTrust: "UNTRUSTED",
   meshConnected: true,
   approvedExitActive: true,
@@ -64,11 +68,11 @@ const request: SecureActionRequest = {
 
 function audit(decisionId: string) {
   return {
-    traceId: "trace-1",
+    traceId: request.operationId,
     decisionId,
     policyRevision: 42,
     evaluatedAt: NOW,
-    agentId: "local-agent-1",
+    agentId: request.nodeId,
     evidenceClass: "DETECTED" as const,
   };
 }
@@ -488,6 +492,77 @@ describe("SecureActionClient", () => {
     assert.equal(executed, false);
   });
 
+  it("does not invoke onDecision when required audit latency expires ALLOW evidence", async () => {
+    let currentTime = NOW;
+    const transport = new ScriptedTransport([allow()]);
+    const appendAudit = transport.appendAudit.bind(transport);
+    transport.appendAudit = async (event) => {
+      await appendAudit(event);
+      if (event.lifecycle === "SDK_DECISION_RECEIVED") {
+        currentTime = "2026-07-21T12:04:00.000Z";
+      }
+    };
+    const sdk = new SecureActionClient(transport, {
+      now: () => new Date(currentTime),
+      idFactory: () => "event-decision-audit-expiry",
+    });
+    let observed = false;
+    let executed = false;
+
+    await assert.rejects(
+      () => sdk.execute(request, () => { executed = true; }, {
+        onDecision: () => { observed = true; },
+      }),
+      /protection evidence has expired/,
+    );
+    assert.equal(observed, false);
+    assert.equal(executed, false);
+  });
+
+  it("rechecks ALLOW evidence immediately after asynchronous onDecision work", async () => {
+    let currentTime = NOW;
+    const transport = new ScriptedTransport([allow()]);
+    const sdk = new SecureActionClient(transport, {
+      now: () => new Date(currentTime),
+      idFactory: () => "event-observer-expiry",
+    });
+    let executed = false;
+
+    await assert.rejects(
+      () => sdk.execute(request, () => { executed = true; }, {
+        onDecision: async () => {
+          await Promise.resolve();
+          currentTime = "2026-07-21T12:04:00.000Z";
+        },
+      }),
+      /protection evidence has expired/,
+    );
+    assert.equal(executed, false);
+  });
+
+  it("rechecks ALLOW evidence after the server execution-start boundary", async () => {
+    let currentTime = NOW;
+    const transport = new ScriptedTransport([allow()]);
+    const appendAudit = transport.appendAudit.bind(transport);
+    transport.appendAudit = async (event) => {
+      await appendAudit(event);
+      if (event.lifecycle === "SDK_ACTION_EXECUTION_STARTED") {
+        currentTime = "2026-07-21T12:04:00.000Z";
+      }
+    };
+    const sdk = new SecureActionClient(transport, {
+      now: () => new Date(currentTime),
+      idFactory: () => "event-start-evidence-expiry",
+    });
+    let executed = false;
+
+    await assert.rejects(
+      () => sdk.execute(request, () => { executed = true; }),
+      /protection evidence has expired/,
+    );
+    assert.equal(executed, false);
+  });
+
   it("rechecks abort state after a transport ignores cancellation", async () => {
     const controller = new AbortController();
     const transport = new ScriptedTransport([allow()]);
@@ -578,6 +653,31 @@ describe("SecureActionClient", () => {
 });
 
 describe("agent response validation", () => {
+  it("requires validUntil and policyRevision in every protection snapshot", () => {
+    const missingValidUntil = {
+      ...allow(),
+      protection: (({ validUntil: _omitted, ...snapshot }) => snapshot)(protectedSnapshot),
+    };
+    assert.throws(() => parseDecision(missingValidUntil), /protection.validUntil/);
+
+    const missingPolicyRevision = {
+      ...allow(),
+      protection: (({ policyRevision: _omitted, ...snapshot }) => snapshot)(protectedSnapshot),
+    };
+    assert.throws(() => parseDecision(missingPolicyRevision), /protection.policyRevision/);
+  });
+
+  it("rejects a decision whose audit and protection policy revisions differ", async () => {
+    const transport = new ScriptedTransport([{
+      ...allow(),
+      audit: { ...audit("revision-mismatch"), policyRevision: 41 },
+    }]);
+    await assert.rejects(
+      () => client(transport).execute(request, () => "not-run"),
+      /policy revision does not match/,
+    );
+  });
+
   it("rejects a HOLD response without the required release condition", () => {
     assert.throws(
       () =>
@@ -679,6 +779,7 @@ describe("agent response validation", () => {
             policyRevision: "9",
             state: "PROTECTION_STATE_EXPOSED",
             evaluatedAt: NOW,
+            validUntil: LATER,
             reasons: [{ reasonCode: "AF-PATH-001" }],
           },
           reasonCodes: ["AF-PATH-001"],
@@ -691,7 +792,7 @@ describe("agent response validation", () => {
 
     assert.equal(decision.decision, "HOLD");
     assert.equal(decision.protection.networkTrust, "UNKNOWN");
-    assert.equal(decision.audit.traceId, "snapshot-1");
+    assert.equal(decision.audit.traceId, request.operationId);
     assert.equal(decision.audit.policyRevision, 9);
     assert.equal(decision.audit.evidenceClass, "UNKNOWN");
   });
@@ -723,6 +824,7 @@ describe("agent response validation", () => {
             policyRevision: 9,
             state: "PROTECTION_STATE_EXPOSED",
             evaluatedAt: NOW,
+            validUntil: LATER,
             reasons: [{ reasonCode: "AF-PATH-001" }],
           },
           reasonCodes: ["USER_AUTHORIZED_ONCE"],
@@ -759,6 +861,7 @@ describe("agent response validation", () => {
                 policyRevision: "9",
                 state: "PROTECTION_STATE_PROTECTED",
                 evaluatedAt: NOW,
+                validUntil: LATER,
                 reasons: [],
               },
               reasonCodes: [],
@@ -796,6 +899,7 @@ describe("agent response validation", () => {
                 policyRevision: "9",
                 state: "PROTECTION_STATE_PROTECTED",
                 evaluatedAt: NOW,
+                validUntil: LATER,
                 reasons: [],
               },
             }),
@@ -814,6 +918,7 @@ describe("agent response validation", () => {
                   policyRevision: "9",
                   state: "PROTECTION_STATE_EXPOSED",
                   evaluatedAt: NOW,
+                  validUntil: LATER,
                   reasons: [{ reasonCode: "AF-PATH-001" }],
                 },
                 reasonCodes: ["USER_AUTHORIZED_ONCE"],

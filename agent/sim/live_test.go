@@ -377,12 +377,12 @@ func TestLiveCoffeeShopBootstrapsSignsPersistsReleasesAndVerifies(t *testing.T) 
 		t.Fatal(err)
 	}
 	if !result.Verified || result.InitialDecision != "HOLD" || result.FinalDecision != "ALLOW" ||
-		len(result.ContextEventIDs) != 2 || len(result.VerificationEventIDs) != 2 || len(result.AuditEventIDs) != 5 {
+		len(result.ContextEventIDs) != 2 || len(result.VerificationEventIDs) != 4 || len(result.AuditEventIDs) != 5 {
 		t.Fatalf("unexpected live result: %#v", result)
 	}
 	core.mu.Lock()
 	if !core.enrolled || !core.approved || core.tokenCalls != 1 || core.enrollCalls != 1 || core.approveCalls != 1 ||
-		len(core.events) != 4 || len(core.audits) != 5 || core.auditCalls != 10 {
+		len(core.events) != 6 || len(core.audits) != 5 || core.auditCalls != 10 {
 		core.mu.Unlock()
 		t.Fatalf("unexpected Core state after verified flow")
 	}
@@ -424,7 +424,7 @@ func TestLiveCoffeeShopBootstrapsSignsPersistsReleasesAndVerifies(t *testing.T) 
 	}
 	core.mu.Lock()
 	defer core.mu.Unlock()
-	if core.tokenCalls != 1 || core.enrollCalls != 1 || core.approveCalls != 1 || len(core.events) != 9 || core.posture != "PROTECTED" {
+	if core.tokenCalls != 1 || core.enrollCalls != 1 || core.approveCalls != 1 || len(core.events) != 13 || core.posture != "PROTECTED" {
 		t.Fatalf("stream was not idempotent: token=%d enroll=%d approve=%d events=%d", core.tokenCalls, core.enrollCalls, core.approveCalls, len(core.events))
 	}
 }

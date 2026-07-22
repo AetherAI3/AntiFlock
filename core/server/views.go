@@ -88,6 +88,7 @@ func (server *Server) handleOverview(response http.ResponseWriter, request *http
 		"openFindings": len(server.findings.List("", antiflockv1.FindingStatus_FINDING_STATUS_OPEN)), "heldActions": heldActions,
 		"currentExit": currentExit, "exitVerified": exitVerified, "dnsState": dnsState,
 		"dnsResolver": dnsResolver, "scramblerState": "IDLE", "version": server.version,
+		"simulation": server.simulation,
 	})
 }
 

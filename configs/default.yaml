@@ -21,6 +21,11 @@ protection:
   failMode: closed
   allowOneTimeBypass: true
   oneTimeBypassTTL: 5m
+  protectedActions:
+    - nodeIds: ["*"]
+      applicationIds: [aether-code]
+      dataClasses: [repository-source]
+      allowedDestinations: [github.com]
 
 telemetry:
   collectFlowMetadata: true

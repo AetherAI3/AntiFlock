@@ -34,6 +34,10 @@ export type Sensitivity = "PUBLIC" | "INTERNAL" | "CONFIDENTIAL" | "RESTRICTED";
 export interface ProtectionSnapshot {
   readonly state: ProtectionState;
   readonly observedAt: string;
+  /** Hard upper bound on the evidence used to derive this snapshot. */
+  readonly validUntil: string;
+  /** Policy revision against which the protection verdict was evaluated. */
+  readonly policyRevision: number;
   readonly networkTrust: NetworkTrust;
   readonly meshConnected: boolean | null;
   readonly approvedExitActive: boolean | null;

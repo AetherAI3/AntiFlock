@@ -43,11 +43,22 @@ type IdentityConfig struct {
 }
 
 type ProtectionConfig struct {
-	TelemetryStaleAfter    time.Duration `yaml:"telemetryStaleAfter"`
-	RequireMeshOnUntrusted bool          `yaml:"requireMeshOnUntrustedNetworks"`
-	FailMode               string        `yaml:"failMode"`
-	AllowOneTimeBypass     bool          `yaml:"allowOneTimeBypass"`
-	OneTimeBypassTTL       time.Duration `yaml:"oneTimeBypassTTL"`
+	TelemetryStaleAfter    time.Duration                 `yaml:"telemetryStaleAfter"`
+	RequireMeshOnUntrusted bool                          `yaml:"requireMeshOnUntrustedNetworks"`
+	FailMode               string                        `yaml:"failMode"`
+	AllowOneTimeBypass     bool                          `yaml:"allowOneTimeBypass"`
+	OneTimeBypassTTL       time.Duration                 `yaml:"oneTimeBypassTTL"`
+	ProtectedActions       []ProtectedActionPolicyConfig `yaml:"protectedActions"`
+}
+
+// ProtectedActionPolicyConfig is the fail-closed action scope installed at
+// Core startup. Every dimension is explicit; "*" is the only wildcard and
+// must be the sole value for that dimension.
+type ProtectedActionPolicyConfig struct {
+	NodeIDs             []string `yaml:"nodeIds"`
+	ApplicationIDs      []string `yaml:"applicationIds"`
+	DataClasses         []string `yaml:"dataClasses"`
+	AllowedDestinations []string `yaml:"allowedDestinations"`
 }
 
 type TelemetryConfig struct {
@@ -71,6 +82,10 @@ func Default() Config {
 			FailMode:               "closed",
 			AllowOneTimeBypass:     true,
 			OneTimeBypassTTL:       5 * time.Minute,
+			ProtectedActions: []ProtectedActionPolicyConfig{{
+				NodeIDs: []string{"*"}, ApplicationIDs: []string{"aether-code"},
+				DataClasses: []string{"repository-source"}, AllowedDestinations: []string{"github.com"},
+			}},
 		},
 		Telemetry: TelemetryConfig{CollectFlowMetadata: true, CollectPayloads: false},
 		Scrambler: ScramblerConfig{ExecutionEnabled: false, SimulationEnabled: true},
@@ -191,11 +206,44 @@ func (config Config) Validate() error {
 	if config.Protection.OneTimeBypassTTL <= 0 || config.Protection.OneTimeBypassTTL > 15*time.Minute {
 		return errors.New("one-time bypass TTL must be positive and no more than 15 minutes")
 	}
+	if len(config.Protection.ProtectedActions) == 0 || len(config.Protection.ProtectedActions) > 64 {
+		return errors.New("between one and 64 explicit protected action policies are required")
+	}
+	for index, action := range config.Protection.ProtectedActions {
+		for field, values := range map[string][]string{
+			"nodeIds": action.NodeIDs, "applicationIds": action.ApplicationIDs,
+			"dataClasses": action.DataClasses, "allowedDestinations": action.AllowedDestinations,
+		} {
+			if err := validateProtectedActionValues(values); err != nil {
+				return fmt.Errorf("protection.protectedActions[%d].%s: %w", index, field, err)
+			}
+		}
+	}
 	if config.Telemetry.CollectPayloads {
 		return errors.New("packet payload collection is outside the locked release boundary")
 	}
 	if config.Scrambler.ExecutionEnabled {
 		return errors.New("scrambler execution is deferred; simulation is the only supported mode")
+	}
+	return nil
+}
+
+func validateProtectedActionValues(values []string) error {
+	if len(values) == 0 || len(values) > 32 {
+		return errors.New("must contain between one and 32 explicit values")
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if value == "" || len(value) > 512 || strings.TrimSpace(value) != value {
+			return errors.New("contains an empty, untrimmed, or oversized value")
+		}
+		if value == "*" && len(values) != 1 {
+			return errors.New("wildcard must be the sole value")
+		}
+		if _, exists := seen[value]; exists {
+			return errors.New("contains duplicate values")
+		}
+		seen[value] = struct{}{}
 	}
 	return nil
 }

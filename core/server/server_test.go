@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -47,6 +48,7 @@ type testRuntime struct {
 	server       *Server
 	db           *storage.DB
 	now          time.Time
+	clockNow     *time.Time
 	deploymentID string
 }
 
@@ -119,6 +121,7 @@ func newTestRuntime(t *testing.T) *testRuntime {
 	if err != nil {
 		t.Fatal(err)
 	}
+	clockNow := now
 	coreServer, err := New(Options{
 		Config: configuration, Database: database, Events: eventStore, Audit: auditService,
 		Enrollment:     enrollment.New(database, authority, auditService, configuration.Identity.EnrollmentTokenTTL),
@@ -131,12 +134,17 @@ func newTestRuntime(t *testing.T) *testRuntime {
 			{Token: testAgentToken, PrincipalID: "node:node-test", NodeID: "node-test", Scopes: []string{ScopeAgentIngest}},
 		},
 		AuthorizationKey: []byte(testSDKToken),
-		Version:          "test", Clock: func() time.Time { return now },
+		Version:          "test", Clock: func() time.Time { return clockNow },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &testRuntime{server: coreServer, db: database, now: now, deploymentID: authority.Deployment.DeploymentID}
+	return &testRuntime{server: coreServer, db: database, now: now, clockNow: &clockNow, deploymentID: authority.Deployment.DeploymentID}
+}
+
+func (runtime *testRuntime) advance(duration time.Duration) {
+	runtime.now = runtime.now.Add(duration)
+	*runtime.clockNow = runtime.now
 }
 
 func (runtime *testRuntime) request(t *testing.T, method, path string, body any, authenticated bool) *httptest.ResponseRecorder {
@@ -182,6 +190,18 @@ func actionBody(now time.Time, id, operationID string) map[string]any {
 		"dataClass": "repository-source", "sensitivity": "SENSITIVITY_OPERATOR_PRIVATE",
 		"deadline": now.Add(5 * time.Minute).Format(time.RFC3339Nano), "operationId": operationID,
 	}}
+}
+
+func postureBody(runtime *testRuntime, state string, observedAt time.Time, policyRevision uint64, eventIDs []string) map[string]any {
+	protected := state == "PROTECTED"
+	return map[string]any{
+		"nodeId": "node-test", "state": state,
+		"observedAt":   observedAt.Format(time.RFC3339Nano),
+		"validUntil":   observedAt.Add(time.Minute).Format(time.RFC3339Nano),
+		"networkTrust": "UNTRUSTED", "meshConnected": protected,
+		"approvedExitActive": protected, "dnsProtected": protected, "routeProtected": protected,
+		"reasonCodes": []string{}, "policyRevision": policyRevision, "verificationEventIds": eventIDs,
+	}
 }
 
 func validPolicyBody() map[string]any {
@@ -241,12 +261,31 @@ func appendProtectedVerificationEvents(t *testing.T, runtime *testRuntime) []str
 	if err != nil {
 		t.Fatal(err)
 	}
+	routePayload, err := proto.Marshal(&antiflockv1.RouteObservation{
+		RouteId: "protected-default", Destination: "0.0.0.0/0", InterfaceId: "mesh0",
+		DefaultRoute: true, PolicyRoute: true, ObservedAt: timestamppb.New(runtime.now),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	egressPayload, err := proto.Marshal(&antiflockv1.FlowObservation{
+		FlowId: "protected-egress-probe", Remote: &antiflockv1.FlowEndpoint{Hostname: "github.com", Port: 443},
+		Protocol:  antiflockv1.TransportProtocol_TRANSPORT_PROTOCOL_TCP,
+		Direction: antiflockv1.FlowDirection_FLOW_DIRECTION_OUTBOUND, StartedAt: timestamppb.New(runtime.now),
+		EgressInterfaceId: "mesh0", MeshPathId: "path-test",
+		Sensitivity: antiflockv1.Sensitivity_SENSITIVITY_INTERNAL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	inputs := []struct {
 		id, kind, typeURL string
 		payload           []byte
 	}{
 		{"event-mesh-verified", "mesh.path_changed", "type.googleapis.com/antiflock.v1.MeshPathObservation", meshPayload},
 		{"event-dns-verified", "network.dns_changed", "type.googleapis.com/antiflock.v1.DnsObservation", dnsPayload},
+		{"event-route-protection-verified", "network.route_changed", "type.googleapis.com/antiflock.v1.RouteObservation", routePayload},
+		{"event-egress-protection-verified", "flow.started", "type.googleapis.com/antiflock.v1.FlowObservation", egressPayload},
 	}
 	result := make([]string, 0, len(inputs))
 	for index, input := range inputs {
@@ -359,6 +398,17 @@ func TestAuthenticationHealthAndStrictJSON(t *testing.T) {
 	}
 	if _, err := newTokenAuthenticator([]Credential{{Token: "short", PrincipalID: "short", Scopes: []string{ScopeDashboardRead}}}, nil); err == nil {
 		t.Fatal("short bearer token was accepted")
+	}
+}
+
+func TestOverviewCapturesSimulationModeAtServerStartup(t *testing.T) {
+	t.Setenv("ANTIFLOCK_DEMO_MODE", "true")
+	runtime := newTestRuntime(t)
+	t.Setenv("ANTIFLOCK_DEMO_MODE", "false")
+
+	overview := decodeObject(t, runtime.request(t, http.MethodGet, "/v1/overview", nil, true))
+	if overview["simulation"] != true {
+		t.Fatalf("overview simulation provenance = %#v", overview["simulation"])
 	}
 }
 
@@ -516,6 +566,179 @@ func TestActionHoldIdempotencyWaitAndRelease(t *testing.T) {
 	released := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true)
 	if released.Code != http.StatusOK || decodeObject(t, released)["decision"] != "ALLOW" {
 		t.Fatalf("released decision = %d %s", released.Code, released.Body.String())
+	}
+}
+
+func TestActionEvaluationEnforcesExplicitPolicyScope(t *testing.T) {
+	runtime := newTestRuntime(t)
+	tests := []struct {
+		name, field, value, reason string
+	}{
+		{"application", "applicationId", "other-app", "AF-ACTION-OUTSIDE-POLICY"},
+		{"data class", "dataClass", "credentials", "AF-ACTION-OUTSIDE-POLICY"},
+		{"destination", "destinations", "evil.example", "AF-DESTINATION-OUTSIDE-POLICY"},
+		{"case variant", "destinations", "GitHub.com", "AF-DESTINATION-OUTSIDE-POLICY"},
+	}
+	for index, test := range tests {
+		body := actionBody(runtime.now, fmt.Sprintf("policy-action-%d", index), fmt.Sprintf("policy-operation-%d", index))
+		action := body["action"].(map[string]any)
+		if test.field == "applicationId" {
+			runtime.server.actions.protection.ProtectedActions[0].ApplicationIDs = []string{"other-app"}
+		} else if test.field == "destinations" {
+			action[test.field] = []string{test.value}
+		} else {
+			action[test.field] = test.value
+		}
+		response := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true)
+		runtime.server.actions.protection.ProtectedActions[0].ApplicationIDs = []string{"aether-code"}
+		if response.Code != http.StatusCreated || decodeObject(t, response)["decision"] != "BLOCK" || !strings.Contains(response.Body.String(), test.reason) {
+			t.Fatalf("%s policy denial = %d %s", test.name, response.Code, response.Body.String())
+		}
+	}
+	authorizeDenied := runtime.request(t, http.MethodPost, "/v1/actions/policy-action-2/authorize", map[string]any{
+		"actionId": "policy-action-2", "operationId": "policy-operation-2",
+		"authorizedDestinations": []string{"evil.example"},
+		"expiresAt":              runtime.now.Add(time.Minute).Format(time.RFC3339Nano), "consentReasonCode": "USER_EXPLICIT",
+	}, true)
+	if authorizeDenied.Code != http.StatusForbidden {
+		t.Fatalf("one-time authorization expanded policy scope: %d %s", authorizeDenied.Code, authorizeDenied.Body.String())
+	}
+
+	runtime.server.actions.protection.ProtectedActions = nil
+	response := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", actionBody(runtime.now, "no-policy", "no-policy-operation"), true)
+	if response.Code != http.StatusCreated || decodeObject(t, response)["decision"] != "BLOCK" || !strings.Contains(response.Body.String(), "AF-ACTION-OUTSIDE-POLICY") {
+		t.Fatalf("missing active policy did not fail closed: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestAllowIsReevaluatedAndExecutionStartRejectsStaleEvidence(t *testing.T) {
+	t.Run("same operation is held after posture degrades", func(t *testing.T) {
+		runtime := newTestRuntime(t)
+		eventIDs := appendProtectedVerificationEvents(t, runtime)
+		if response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs), true); response.Code != http.StatusAccepted {
+			t.Fatalf("protected posture = %d %s", response.Code, response.Body.String())
+		}
+		body := actionBody(runtime.now, "fresh-action", "fresh-operation")
+		allowed := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true)
+		if allowed.Code != http.StatusCreated || decodeObject(t, allowed)["decision"] != "ALLOW" {
+			t.Fatalf("initial allow = %d %s", allowed.Code, allowed.Body.String())
+		}
+		runtime.advance(time.Second)
+		if response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "EXPOSED", runtime.now, 7, nil), true); response.Code != http.StatusAccepted {
+			t.Fatalf("exposed posture = %d %s", response.Code, response.Body.String())
+		}
+		rechecked := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true)
+		if rechecked.Code != http.StatusOK || decodeObject(t, rechecked)["decision"] != "HOLD" {
+			t.Fatalf("re-evaluated decision = %d %s", rechecked.Code, rechecked.Body.String())
+		}
+	})
+
+	t.Run("execution start rejects expired protection without a new evaluation", func(t *testing.T) {
+		runtime := newTestRuntime(t)
+		eventIDs := appendProtectedVerificationEvents(t, runtime)
+		if response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs), true); response.Code != http.StatusAccepted {
+			t.Fatalf("protected posture = %d %s", response.Code, response.Body.String())
+		}
+		body := actionBody(runtime.now, "start-action", "start-operation")
+		allowed := decodeObject(t, runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true))
+		auditValue := allowed["audit"].(map[string]any)
+		runtime.advance(time.Minute)
+		start := map[string]any{
+			"eventId": "stale-start", "lifecycle": "SDK_ACTION_EXECUTION_STARTED",
+			"occurredAt": runtime.now.Format(time.RFC3339Nano), "actionId": "start-action", "requestId": "start-action",
+			"decision": "ALLOW", "traceId": "start-operation", "policyRevision": auditValue["policyRevision"],
+			"reasonCodes": []string{"AF-SDK-EXECUTION-START"}, "details": map[string]any{},
+		}
+		response := runtime.request(t, http.MethodPost, "/v1/actions/start-action/audit", start, true)
+		if response.Code != http.StatusConflict {
+			t.Fatalf("stale execution start = %d %s", response.Code, response.Body.String())
+		}
+	})
+
+	t.Run("execution start rejects posture degradation after ALLOW", func(t *testing.T) {
+		runtime := newTestRuntime(t)
+		eventIDs := appendProtectedVerificationEvents(t, runtime)
+		if response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs), true); response.Code != http.StatusAccepted {
+			t.Fatalf("protected posture = %d %s", response.Code, response.Body.String())
+		}
+		body := actionBody(runtime.now, "degrade-start-action", "degrade-start-operation")
+		allowedResponse := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true)
+		allowed := decodeObject(t, allowedResponse)
+		if allowedResponse.Code != http.StatusCreated || allowed["decision"] != "ALLOW" {
+			t.Fatalf("initial allow = %d %s", allowedResponse.Code, allowedResponse.Body.String())
+		}
+		runtime.advance(time.Second)
+		if response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "EXPOSED", runtime.now, 7, nil), true); response.Code != http.StatusAccepted {
+			t.Fatalf("degraded posture = %d %s", response.Code, response.Body.String())
+		}
+		auditValue := allowed["audit"].(map[string]any)
+		start := map[string]any{
+			"eventId": "degraded-start", "lifecycle": "SDK_ACTION_EXECUTION_STARTED",
+			"occurredAt": runtime.now.Format(time.RFC3339Nano), "actionId": "degrade-start-action", "requestId": "degrade-start-action",
+			"decision": "ALLOW", "traceId": "degrade-start-operation", "policyRevision": auditValue["policyRevision"],
+			"reasonCodes": []string{"AF-SDK-EXECUTION-START"}, "details": map[string]any{},
+		}
+		response := runtime.request(t, http.MethodPost, "/v1/actions/degrade-start-action/audit", start, true)
+		if response.Code != http.StatusConflict {
+			t.Fatalf("degraded execution start = %d %s", response.Code, response.Body.String())
+		}
+	})
+
+	t.Run("deadline wins even if protection recovers later", func(t *testing.T) {
+		runtime := newTestRuntime(t)
+		body := actionBody(runtime.now, "deadline-action", "deadline-operation")
+		body["action"].(map[string]any)["deadline"] = runtime.now.Add(time.Second).Format(time.RFC3339Nano)
+		if response := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true); response.Code != http.StatusCreated || decodeObject(t, response)["decision"] != "HOLD" {
+			t.Fatalf("initial hold = %d %s", response.Code, response.Body.String())
+		}
+		runtime.advance(2 * time.Second)
+		eventIDs := appendProtectedVerificationEvents(t, runtime)
+		if response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs), true); response.Code != http.StatusAccepted {
+			t.Fatalf("late protected posture = %d %s", response.Code, response.Body.String())
+		}
+		response := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true)
+		if response.Code != http.StatusOK || decodeObject(t, response)["decision"] != "BLOCK" || !strings.Contains(response.Body.String(), "AF-ACTION-DEADLINE-EXPIRED") {
+			t.Fatalf("expired held action = %d %s", response.Code, response.Body.String())
+		}
+	})
+}
+
+func TestPostureRevisionAndControlEvidenceFailClosed(t *testing.T) {
+	runtime := newTestRuntime(t)
+	eventIDs := appendProtectedVerificationEvents(t, runtime)
+	missingRoute := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs[:2]), true)
+	if missingRoute.Code != http.StatusBadRequest {
+		t.Fatalf("self-reported route protection was accepted without route evidence: %d %s", missingRoute.Code, missingRoute.Body.String())
+	}
+	missingEgress := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs[:3]), true)
+	if missingEgress.Code != http.StatusBadRequest {
+		t.Fatalf("protected posture was accepted without external egress evidence: %d %s", missingEgress.Code, missingEgress.Body.String())
+	}
+	body := postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs)
+	if response := runtime.request(t, http.MethodPost, "/v1/posture/report", body, true); response.Code != http.StatusAccepted {
+		t.Fatalf("fully verified posture = %d %s", response.Code, response.Body.String())
+	}
+	head, err := runtime.db.GetAuditHead(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response := runtime.request(t, http.MethodPost, "/v1/posture/report", body, true); response.Code != http.StatusAccepted {
+		t.Fatalf("exact posture retry = %d %s", response.Code, response.Body.String())
+	}
+	retryHead, _ := runtime.db.GetAuditHead(context.Background())
+	if retryHead.Count != head.Count {
+		t.Fatalf("exact posture retry appended audit: %d -> %d", head.Count, retryHead.Count)
+	}
+
+	originalObservedAt := runtime.now
+	runtime.advance(time.Second)
+	lowerRevision := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "EXPOSED", runtime.now, 6, nil), true)
+	if lowerRevision.Code != http.StatusBadRequest {
+		t.Fatalf("later lower policy revision was accepted: %d %s", lowerRevision.Code, lowerRevision.Body.String())
+	}
+	conflict := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "EXPOSED", originalObservedAt, 7, nil), true)
+	if conflict.Code != http.StatusBadRequest {
+		t.Fatalf("same revision/time with different facts was accepted: %d %s", conflict.Code, conflict.Body.String())
 	}
 }
 
@@ -802,13 +1025,13 @@ func TestTopologyAndCurrentPathUseLatestDurableFactsWithoutInventingAssets(t *te
 	runtime := newTestRuntime(t)
 	verificationEventIDs := appendProtectedVerificationEvents(t, runtime)
 	appendVerifiedPathEvent(t, runtime, "event-wifi-verified", "network.wifi_changed",
-		"type.googleapis.com/antiflock.v1.WifiObservation", 3, &antiflockv1.WifiObservation{
+		"type.googleapis.com/antiflock.v1.WifiObservation", 5, &antiflockv1.WifiObservation{
 			Ssid: "coffee-shop", Security: antiflockv1.WifiSecurity_WIFI_SECURITY_WPA2_PERSONAL,
 			Trust: antiflockv1.NetworkTrust_NETWORK_TRUST_UNTRUSTED, KnownNetwork: false,
 			ObservedAt: timestamppb.New(runtime.now),
 		})
 	appendVerifiedPathEvent(t, runtime, "event-route-verified", "network.route_changed",
-		"type.googleapis.com/antiflock.v1.RouteObservation", 4, &antiflockv1.RouteObservation{
+		"type.googleapis.com/antiflock.v1.RouteObservation", 6, &antiflockv1.RouteObservation{
 			RouteId: "default-route", Destination: "0.0.0.0/0", Gateway: "192.0.2.1",
 			InterfaceId: "wlan0", DefaultRoute: true, ObservedAt: timestamppb.New(runtime.now),
 		})

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -65,6 +66,7 @@ type Server struct {
 	requestSlots  chan struct{}
 	ready         atomic.Bool
 	nodeClientCAs *x509.CertPool
+	simulation    bool
 }
 
 func New(options Options) (*Server, error) {
@@ -101,6 +103,7 @@ func New(options Options) (*Server, error) {
 		authenticator: authenticator, actions: actions,
 		deploymentID: options.DeploymentID, version: options.Version, clock: clock,
 		requestSlots: make(chan struct{}, defaultRequestLimit), nodeClientCAs: options.NodeClientCAs,
+		simulation: strings.EqualFold(os.Getenv("ANTIFLOCK_DEMO_MODE"), "true"),
 	}
 	if server.version == "" {
 		server.version = "development"

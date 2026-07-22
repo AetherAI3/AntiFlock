@@ -65,6 +65,7 @@ export class SecureActionClient {
     this.#throwIfUnavailable(normalized.deadline!, signal);
     const decision = parseDecision(await this.#transport.evaluate(normalized, { attempt: 0 }, signal));
     this.#validateDecisionBinding(decision, normalized);
+    this.#throwIfAllowUnavailable(decision, signal);
     return decision;
   }
 
@@ -97,11 +98,16 @@ export class SecureActionClient {
       // after validation.
       const decision = parseDecision(await this.#transport.evaluate(normalized, context, options.signal));
       this.#validateDecisionBinding(decision, normalized);
+      this.#throwIfAllowUnavailable(decision, options.signal);
       priorActionId = decision.actionId;
       await this.#audit(normalized, decision, "SDK_DECISION_RECEIVED", {}, options.signal, false);
+      // Audit storage is asynchronous. Do not disclose an ALLOW to observers
+      // after the evidence that justified it has expired in that interval.
+      this.#throwIfAllowUnavailable(decision, options.signal);
       // Observers receive a separate parsed copy. Their callback must never be
       // able to rewrite BLOCK/HOLD into an executable decision.
       await options.onDecision?.(parseDecision(decision), attempt);
+      this.#throwIfAllowUnavailable(decision, options.signal);
 
       switch (decision.decision) {
         case "BLOCK":
@@ -255,6 +261,7 @@ export class SecureActionClient {
     signal?: AbortSignal,
   ): Promise<SecureActionOutcome<T>> {
     this.#throwIfUnavailable(request.deadline!, signal);
+    this.#throwIfAllowUnavailable(decision, signal);
     await this.#audit(
       request,
       decision,
@@ -267,6 +274,7 @@ export class SecureActionClient {
     // The audit/consume transport is asynchronous and may ignore cancellation.
     // Recheck every execution bound immediately before crossing into caller code.
     this.#throwIfUnavailable(request.deadline!, signal);
+    this.#throwIfAllowUnavailable(decision, signal);
     if (decision.decision === "ALLOW_ONCE") {
       this.#validateAuthorization(decision.authorization, request);
     }
@@ -355,9 +363,33 @@ export class SecureActionClient {
         "Agent decision actionId does not match the secure action request",
       );
     }
+    if (decision.audit.traceId !== request.operationId) {
+      throw new InvalidAgentResponseError(
+        "Agent decision traceId does not match the secure action operationId",
+      );
+    }
+    if (decision.audit.agentId !== request.nodeId) {
+      throw new InvalidAgentResponseError(
+        "Agent decision agentId does not match the secure action nodeId",
+      );
+    }
+    if (decision.audit.policyRevision !== decision.protection.policyRevision) {
+      throw new InvalidAgentResponseError(
+        "Agent decision policy revision does not match the protection snapshot",
+      );
+    }
     if (decision.decision === "ALLOW" && decision.protection.state !== "PROTECTED") {
       throw new InvalidAgentResponseError(
         "Agent returned ALLOW without a protected posture",
+      );
+    }
+    if (
+      decision.decision === "ALLOW" &&
+      (decision.protection.policyRevision === 0 ||
+        Date.parse(decision.protection.validUntil) <= Date.parse(decision.protection.observedAt))
+    ) {
+      throw new InvalidAgentResponseError(
+        "Agent returned ALLOW without a fresh, versioned protection snapshot",
       );
     }
   }
@@ -411,6 +443,23 @@ export class SecureActionClient {
     }
     if (Date.parse(deadline) <= this.#options.now().getTime()) {
       throw new SecureActionAbortedError("Secure action deadline has expired");
+    }
+  }
+
+  #throwIfAllowUnavailable(
+    decision: SecureActionDecision,
+    signal?: AbortSignal,
+  ): void {
+    if (decision.decision !== "ALLOW") {
+      return;
+    }
+    if (signal?.aborted) {
+      throw new SecureActionAbortedError("Secure action was aborted");
+    }
+    if (Date.parse(decision.protection.validUntil) <= this.#options.now().getTime()) {
+      throw new SecureActionAbortedError(
+        "Secure action protection evidence has expired",
+      );
     }
   }
 

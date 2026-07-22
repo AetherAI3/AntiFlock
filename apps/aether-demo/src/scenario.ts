@@ -20,6 +20,8 @@ export const PROTECTION_NOTIFICATION = {
 const exposedSnapshot: ProtectionSnapshot = {
   state: "EXPOSED",
   observedAt: "2026-07-21T13:00:00.000Z",
+  validUntil: "2026-07-21T13:05:00.000Z",
+  policyRevision: 7,
   networkTrust: "UNTRUSTED",
   meshConnected: false,
   approvedExitActive: false,
@@ -30,6 +32,8 @@ const exposedSnapshot: ProtectionSnapshot = {
 const restoredSnapshot: ProtectionSnapshot = {
   state: "PROTECTED",
   observedAt: "2026-07-21T13:00:03.000Z",
+  validUntil: "2026-07-21T13:05:00.000Z",
+  policyRevision: 7,
   networkTrust: "UNTRUSTED",
   meshConnected: true,
   approvedExitActive: true,
@@ -77,11 +81,11 @@ export class CoffeeShopAgentTransport implements AgentTransport {
           expiresAt: "2026-07-21T13:05:00.000Z",
         },
         audit: {
-          traceId: "demo-coffee-shop-trace",
+          traceId: request.operationId,
           decisionId: "demo-decision-hold",
           policyRevision: 7,
           evaluatedAt: exposedSnapshot.observedAt,
-          agentId: "demo-local-agent",
+          agentId: request.nodeId,
           evidenceClass: "DETECTED",
         },
       };
@@ -92,11 +96,11 @@ export class CoffeeShopAgentTransport implements AgentTransport {
       protection: restoredSnapshot,
       reasonCodes: [],
       audit: {
-        traceId: "demo-coffee-shop-trace",
+        traceId: request.operationId,
         decisionId: "demo-decision-allow",
         policyRevision: 7,
         evaluatedAt: restoredSnapshot.observedAt,
-        agentId: "demo-local-agent",
+        agentId: request.nodeId,
         evidenceClass: "VERIFIED",
       },
     };
@@ -122,11 +126,11 @@ export class CoffeeShopAgentTransport implements AgentTransport {
       protection: exposedSnapshot,
       reasonCodes: ["USER_AUTHORIZED_ONCE"],
       audit: {
-        traceId: "demo-coffee-shop-trace",
+        traceId: request.request.operationId,
         decisionId: "demo-decision-allow-once",
         policyRevision: 7,
         evaluatedAt: exposedSnapshot.observedAt,
-        agentId: "demo-local-agent",
+        agentId: request.request.nodeId,
         evidenceClass: "DETECTED",
       },
       authorization: {

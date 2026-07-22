@@ -185,6 +185,8 @@ export function parseProtectionSnapshot(raw: unknown): ProtectionSnapshot {
   return {
     state,
     observedAt: isoDate(value.observedAt, "protection.observedAt"),
+    validUntil: isoDate(value.validUntil, "protection.validUntil"),
+    policyRevision: numberValue(value.policyRevision, "protection.policyRevision"),
     networkTrust,
     meshConnected: booleanOrNull(value.meshConnected, "protection.meshConnected"),
     approvedExitActive: booleanOrNull(
