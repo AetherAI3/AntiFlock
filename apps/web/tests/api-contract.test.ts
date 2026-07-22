@@ -113,3 +113,50 @@ test("hydrates bounded one-time authorization metadata from the live action proj
     globalThis.fetch = originalFetch;
   }
 });
+
+test("maps Core durable path facts without upgrading observed evidence", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/v1/overview")) return Response.json({});
+    if (url.endsWith("/v1/paths")) {
+      return Response.json({ paths: [{
+        id: "current-path:node-1",
+        sourceNodeId: "node-1",
+        state: "PROTECTED",
+        observedAt: "2026-07-22T12:00:00Z",
+        hops: [{
+          position: 1,
+          logicalRole: "MESH_EXIT",
+          kind: "mesh.path_changed",
+          classification: "VERIFIED",
+          details: { provider: "tailscale", exitNodeId: "home-gateway" },
+        }],
+        checks: [{ id: "mesh", state: "PASS" }],
+      }] });
+    }
+    if (url.endsWith("/v1/topology")) {
+      return Response.json({ relationships: [{
+        id: "mesh:node-1:gateway-1:path-1",
+        type: "MESH_PATH",
+        sourceEntityId: "node-1",
+        targetEntityId: "gateway-1",
+        state: "ACTIVE",
+        classification: "DETECTED",
+      }] });
+    }
+    return new Response("Unavailable", { status: 503 });
+  }) as typeof fetch;
+  try {
+    const result = await loadDashboard("", new AbortController().signal);
+    assert.equal(result.data.paths[0]?.state, "active");
+    assert.equal(result.data.paths[0]?.segments[0]?.kind, "exit");
+    assert.equal(result.data.paths[0]?.segments[0]?.state, "trusted");
+    assert.match(result.data.paths[0]?.segments[0]?.detail ?? "", /tailscale.*home-gateway/);
+    assert.equal(result.data.topology[0]?.source, "node-1");
+    assert.equal(result.data.topology[0]?.evidenceClass, "Detected");
+    assert.equal(result.data.topology[0]?.state, "unknown");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

@@ -311,25 +311,58 @@ function normalizePaths(value: unknown, fallback: NetworkPath[]): NetworkPath[] 
     const path = record(item);
     const fallbackPath = fallback[index % Math.max(fallback.length, 1)];
     const segments = list(first(path, "segments", "hops"));
+    const checks = list(first(path, "checks"));
+    const pathState = stringValue(path, ["state", "status"], "UNKNOWN").toUpperCase();
+    const normalizedPathState: NetworkPath["state"] = pathState === "PROTECTED"
+      ? "active"
+      : pathState === "EXPOSED"
+        ? "blocked"
+        : ["DEGRADED", "SUSPICIOUS", "VERIFYING"].includes(pathState)
+          ? "held"
+          : "unknown";
+    const checkForRole = (role: string): UnknownRecord => {
+      const expected = ({ LOCAL_NETWORK: "local-network", ROUTE: "route", MESH_EXIT: "mesh", DNS: "dns" } as Record<string, string>)[role];
+      return record(checks.find((candidate) => stringValue(record(candidate), ["id"], "") === expected));
+    };
+    const segmentState = (check: UnknownRecord): NetworkPath["segments"][number]["state"] => {
+      switch (stringValue(check, ["state"], "UNKNOWN").toUpperCase()) {
+        case "PASS": return "trusted";
+        case "FAIL": return "blocked";
+        case "STALE": return "degraded";
+        default: return "unknown";
+      }
+    };
+    const segmentDetail = (segment: UnknownRecord): string => {
+      const details = record(first(segment, "details"));
+      const values = [
+        stringValue(details, ["provider"], ""),
+        stringValue(details, ["exitNodeId", "exit_node_id", "gateway", "address"], ""),
+        ...list(first(details, "resolverAddresses", "resolver_addresses")).filter((entry): entry is string => typeof entry === "string"),
+      ].filter(Boolean);
+      return values.join(" · ") || "No additional fact was reported";
+    };
     return {
       id: stringValue(path, ["id", "path_id"], `path-${index}`),
       application: stringValue(path, ["application", "application_id"], "Unknown application"),
       sourceNodeId: stringValue(path, ["source_node_id", "sourceNodeId"], "unknown-node"),
       destination: stringValue(path, ["destination", "destination_name"], "Unknown destination"),
-      state: enumToken(first(path, "state", "status"), "unknown") as NetworkPath["state"],
+      state: normalizedPathState,
       encrypted: typeof first(path, "encrypted") === "boolean" ? (first(path, "encrypted") as boolean) : null,
       policy: stringValue(path, ["policy", "policy_name"], "No policy reported"),
-      updatedAt: stringValue(path, ["updated_at", "observed_at"], new Date(0).toISOString()),
+      updatedAt: stringValue(path, ["updated_at", "updatedAt", "observed_at", "observedAt"], new Date(0).toISOString()),
       segments: segments.length
         ? segments.map((entry, segmentIndex) => {
             const segment = record(entry);
-            const rawKind = enumToken(first(segment, "kind", "type", "hop_type"), "relay");
+            const role = stringValue(segment, ["logicalRole", "logical_role"], "").toUpperCase();
+            const rawKind = ({ LOCAL_NETWORK: "device", ROUTE: "policy", MESH_EXIT: "exit", DNS: "dns" } as Record<string, string>)[role]
+              ?? enumToken(first(segment, "kind", "type", "hop_type"), "relay");
+            const check = checkForRole(role);
             return {
               id: stringValue(segment, ["id", "segment_id"], `segment-${segmentIndex}`),
-              label: stringValue(segment, ["label", "name", "entity_id"], "Unknown hop"),
+              label: stringValue(segment, ["label", "name", "entity_id"], role ? role.replaceAll("_", " ") : "Unknown hop"),
               kind: (["application", "device", "policy", "mesh", "relay", "exit", "dns", "destination"].includes(rawKind) ? rawKind : "relay") as NetworkPath["segments"][number]["kind"],
-              state: enumToken(first(segment, "state", "status"), "unknown") as NetworkPath["segments"][number]["state"],
-              detail: stringValue(segment, ["detail", "summary"], "No detail supplied"),
+              state: Object.keys(check).length ? segmentState(check) : "unknown",
+              detail: stringValue(segment, ["detail", "summary"], segmentDetail(segment)),
               evidenceClass: evidenceClass(first(segment, "classification", "evidence_class")),
             };
           })
@@ -342,13 +375,15 @@ function normalizeTopology(value: unknown): TopologyEdge[] {
   const values = list(value, "relationships", "edges", "links");
   return values.map((item, index) => {
     const edge = record(item);
+    const active = stringValue(edge, ["state", "status"], "UNKNOWN").toUpperCase() === "ACTIVE";
+    const classification = evidenceClass(first(edge, "classification", "evidence_class"));
     return {
       id: stringValue(edge, ["id", "relationship_id", "edge_id"], `edge-${index}`),
-      source: stringValue(edge, ["source", "source_id", "source_entity_id"], "unknown-source"),
-      target: stringValue(edge, ["target", "target_id", "target_entity_id"], "unknown-target"),
-      label: stringValue(edge, ["label", "relationship_type", "kind"], "unlabeled relationship"),
-      state: enumToken(first(edge, "state", "status"), "unknown") as TopologyEdge["state"],
-      evidenceClass: evidenceClass(first(edge, "classification", "evidence_class")),
+      source: stringValue(edge, ["source", "source_id", "source_entity_id", "sourceEntityId"], "unknown-source"),
+      target: stringValue(edge, ["target", "target_id", "target_entity_id", "targetEntityId"], "unknown-target"),
+      label: stringValue(edge, ["label", "relationship_type", "kind", "type"], "unlabeled relationship"),
+      state: active && classification === "Verified" ? "trusted" : active ? "unknown" : "degraded",
+      evidenceClass: classification,
     };
   });
 }
