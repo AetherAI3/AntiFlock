@@ -97,12 +97,14 @@ func TestSchedulerRejectsInvalidInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	//lint:ignore SA1012 Exercise the service's fail-closed nil-context contract.
 	if _, err := service.Start(nil, time.Hour); err == nil {
 		t.Fatal("nil scheduler context was accepted")
 	}
 	if _, err := service.Start(context.Background(), 0); err == nil {
 		t.Fatal("non-positive scheduler interval was accepted")
 	}
+	//lint:ignore SA1012 Exercise the service's fail-closed nil-context contract.
 	if _, err := service.RunOnce(nil); err == nil {
 		t.Fatal("nil retention context was accepted")
 	}

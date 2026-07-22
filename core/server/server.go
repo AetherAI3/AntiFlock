@@ -70,7 +70,7 @@ type Server struct {
 func New(options Options) (*Server, error) {
 	if options.Database == nil || options.Events == nil || options.Audit == nil || options.Enrollment == nil ||
 		options.PolicyCompiler == nil || options.PostureEngine == nil || options.Findings == nil || options.Scrambler == nil || options.DeploymentID == "" {
-		return nil, errors.New("Core server requires database, events, audit, enrollment, policy, posture, findings, Scrambler, and deployment identity")
+		return nil, errors.New("core server requires database, events, audit, enrollment, policy, posture, findings, Scrambler, and deployment identity")
 	}
 	if err := options.Config.Validate(); err != nil {
 		return nil, fmt.Errorf("validate Core server config: %w", err)
@@ -119,7 +119,7 @@ func (server *Server) Handler() http.Handler {
 // base context that is cancelled before Shutdown begins.
 func (server *Server) Serve(ctx context.Context) error {
 	if ctx == nil {
-		return errors.New("Core server context is required")
+		return errors.New("core server context is required")
 	}
 	serveCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

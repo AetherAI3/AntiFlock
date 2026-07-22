@@ -10,7 +10,6 @@ import (
 	"mime"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -334,8 +333,4 @@ func (server *Server) requestCursor(request *http.Request) (replayCursor, error)
 func encodeCursor(cursor replayCursor) string {
 	encoded, _ := json.Marshal(cursor)
 	return base64.RawURLEncoding.EncodeToString(encoded)
-}
-
-func parseUint(value string) (uint64, error) {
-	return strconv.ParseUint(value, 10, 64)
 }

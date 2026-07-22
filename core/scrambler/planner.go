@@ -16,7 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-var ErrExecutionDisabled = errors.New("Scrambler execution is disabled; simulation is the supported release boundary")
+var ErrExecutionDisabled = errors.New("scrambler execution is disabled; simulation is the supported release boundary")
 
 type Planner struct {
 	ttl time.Duration
@@ -24,7 +24,7 @@ type Planner struct {
 
 func New(ttl time.Duration) (*Planner, error) {
 	if ttl <= 0 || ttl > 15*time.Minute {
-		return nil, errors.New("Scrambler simulation TTL must be positive and no more than 15 minutes")
+		return nil, errors.New("scrambler simulation TTL must be positive and no more than 15 minutes")
 	}
 	return &Planner{ttl: ttl}, nil
 }
@@ -34,16 +34,16 @@ func (planner *Planner) Simulate(nodeID, operationID string, current *antiflockv
 		return nil, errors.New("node, operation, current state, and constraints are required")
 	}
 	if len(constraints.AllowedDimensions) == 0 || len(constraints.AllowedDimensions) > 4 {
-		return nil, errors.New("Scrambler simulation requires between one and four dimensions")
+		return nil, errors.New("scrambler simulation requires between one and four dimensions")
 	}
 	seenDimensions := make(map[antiflockv1.ScramblerDimension]struct{}, len(constraints.AllowedDimensions))
 	for _, dimension := range constraints.AllowedDimensions {
 		if dimension != antiflockv1.ScramblerDimension_SCRAMBLER_DIMENSION_EXIT_NODE &&
 			dimension != antiflockv1.ScramblerDimension_SCRAMBLER_DIMENSION_DNS_PROFILE {
-			return nil, fmt.Errorf("Scrambler dimension %s is outside the simulation boundary", dimension)
+			return nil, fmt.Errorf("scrambler dimension %s is outside the simulation boundary", dimension)
 		}
 		if _, duplicate := seenDimensions[dimension]; duplicate {
-			return nil, errors.New("Scrambler dimensions must be unique")
+			return nil, errors.New("scrambler dimensions must be unique")
 		}
 		seenDimensions[dimension] = struct{}{}
 	}
@@ -75,12 +75,12 @@ func (planner *Planner) Simulate(nodeID, operationID string, current *antiflockv
 		dnsProfiles = []string{"unchanged"}
 	}
 	if !validUniqueStrings(constraints.CriticalPeerIds, 0, 64, 128) || !validUniqueStrings(constraints.RequiredDestinations, 0, 64, 512) {
-		return nil, errors.New("Scrambler verification targets must be unique and bounded")
+		return nil, errors.New("scrambler verification targets must be unique and bounded")
 	}
 	sort.Strings(exits)
 	sort.Strings(dnsProfiles)
 	if len(exits)*len(dnsProfiles) > 64 {
-		return nil, errors.New("Scrambler candidate cross-product exceeds 64")
+		return nil, errors.New("scrambler candidate cross-product exceeds 64")
 	}
 	simulationID := stableID("simulation", nodeID, current.Id, operationID)
 	candidates := make([]*antiflockv1.ScramblerCandidate, 0, len(exits)*len(dnsProfiles))

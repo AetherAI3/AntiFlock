@@ -195,7 +195,7 @@ func (config Config) Validate() error {
 		return errors.New("packet payload collection is outside the locked release boundary")
 	}
 	if config.Scrambler.ExecutionEnabled {
-		return errors.New("Scrambler execution is deferred; simulation is the only supported mode")
+		return errors.New("scrambler execution is deferred; simulation is the only supported mode")
 	}
 	return nil
 }

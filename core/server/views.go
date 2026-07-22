@@ -110,10 +110,6 @@ func (server *Server) handleNodes(response http.ResponseWriter, request *http.Re
 	writeJSON(response, http.StatusOK, map[string]any{"nodes": result})
 }
 
-func (server *Server) nodeProjection(node model.Node, now time.Time) nodeView {
-	return server.nodeProjectionWithFacts(node, durablePathFacts{}, now)
-}
-
 func (server *Server) nodeProjectionWithFacts(node model.Node, facts durablePathFacts, now time.Time) nodeView {
 	lastSeen := node.EnrolledAt
 	state := "stale"

@@ -215,7 +215,7 @@ func (client *liveClient) do(ctx context.Context, method, path, token string, bo
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, errors.New("Core request failed")
+		return nil, errors.New("core request failed")
 	}
 	defer response.Body.Close()
 	accepted := false
@@ -231,7 +231,7 @@ func (client *liveClient) do(ctx context.Context, method, path, token string, bo
 		return nil, errors.New("read Core response")
 	}
 	if len(content) > maximumLiveResponseBytes {
-		return nil, errors.New("Core response exceeds simulator limit")
+		return nil, errors.New("core response exceeds simulator limit")
 	}
 	return content, nil
 }
@@ -276,7 +276,7 @@ func (client *liveClient) doJSON(ctx context.Context, method, path, token string
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return errors.New("Core JSON response contains trailing data")
+		return errors.New("core JSON response contains trailing data")
 	}
 	return nil
 }
@@ -312,7 +312,7 @@ func (client *liveClient) bootstrapLocked(ctx context.Context) (*liveSession, er
 			return nil, errors.New("simulator node exists but is not active")
 		}
 		if state == nil || !keyExists {
-			return nil, errors.New("Core node exists without matching local simulator identity")
+			return nil, errors.New("core node exists without matching local simulator identity")
 		}
 		if err := validateLiveIdentity(state, privateKey); err != nil {
 			return nil, err
@@ -365,7 +365,7 @@ func (client *liveClient) bootstrapLocked(ctx context.Context) (*liveSession, er
 		return nil, err
 	}
 	if proposedNodeID != client.nodeID {
-		return nil, errors.New("Core proposed a node identity outside the requested simulator identity")
+		return nil, errors.New("core proposed a node identity outside the requested simulator identity")
 	}
 	state.EnrollmentID = enrollmentID
 	if err := saveLiveState(client.stateDirectory, state); err != nil {
@@ -385,7 +385,7 @@ func (client *liveClient) deployment(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if !boundedLiveID(response.DeploymentName) {
-		return "", errors.New("Core returned an invalid deployment identity")
+		return "", errors.New("core returned an invalid deployment identity")
 	}
 	return response.DeploymentName, nil
 }
@@ -424,7 +424,7 @@ func (client *liveClient) createEnrollmentToken(ctx context.Context) (string, er
 		return "", fmt.Errorf("create simulator enrollment token: %w", err)
 	}
 	if output.GetToken() == nil || output.GetTokenValue() == "" {
-		return "", errors.New("Core omitted the enrollment token")
+		return "", errors.New("core omitted the enrollment token")
 	}
 	return output.GetTokenValue(), nil
 }
@@ -466,7 +466,7 @@ func (client *liveClient) enroll(ctx context.Context, state *liveState, privateK
 		return "", "", fmt.Errorf("enroll simulator node: %w", err)
 	}
 	if output.GetEnrollment() == nil || !boundedLiveID(output.GetEnrollment().GetId()) || !boundedLiveID(output.GetEnrollment().GetProposedNodeId()) {
-		return "", "", errors.New("Core returned an invalid enrollment identity")
+		return "", "", errors.New("core returned an invalid enrollment identity")
 	}
 	return output.GetEnrollment().GetId(), output.GetEnrollment().GetProposedNodeId(), nil
 }
@@ -484,7 +484,7 @@ func (client *liveClient) approve(ctx context.Context, enrollmentID string) erro
 	}
 	if output.GetNode() == nil || output.GetNode().GetMetadata().GetId() != client.nodeID ||
 		output.GetNode().GetStatus() != antiflockv1.NodeStatus_NODE_STATUS_ACTIVE {
-		return errors.New("Core approval did not activate the requested simulator node")
+		return errors.New("core approval did not activate the requested simulator node")
 	}
 	return nil
 }
@@ -545,11 +545,11 @@ func (client *liveClient) syncSequence(ctx context.Context, state *liveState) er
 			break
 		}
 		if response.NextCursor == cursor {
-			return errors.New("Core event cursor did not advance")
+			return errors.New("core event cursor did not advance")
 		}
 		cursor = response.NextCursor
 		if page == 9999 {
-			return errors.New("Core event history exceeds simulator synchronization limit")
+			return errors.New("core event history exceeds simulator synchronization limit")
 		}
 	}
 	rotate := latestBoot != "" && latestBoot != state.BootID || state.LastSequence > highestCurrent
@@ -622,7 +622,7 @@ func (session *liveSession) sendObservationsLocked(ctx context.Context, state *l
 	}
 	ack := output.GetAck()
 	if ack == nil || ack.GetBatchId() != batchID || len(ack.GetRejected()) != 0 || ack.GetHighestContiguousSequence() != state.LastSequence {
-		return nil, errors.New("Core did not durably acknowledge the complete simulator event batch")
+		return nil, errors.New("core did not durably acknowledge the complete simulator event batch")
 	}
 	return wire, nil
 }
@@ -867,7 +867,7 @@ func (session *liveSession) reportPosture(ctx context.Context, state string, obs
 		return fmt.Errorf("report simulator posture: %w", err)
 	}
 	if !output.Accepted {
-		return errors.New("Core did not accept simulator posture")
+		return errors.New("core did not accept simulator posture")
 	}
 	return nil
 }
@@ -943,7 +943,7 @@ func RunLiveCoffeeShop(ctx context.Context, config LiveConfig, verify bool) (*Li
 		return nil, err
 	}
 	if held.Decision != "HOLD" || held.ActionID != actionID {
-		return nil, errors.New("Core did not hold the exposed simulator action")
+		return nil, errors.New("core did not hold the exposed simulator action")
 	}
 	audits := []liveAuditEvent{
 		makeAudit(runID, "SDK_DECISION_RECEIVED", 1, client.clock(), actionID, operationID, held),
@@ -962,7 +962,7 @@ func RunLiveCoffeeShop(ctx context.Context, config LiveConfig, verify bool) (*Li
 	protectedAt := client.clock().UTC()
 	heldObservedAt, parseErr := time.Parse(time.RFC3339Nano, held.Protection.ObservedAt)
 	if parseErr != nil {
-		return nil, errors.New("Core returned an invalid held posture observation time")
+		return nil, errors.New("core returned an invalid held posture observation time")
 	}
 	if !protectedAt.After(heldObservedAt) {
 		protectedAt = heldObservedAt.Add(time.Nanosecond)
@@ -982,14 +982,14 @@ func RunLiveCoffeeShop(ctx context.Context, config LiveConfig, verify bool) (*Li
 		return nil, fmt.Errorf("wait for simulator protection recovery: %w", err)
 	}
 	if !waitResponse.Restored {
-		return nil, errors.New("Core did not observe simulator protection recovery")
+		return nil, errors.New("core did not observe simulator protection recovery")
 	}
 	allowed, err := session.evaluate(ctx, action)
 	if err != nil {
 		return nil, err
 	}
 	if allowed.Decision != "ALLOW" || allowed.ActionID != actionID {
-		return nil, errors.New("Core did not release the held simulator action")
+		return nil, errors.New("core did not release the held simulator action")
 	}
 	finalAudits := []liveAuditEvent{
 		makeAudit(runID, "SDK_PROTECTION_RESTORED", 3, client.clock(), actionID, operationID, allowed),

@@ -110,7 +110,7 @@ func NewLinuxCollector(config LinuxConfig) (*LinuxCollector, error) {
 // produce reason codes and empty facts rather than invented fallback values.
 func (collector *LinuxCollector) Collect(ctx context.Context) (*Collection, error) {
 	if collector == nil {
-		return nil, errors.New("Linux collector is required")
+		return nil, errors.New("linux collector is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
