@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  developmentSDKApplicationID,
   ensureDevelopmentEnvironment,
   requiredDevelopmentEnvironmentKeys,
 } from "./dev-environment.mjs";
@@ -54,7 +55,8 @@ test("development credentials are private, complete, and stable without secret o
       assert.equal(Buffer.from(encoded, "base64url").length, 32);
       assert.equal(output.includes(encoded), false);
     }
-    for (const key of ["ANTIFLOCK_SDK_APPLICATION_ID", "ANTIFLOCK_SDK_NODE_ID", "ANTIFLOCK_AGENT_NODE_ID"]) {
+    assert.equal(firstValues.get("ANTIFLOCK_SDK_APPLICATION_ID"), developmentSDKApplicationID);
+    for (const key of ["ANTIFLOCK_SDK_NODE_ID", "ANTIFLOCK_AGENT_NODE_ID"]) {
       assert.match(firstValues.get(key), /^demo-[a-z-]+-[0-9a-f-]{36}$/);
       assert.equal(output.includes(firstValues.get(key)), false);
     }
@@ -72,6 +74,20 @@ test("development credentials are private, complete, and stable without secret o
     assert.equal(repairedValues.get("ANTIFLOCK_AGENT_TOKEN"), firstValues.get("ANTIFLOCK_AGENT_TOKEN"));
     assert.equal(repairedValues.get("ANTIFLOCK_DASHBOARD_TOKEN"), firstValues.get("ANTIFLOCK_DASHBOARD_TOKEN"));
     assert.notEqual(repairedValues.get("ANTIFLOCK_AGENT_NODE_ID"), firstValues.get("ANTIFLOCK_AGENT_NODE_ID"));
+    assert.equal(output, "");
+
+    const legacyValues = parse(readFileSync(repaired.environmentPath, "utf8"));
+    legacyValues.set("ANTIFLOCK_SDK_APPLICATION_ID", "demo-sdk-app-00000000-0000-4000-8000-000000000000");
+    writeFileSync(
+      repaired.environmentPath,
+      `${[...legacyValues].map(([key, value]) => `${key}=${value}`).join("\n")}\n`,
+      "utf8",
+    );
+    const policyRepaired = ensureDevelopmentEnvironment(directory);
+    const policyValues = parse(readFileSync(policyRepaired.environmentPath, "utf8"));
+    assert.equal(policyRepaired.updated, true);
+    assert.equal(policyValues.get("ANTIFLOCK_SDK_APPLICATION_ID"), developmentSDKApplicationID);
+    assert.equal(policyValues.get("ANTIFLOCK_OPERATOR_TOKEN"), firstValues.get("ANTIFLOCK_OPERATOR_TOKEN"));
     assert.equal(output, "");
 
     if (process.platform !== "win32") {

@@ -26,6 +26,8 @@ const idKeys = [
   "ANTIFLOCK_AGENT_NODE_ID",
 ];
 
+export const developmentSDKApplicationID = "aether-code";
+
 let cachedWindowsSid;
 
 export const requiredDevelopmentEnvironmentKeys = Object.freeze([...tokenKeys, ...idKeys]);
@@ -55,7 +57,7 @@ function generatedValues() {
     ["ANTIFLOCK_SDK_TOKEN", randomBytes(32).toString("base64url")],
     ["ANTIFLOCK_AGENT_TOKEN", randomBytes(32).toString("base64url")],
     ["ANTIFLOCK_DASHBOARD_TOKEN", randomBytes(32).toString("base64url")],
-    ["ANTIFLOCK_SDK_APPLICATION_ID", `demo-sdk-app-${randomUUID()}`],
+    ["ANTIFLOCK_SDK_APPLICATION_ID", developmentSDKApplicationID],
     ["ANTIFLOCK_SDK_NODE_ID", `demo-sdk-node-${randomUUID()}`],
     ["ANTIFLOCK_AGENT_NODE_ID", `demo-agent-node-${randomUUID()}`],
   ]);
@@ -73,6 +75,9 @@ function validateRequiredValues(values) {
     if (!value || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(value)) {
       throw new Error(`${key} must be a stable, non-empty opaque identifier.`);
     }
+  }
+  if (values.get("ANTIFLOCK_SDK_APPLICATION_ID") !== developmentSDKApplicationID) {
+    throw new Error("ANTIFLOCK_SDK_APPLICATION_ID must match the explicit development action policy.");
   }
 }
 
@@ -155,6 +160,13 @@ export function ensureDevelopmentEnvironment(repositoryRoot) {
       values.set(key, defaults.get(key));
       updated = true;
     }
+  }
+  // The SDK application id is a policy identifier, not a secret. Keep it
+  // deterministic so an existing private environment cannot silently drift
+  // outside the explicit action policy after an upgrade.
+  if (values.get("ANTIFLOCK_SDK_APPLICATION_ID") !== developmentSDKApplicationID) {
+    values.set("ANTIFLOCK_SDK_APPLICATION_ID", developmentSDKApplicationID);
+    updated = true;
   }
   validateRequiredValues(values);
 
