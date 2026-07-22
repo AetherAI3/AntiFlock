@@ -1,0 +1,61 @@
+version: 2
+updates:
+  # Go modules (single go.work module at the repo root).
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      go-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # JavaScript workspaces (root + each npm workspace).
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      js-root:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: npm
+    directory: "/apps/web"
+    schedule:
+      interval: weekly
+    groups:
+      web-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: npm
+    directory: "/apps/aether-demo"
+    schedule:
+      interval: weekly
+    groups:
+      demo-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+  - package-ecosystem: npm
+    directory: "/sdk/typescript"
+    schedule:
+      interval: weekly
+    groups:
+      sdk-deps:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions — keep the SHA-pinned workflow actions current.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Container base images used by the local/dev compose stack.
+  - package-ecosystem: docker
+    directory: "/deploy/docker"
+    schedule:
+      interval: weekly

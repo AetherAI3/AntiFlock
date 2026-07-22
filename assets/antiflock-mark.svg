@@ -1,0 +1,32 @@
+<svg width="140" height="140" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AntiFlock">
+  <title>AntiFlock</title>
+  <defs>
+    <linearGradient id="af-accent" x1="24" y1="18" x2="104" y2="110" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#0ea5e9"/>
+    </linearGradient>
+    <filter id="af-glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="2.4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- protection domain: a ring, open at the top where the operator breaks free -->
+  <circle cx="64" cy="70" r="46" stroke="url(#af-accent)" stroke-width="3"
+          stroke-linecap="round" stroke-dasharray="196 92" stroke-dashoffset="49" opacity="0.85"/>
+
+  <!-- the flock: an ordered V formation, moving together -->
+  <g stroke="#64748b" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.9">
+    <path d="M55 92 Q64 84 73 92"/>
+    <path d="M37 82 Q46 74 55 82"/>
+    <path d="M73 82 Q82 74 91 82"/>
+    <path d="M24 70 Q33 62 42 70"/>
+    <path d="M86 70 Q95 62 104 70"/>
+  </g>
+
+  <!-- the one that breaks the flock: brighter, larger, escaping through the gap -->
+  <g filter="url(#af-glow)">
+    <path d="M49 36 Q64 24 79 36" stroke="url(#af-accent)" stroke-width="4.6"
+          stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>

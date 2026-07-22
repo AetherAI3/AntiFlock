@@ -1,0 +1,22 @@
+title = "AntiFl0ck secret scan"
+
+# Start from gitleaks' built-in rule set, then narrow false positives below.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Non-secret fixtures, examples, and generated artifacts."
+regexTarget = "match"
+paths = [
+  '''\.env\.example$''',
+  '''(^|/)_loopstate/''',        # recorded run artifacts / audit fixtures
+  '''(^|/)api/gen/''',           # generated protobuf code
+  '''.*\.pb\.go$''',             # generated protobuf code
+  '''(^|/)apps/web/public/''',   # static assets
+  '''(^|/)assets/''',            # brand assets
+]
+# Placeholder / documentation tokens that are not real credentials.
+regexes = [
+  '''ANTIFLOCK_[A-Z0-9_]*_TOKEN''',   # env-var *names* referenced in docs/scripts
+  '''operator:\$\{?ANTIFLOCK''',      # documented Basic-auth placeholder
+]

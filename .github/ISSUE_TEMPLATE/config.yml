@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/DBarr3/AntiFlock/security/advisories/new
+    about: Never open a public issue for a vulnerability. Use a private Security Advisory. See SECURITY.md.
+  - name: Questions & discussion
+    url: https://github.com/DBarr3/AntiFlock/discussions
+    about: Ask questions, share ideas, or discuss the roadmap.
+  - name: Documentation & contracts
+    url: https://github.com/DBarr3/AntiFlock/tree/main/docs
+    about: Architecture, threat model, evidence model, protection states, and ADRs.

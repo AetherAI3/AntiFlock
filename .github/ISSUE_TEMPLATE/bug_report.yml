@@ -1,0 +1,93 @@
+name: Bug report
+description: Report incorrect behavior in AntiFl0ck. For a vulnerability, use a private Security Advisory instead.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report vulnerabilities here.** Use a
+        [private Security Advisory](https://github.com/DBarr3/AntiFlock/security/advisories/new)
+        (see [SECURITY.md](../blob/main/SECURITY.md)).
+
+        **Never paste** credentials, enrollment tokens, operator identifiers, exact
+        location, packet payloads, or unredacted field-report media into this issue.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Core (control/policy/intelligence plane)
+        - Agent (endpoint collection/enforcement)
+        - Third-Eye dashboard (apps/web)
+        - Secure Action SDK (sdk/typescript)
+        - Android Guard (apps/android)
+        - Nano watchdog (core/nano)
+        - Simulator / coffee-shop scenario
+        - Docs / contracts
+        - Build / CI / tooling
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: e.g. 0.1.0 or a commit SHA
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: e.g. Linux x86_64, Docker Desktop 4.x, Node 24.18
+    validations:
+      required: true
+  - type: dropdown
+    id: protection-state
+    attributes:
+      label: Protection state observed (if relevant)
+      options:
+        - Not applicable
+        - PROTECTED
+        - DEGRADED
+        - SUSPICIOUS
+        - EXPOSED
+        - UNKNOWN
+        - UNAVAILABLE
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The observed behavior. Include reason codes or finding IDs if shown.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. make dev
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or output
+      description: Review before pasting. Redact tokens, identifiers, and locations.
+      render: shell
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety confirmation
+      options:
+        - label: This is not a security vulnerability (those go to a private advisory).
+          required: true
+        - label: I removed all secrets, tokens, operator identifiers, exact location, and payloads.
+          required: true
