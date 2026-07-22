@@ -36,3 +36,5 @@ export class AuditAppendError extends SecureActionError {
 }
 
 export class OneTimeAuthorizationError extends SecureActionError {}
+
+export class SimulationExecutionDeniedError extends SecureActionError {}

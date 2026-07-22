@@ -50,6 +50,11 @@ message SecureActionDecision {
   google.protobuf.Timestamp expires_at = 7;
   string user_message = 8;
   string recommended_response = 9;
+  // Opaque keyed binding to the complete request, verdict, and protection
+  // snapshot evaluated for this decision.
+  // AuthorizeSecureAction implementations must reject a missing or mismatched
+  // binding rather than trusting caller-supplied request fields.
+  string request_binding = 10;
 }
 
 message EvaluateSecureActionRequest {

@@ -25,8 +25,32 @@ protection:
   protectedActions:
     - nodeIds: ["*"]
       applicationIds: [aether-code]
+      actionTypes: [git.push]
       dataClasses: [repository-source]
+      sensitivities: [SENSITIVITY_OPERATOR_PRIVATE]
       allowedDestinations: [github.com]
+      consentRequired: false
+    - nodeIds: ["*"]
+      applicationIds: [antiflock-nano]
+      actionTypes: [scrambler.simulate]
+      dataClasses: [network-control]
+      sensitivities: [SENSITIVITY_OPERATOR_PRIVATE]
+      allowedDestinations: [local://scrambler/simulation]
+      consentRequired: true
+    - nodeIds: ["*"]
+      applicationIds: [antiflock-nano]
+      actionTypes: [watchdog.public_surface.query]
+      dataClasses: [owned-public-surface]
+      sensitivities: [SENSITIVITY_OPERATOR_PRIVATE]
+      allowedDestinations: [provider://fixture-shodan, provider://fixture-broker-registry, provider://fixture-paste-reference]
+      consentRequired: true
+    - nodeIds: ["*"]
+      applicationIds: [antiflock-nano]
+      actionTypes: [watchdog.countermeasure.plan]
+      dataClasses: [owned-public-surface]
+      sensitivities: [SENSITIVITY_OPERATOR_PRIVATE]
+      allowedDestinations: [local://countermeasure/plan]
+      consentRequired: true
 
 telemetry:
   collectFlowMetadata: true

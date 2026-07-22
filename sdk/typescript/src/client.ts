@@ -5,6 +5,7 @@ import {
   InvalidSecureActionRequestError,
   OneTimeAuthorizationError,
   SecureActionAbortedError,
+  SimulationExecutionDeniedError,
 } from "./errors.js";
 import type {
   ActionAuditEvent,
@@ -24,6 +25,26 @@ import type {
   SecureActionRequest,
 } from "./types.js";
 import { normalizeRequest, parseDecision, sameScope, scopeForRequest } from "./validation.js";
+
+function immutableClone<T>(value: T): T {
+  const clone = (current: unknown): unknown => {
+    if (Array.isArray(current)) return current.map(clone);
+    if (current !== null && typeof current === "object") {
+      return Object.fromEntries(
+        Object.entries(current as Record<string, unknown>).map(([key, item]) => [key, clone(item)]),
+      );
+    }
+    return current;
+  };
+  const freeze = (current: unknown): unknown => {
+    if (current !== null && typeof current === "object" && !Object.isFrozen(current)) {
+      for (const item of Object.values(current as Record<string, unknown>)) freeze(item);
+      Object.freeze(current);
+    }
+    return current;
+  };
+  return freeze(clone(value)) as T;
+}
 
 interface ResolvedClientOptions {
   readonly defaultDeadlineMs: number;
@@ -61,7 +82,7 @@ export class SecureActionClient {
     request: SecureActionRequest,
     signal?: AbortSignal,
   ): Promise<SecureActionDecision> {
-    const normalized = this.#withDeadline(normalizeRequest(request));
+    const normalized = immutableClone(this.#withDeadline(normalizeRequest(request)));
     this.#throwIfUnavailable(normalized.deadline!, signal);
     const decision = parseDecision(await this.#transport.evaluate(normalized, { attempt: 0 }, signal));
     this.#validateDecisionBinding(decision, normalized);
@@ -74,7 +95,7 @@ export class SecureActionClient {
     operation: SecureActionOperation<T>,
     options: ExecuteOptions = {},
   ): Promise<SecureActionOutcome<T>> {
-    const normalized = this.#withDeadline(normalizeRequest(request));
+    const normalized = immutableClone(this.#withDeadline(normalizeRequest(request)));
     const deadline = normalized.deadline!;
     const maxRestorations =
       options.maxProtectionRestorations ?? this.#options.defaultMaxProtectionRestorations;
@@ -106,7 +127,7 @@ export class SecureActionClient {
       this.#throwIfAllowUnavailable(decision, options.signal);
       // Observers receive a separate parsed copy. Their callback must never be
       // able to rewrite BLOCK/HOLD into an executable decision.
-      await options.onDecision?.(parseDecision(decision), attempt);
+      await options.onDecision?.(immutableClone(parseDecision(decision)), attempt);
       this.#throwIfAllowUnavailable(decision, options.signal);
 
       switch (decision.decision) {
@@ -185,7 +206,7 @@ export class SecureActionClient {
               "Agent requested consent for a scope that does not match the action",
             );
           }
-          const response = await options.consentProvider({ request: normalized, decision });
+          const response = await options.consentProvider(immutableClone({ request: normalized, decision }));
           if (!response.confirmed) {
             await this.#audit(
               normalized,
@@ -230,25 +251,36 @@ export class SecureActionClient {
             options.signal,
             false,
           );
-          await options.onDecision?.(parseDecision(authorizedDecision), attempt + 1);
-          this.#validateAuthorization(authorizedDecision.authorization, normalized);
-          this.#consumeGrant(authorizedDecision.authorization);
+          await options.onDecision?.(immutableClone(parseDecision(authorizedDecision)), attempt + 1);
           return await this.#executeAllowed(
             normalized,
             authorizedDecision,
             attempt + 1,
             operation,
             options.signal,
+            options.allowSimulationExecution === true,
           );
         }
 
         case "ALLOW_ONCE":
-          this.#validateAuthorization(decision.authorization, normalized);
-          this.#consumeGrant(decision.authorization);
-          return await this.#executeAllowed(normalized, decision, attempt, operation, options.signal);
+          return await this.#executeAllowed(
+            normalized,
+            decision,
+            attempt,
+            operation,
+            options.signal,
+            options.allowSimulationExecution === true,
+          );
 
         case "ALLOW":
-          return await this.#executeAllowed(normalized, decision, attempt, operation, options.signal);
+          return await this.#executeAllowed(
+            normalized,
+            decision,
+            attempt,
+            operation,
+            options.signal,
+            options.allowSimulationExecution === true,
+          );
       }
     }
   }
@@ -259,18 +291,43 @@ export class SecureActionClient {
     attempt: number,
     operation: SecureActionOperation<T>,
     signal?: AbortSignal,
+    allowSimulationExecution = false,
   ): Promise<SecureActionOutcome<T>> {
     this.#throwIfUnavailable(request.deadline!, signal);
     this.#throwIfAllowUnavailable(decision, signal);
-    await this.#audit(
-      request,
-      decision,
-      "SDK_ACTION_EXECUTION_STARTED",
-      {},
-      signal,
-      false,
-      decision.decision === "ALLOW_ONCE",
-    );
+    if (decision.protection.evidenceProvenance === "SIMULATION" && !allowSimulationExecution) {
+      throw new SimulationExecutionDeniedError(
+        "Simulation-labeled protection cannot execute an application callback without explicit opt-in",
+      );
+    }
+    if (decision.protection.evidenceProvenance === "UNKNOWN") {
+      throw new InvalidAgentResponseError(
+        "Protection evidence provenance must be LIVE before an application callback can execute",
+      );
+    }
+    if (decision.decision === "ALLOW_ONCE") {
+      this.#validateAuthorization(decision.authorization, request);
+      this.#consumeGrant(decision.authorization);
+    }
+    try {
+      await this.#audit(
+        request,
+        decision,
+        "SDK_ACTION_EXECUTION_STARTED",
+        {},
+        signal,
+        false,
+        true,
+      );
+    } catch (error) {
+      // A failed/ambiguous transport call must never run the operation. Release
+      // only the client-local reservation so a retry can ask the authoritative
+      // server whether the one-time grant was consumed.
+      if (decision.decision === "ALLOW_ONCE") {
+        this.#consumedGrants.delete(decision.authorization.grantId);
+      }
+      throw error;
+    }
     // The audit/consume transport is asynchronous and may ignore cancellation.
     // Recheck every execution bound immediately before crossing into caller code.
     this.#throwIfUnavailable(request.deadline!, signal);
@@ -280,7 +337,7 @@ export class SecureActionClient {
     }
     let value: T;
     try {
-      value = await operation({ request, decision, attempt });
+      value = await operation(immutableClone({ request, decision, attempt }));
     } catch (error) {
       await this.#audit(
         request,

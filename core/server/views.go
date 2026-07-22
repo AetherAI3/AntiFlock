@@ -60,10 +60,20 @@ func (server *Server) handleOverview(response http.ResponseWriter, request *http
 	}
 	now := server.clock().UTC()
 	protected := 0
+	overviewProvenance := provenanceUnknown
+	hasOverviewProvenance := false
 	var overviewFacts durablePathFacts
 	var overviewObservedAt time.Time
 	for _, node := range nodes {
-		if server.actions.posture(node.ID, now).State == "PROTECTED" {
+		posture := server.actions.posture(node.ID, now)
+		postureProvenance := evidenceProvenance(posture.EvidenceProvenance)
+		if !hasOverviewProvenance {
+			overviewProvenance = postureProvenance
+			hasOverviewProvenance = true
+		} else {
+			overviewProvenance = mergeEvidenceProvenance(overviewProvenance, postureProvenance)
+		}
+		if posture.State == "PROTECTED" {
 			protected++
 		}
 		facts, loadErr := server.loadDurablePathFacts(request.Context(), node.ID)
@@ -75,11 +85,12 @@ func (server *Server) handleOverview(response http.ResponseWriter, request *http
 			overviewFacts, overviewObservedAt = facts, observedAt
 		}
 	}
-	heldActions, err := server.database.CountSecureActionsByDecision(request.Context(), "HOLD")
+	heldActionViews, err := server.actions.list(request.Context(), "HOLD", 200)
 	if err != nil {
 		server.writeDomainError(response, http.StatusInternalServerError, err, "")
 		return
 	}
+	heldActions := len(heldActionViews)
 	environment, currentExit, exitVerified, dnsState, dnsResolver := server.overviewPathProjection(overviewFacts, overviewObservedAt, now)
 	writeJSON(response, http.StatusOK, map[string]any{
 		"operatorName": "Local operator", "deploymentName": server.deploymentID,
@@ -88,7 +99,7 @@ func (server *Server) handleOverview(response http.ResponseWriter, request *http
 		"openFindings": len(server.findings.List("", antiflockv1.FindingStatus_FINDING_STATUS_OPEN)), "heldActions": heldActions,
 		"currentExit": currentExit, "exitVerified": exitVerified, "dnsState": dnsState,
 		"dnsResolver": dnsResolver, "scramblerState": "IDLE", "version": server.version,
-		"simulation": server.simulation,
+		"simulation": server.simulation, "evidenceProvenance": overviewProvenance,
 	})
 }
 
@@ -167,7 +178,7 @@ func (server *Server) handlePosture(response http.ResponseWriter, _ *http.Reques
 		writeJSON(response, http.StatusOK, map[string]any{
 			"state": unknown.State, "reasonCode": unknown.ReasonCodes[0],
 			"summary": "No fresh endpoint posture has been reported.", "evaluatedAt": unknown.ObservedAt,
-			"confidence": 1, "evidenceClass": "Unknown", "checks": []any{},
+			"confidence": 1, "evidenceClass": "Unknown", "evidenceProvenance": provenanceUnknown, "checks": []any{},
 		})
 		return
 	}
@@ -179,7 +190,8 @@ func (server *Server) handlePosture(response http.ResponseWriter, _ *http.Reques
 	writeJSON(response, http.StatusOK, map[string]any{
 		"state": posture.State, "reasonCode": reason, "summary": postureSummary(posture),
 		"evaluatedAt": posture.ObservedAt, "confidence": posture.Confidence, "evidenceClass": evidenceClassFor(posture),
-		"nodeId": posture.NodeID, "policyRevision": posture.PolicyRevision, "checks": postureChecks(posture),
+		"evidenceProvenance": posture.EvidenceProvenance,
+		"nodeId":             posture.NodeID, "policyRevision": posture.PolicyRevision, "checks": postureChecks(posture),
 	})
 }
 
@@ -341,12 +353,23 @@ func (server *Server) handlePaths(response http.ResponseWriter, request *http.Re
 }
 
 func (server *Server) loadDurablePathFacts(ctx context.Context, nodeID string) (durablePathFacts, error) {
+	node, err := server.database.GetNode(ctx, nodeID)
+	if err != nil {
+		return durablePathFacts{}, err
+	}
+	if provenance := nodeEvidenceProvenance(node); provenance == provenanceUnknown || (!server.simulation && provenance == provenanceSimulation) {
+		return durablePathFacts{}, nil
+	}
 	events, err := server.database.ListLatestEventsForNode(ctx, nodeID, currentPathEventKinds)
 	if err != nil {
 		return durablePathFacts{}, err
 	}
 	var facts durablePathFacts
 	for _, event := range events {
+		provenance := eventEvidenceProvenance(event, node)
+		if provenance == provenanceUnknown || (!server.simulation && provenance == provenanceSimulation) {
+			continue
+		}
 		var destination **durablePathFact
 		var payload proto.Message
 		switch event.Kind {
@@ -570,7 +593,8 @@ func (server *Server) currentPathView(node model.Node, facts durablePathFacts, n
 	}
 	return map[string]any{
 		"id": "current-path:" + node.ID, "sourceNodeId": node.ID, "state": posture.State,
-		"summary": currentPathSummary(posture.State, complete), "reasonCodes": reasonCodes,
+		"evidenceProvenance": posture.EvidenceProvenance,
+		"summary":            currentPathSummary(posture.State, complete), "reasonCodes": reasonCodes,
 		"observedAt": observedAt.UTC().Format(time.RFC3339Nano), "completeVisibility": complete,
 		"hops": hops, "checks": checks,
 	}

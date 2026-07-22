@@ -4,6 +4,7 @@ import {
   PROTECTION_STATES,
   type ActionAuditMetadata,
   type EvidenceClass,
+  type EvidenceProvenance,
   type JsonValue,
   type NetworkTrust,
   type OneTimeAuthorization,
@@ -29,6 +30,17 @@ const EVIDENCE_CLASSES = new Set<EvidenceClass>([
   "SUSPECTED",
   "UNKNOWN",
 ]);
+const WIRE_SENSITIVITIES: Readonly<Record<string, Sensitivity>> = {
+  PUBLIC: "PUBLIC",
+  INTERNAL: "INTERNAL",
+  CONFIDENTIAL: "CONFIDENTIAL",
+  RESTRICTED: "RESTRICTED",
+  SENSITIVITY_PUBLIC: "PUBLIC",
+  SENSITIVITY_INTERNAL: "INTERNAL",
+  SENSITIVITY_OPERATOR_PRIVATE: "CONFIDENTIAL",
+  SENSITIVITY_RESTRICTED: "RESTRICTED",
+};
+const EVIDENCE_PROVENANCE = new Set<EvidenceProvenance>(["LIVE", "SIMULATION", "UNKNOWN"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -85,6 +97,15 @@ function enumValue<T extends string>(value: unknown, values: ReadonlySet<T>, pat
   return text as T;
 }
 
+function sensitivityValue(value: unknown, path: string): Sensitivity {
+  const text = stringValue(value, path);
+  const sensitivity = WIRE_SENSITIVITIES[text];
+  if (sensitivity === undefined) {
+    throw new InvalidAgentResponseError(`${path} has an unsupported value: ${text}`);
+  }
+  return sensitivity;
+}
+
 export function canonicalDestinations(destinations: readonly string[]): string[] {
   return [...new Set(destinations.map((destination) => destination.trim()))].sort((left, right) =>
     left.localeCompare(right),
@@ -137,8 +158,15 @@ export function normalizeRequest(request: SecureActionRequest): SecureActionRequ
   if (request.deadline !== undefined && !Number.isFinite(Date.parse(request.deadline))) {
     throw new InvalidSecureActionRequestError("deadline must be an ISO-8601 timestamp");
   }
+  let metadata: Readonly<Record<string, JsonValue>> | undefined;
   if (request.metadata !== undefined) {
-    assertJsonValue(request.metadata, "metadata");
+    if (!isRecord(request.metadata)) {
+      throw new InvalidSecureActionRequestError("metadata must be a JSON object");
+    }
+    for (const [key, value] of Object.entries(request.metadata)) {
+      assertJsonValue(value, `metadata.${key}`);
+    }
+    metadata = JSON.parse(JSON.stringify(request.metadata)) as Record<string, JsonValue>;
   }
 
   return {
@@ -151,7 +179,7 @@ export function normalizeRequest(request: SecureActionRequest): SecureActionRequ
     sensitivity: request.sensitivity,
     operationId: request.operationId.trim(),
     ...(request.deadline === undefined ? {} : { deadline: request.deadline }),
-    ...(request.metadata === undefined ? {} : { metadata: request.metadata }),
+    ...(metadata === undefined ? {} : { metadata }),
   };
 }
 
@@ -162,6 +190,8 @@ export function scopeForRequest(request: SecureActionRequest): OneTimeScope {
     nodeId: request.nodeId,
     operationId: request.operationId,
     actionType: request.actionType,
+    dataClass: request.dataClass,
+    sensitivity: request.sensitivity,
     destinations: canonicalDestinations(request.destinations),
   };
 }
@@ -173,6 +203,8 @@ export function sameScope(left: OneTimeScope, right: OneTimeScope): boolean {
     left.nodeId === right.nodeId &&
     left.operationId === right.operationId &&
     left.actionType === right.actionType &&
+    left.dataClass === right.dataClass &&
+    left.sensitivity === right.sensitivity &&
     JSON.stringify(canonicalDestinations(left.destinations)) ===
       JSON.stringify(canonicalDestinations(right.destinations))
   );
@@ -195,6 +227,7 @@ export function parseProtectionSnapshot(raw: unknown): ProtectionSnapshot {
     ),
     dnsProtected: booleanOrNull(value.dnsProtected, "protection.dnsProtected"),
     reasonCodes: stringArray(value.reasonCodes, "protection.reasonCodes"),
+    evidenceProvenance: enumValue(value.evidenceProvenance, EVIDENCE_PROVENANCE, "protection.evidenceProvenance"),
   };
 }
 
@@ -218,6 +251,8 @@ export function parseScope(raw: unknown, path = "scope"): OneTimeScope {
     nodeId: stringValue(value.nodeId, `${path}.nodeId`),
     operationId: stringValue(value.operationId, `${path}.operationId`),
     actionType: stringValue(value.actionType, `${path}.actionType`),
+    dataClass: stringValue(value.dataClass, `${path}.dataClass`),
+    sensitivity: sensitivityValue(value.sensitivity, `${path}.sensitivity`),
     destinations: canonicalDestinations(stringArray(value.destinations, `${path}.destinations`)),
   };
 }

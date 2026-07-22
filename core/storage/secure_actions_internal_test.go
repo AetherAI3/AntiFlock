@@ -48,6 +48,14 @@ func TestSecureActionSchemaIdempotencyAndOneTimeConsumption(t *testing.T) {
 	}
 
 	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	if _, err := database.db.ExecContext(ctx, `
+		INSERT INTO nodes(
+			id, name, node_type, platform, platform_version, status, tags_json,
+			capabilities_json, capabilities_verification, public_key, certificate_pem, enrolled_at
+		) VALUES (?, ?, ?, ?, ?, 'ACTIVE', '[]', '{}', 'VERIFIED', ?, ?, ?)
+	`, "node-1", "Test node", "NODE_TYPE_AGENT", "linux", "test", []byte("unique-test-public-key"), "test-certificate", formatTime(now)); err != nil {
+		t.Fatal(err)
+	}
 	requestJSON := json.RawMessage(`{"id":"action-1","operationId":"operation-1"}`)
 	record := SecureActionRecord{
 		ID: "action-1", RequestID: "action-1", ApplicationID: "application-1", OperationID: "operation-1",
@@ -69,28 +77,37 @@ func TestSecureActionSchemaIdempotencyAndOneTimeConsumption(t *testing.T) {
 	}
 
 	expiresAt := now.Add(time.Minute)
+	expected := record
 	record.Decision = "ALLOW_ONCE"
 	record.DecisionJSON = json.RawMessage(`{"decision":"ALLOW_ONCE"}`)
 	record.BypassExpiresAt = &expiresAt
 	record.UpdatedAt = now.Add(time.Second)
 	secondAudit := storageAuditEntry("audit-action-authorize", "hash-action-authorize", firstAudit.EntryHash)
-	if err := CommitAuditedMutation(ctx, database.UpdateSecureActionMutation(record), secondAudit); err != nil {
+	if err := CommitAuditedMutation(ctx, database.CompareAndSwapSecureActionMutation(expected, record), secondAudit); err != nil {
 		t.Fatal(err)
 	}
 	thirdAudit := storageAuditEntry("audit-action-consume", "hash-action-consume", secondAudit.EntryHash)
 	firstLifecycleDigest := sha256.Sum256([]byte("first lifecycle request"))
 	if err := CommitAuditedMutation(ctx, database.AppendSecureActionLifecycleMutation(
-		"event-consume-1", record.ID, "SDK_ACTION_EXECUTION_STARTED", firstLifecycleDigest[:], now.Add(2*time.Second), now.Add(2*time.Second),
+		"event-consume-1", record, "node-1", "SDK_ACTION_EXECUTION_STARTED", firstLifecycleDigest[:], now.Add(2*time.Second), now.Add(2*time.Second),
 	), thirdAudit); err != nil {
 		t.Fatal(err)
 	}
 	if lifecycle, err := database.GetSecureActionAuditEvent(ctx, "event-consume-1"); err != nil || lifecycle.ActionID != record.ID || !bytes.Equal(lifecycle.RequestDigest, firstLifecycleDigest[:]) {
 		t.Fatalf("lifecycle event = %#v err=%v", lifecycle, err)
 	}
+	staleAuthorization := expected
+	staleAuthorization.Decision = "ALLOW_ONCE"
+	staleAuthorization.DecisionJSON = json.RawMessage(`{"decision":"ALLOW_ONCE","stale":true}`)
+	staleAuthorization.BypassExpiresAt = &expiresAt
+	staleAuthorization.UpdatedAt = now.Add(3 * time.Second)
+	if err := CommitAuditedMutation(ctx, database.CompareAndSwapSecureActionMutation(expected, staleAuthorization), storageAuditEntry("audit-stale-authorize", "hash-stale-authorize", thirdAudit.EntryHash)); !errors.Is(err, ErrSecureActionConflict) {
+		t.Fatalf("stale authorization update error = %v", err)
+	}
 	secondLifecycleDigest := sha256.Sum256([]byte("second lifecycle request"))
 	if err := CommitAuditedMutation(ctx, database.AppendSecureActionLifecycleMutation(
-		"event-consume-2", record.ID, "SDK_ACTION_EXECUTION_STARTED", secondLifecycleDigest[:], now.Add(3*time.Second), now.Add(3*time.Second),
-	), storageAuditEntry("audit-action-reconsume", "hash-action-reconsume", thirdAudit.EntryHash)); !errors.Is(err, ErrOneTimeGrantConsumed) {
+		"event-consume-2", record, "node-1", "SDK_ACTION_EXECUTION_STARTED", secondLifecycleDigest[:], now.Add(3*time.Second), now.Add(3*time.Second),
+	), storageAuditEntry("audit-action-reconsume", "hash-action-reconsume", thirdAudit.EntryHash)); !errors.Is(err, ErrInvalidActionLifecycle) {
 		t.Fatalf("second one-time consumption error = %v", err)
 	}
 	head, err := database.GetAuditHead(ctx)

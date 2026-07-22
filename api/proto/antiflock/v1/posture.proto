@@ -55,6 +55,7 @@ message ProtectionSnapshot {
   repeated Capability capabilities_considered = 11;
   float confidence = 12;
   string recommended_response = 13;
+  EvidenceProvenance evidence_provenance = 14;
 }
 
 message ProtectionTransition {

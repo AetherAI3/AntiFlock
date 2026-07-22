@@ -150,7 +150,8 @@ func (core *fakeLiveCore) serveHTTP(response http.ResponseWriter, request *http.
 			return
 		}
 		writeTestJSON(response, http.StatusOK, map[string]any{
-			"state": core.posture, "nodeId": core.nodeID, "evidenceClass": core.postureClass, "policyRevision": 7,
+			"state": core.posture, "nodeId": core.nodeID, "evidenceClass": core.postureClass,
+			"evidenceProvenance": "SIMULATION", "policyRevision": 7,
 		})
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/actions/evaluate":
 		if !core.requireToken(response, request, testLiveSDKToken) {
@@ -293,8 +294,11 @@ func (core *fakeLiveCore) handleEvaluate(response http.ResponseWriter, request *
 	}
 	writeTestJSON(response, status, map[string]any{
 		"decision": core.decision, "actionId": core.actionID, "reasonCodes": []string{"AF-SIMULATION-TEST"},
-		"protection": map[string]any{"observedAt": time.Now().UTC().Format(time.RFC3339Nano), "policyRevision": 7},
-		"audit":      map[string]any{"policyRevision": 7},
+		"protection": map[string]any{
+			"observedAt": time.Now().UTC().Format(time.RFC3339Nano), "policyRevision": 7,
+			"evidenceProvenance": "SIMULATION",
+		},
+		"audit": map[string]any{"policyRevision": 7},
 	})
 }
 
@@ -315,6 +319,10 @@ func (core *fakeLiveCore) handleAudit(response http.ResponseWriter, request *htt
 			return
 		}
 		core.auditCalls++
+		if input.Lifecycle == "SDK_ACTION_EXECUTION_STARTED" {
+			http.Error(response, "execution start already accepted", http.StatusConflict)
+			return
+		}
 		response.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -377,6 +385,8 @@ func TestLiveCoffeeShopBootstrapsSignsPersistsReleasesAndVerifies(t *testing.T) 
 		t.Fatal(err)
 	}
 	if !result.Verified || result.InitialDecision != "HOLD" || result.FinalDecision != "ALLOW" ||
+		result.EvidenceProvenance != "SIMULATION" || result.IdempotentReplays != 4 ||
+		result.ChangedReplayRejects != 5 || !result.StartReplayRejected ||
 		len(result.ContextEventIDs) != 2 || len(result.VerificationEventIDs) != 4 || len(result.AuditEventIDs) != 5 {
 		t.Fatalf("unexpected live result: %#v", result)
 	}

@@ -6,6 +6,7 @@ import type {
   DashboardSection,
   Finding,
   PathSegment,
+  SecureAction,
   TimelineEvent,
 } from "../api/contracts";
 import {
@@ -22,7 +23,11 @@ import {
   SeverityBadge,
   StateBadge,
 } from "../components/ui";
-import { useDashboard } from "../state/dashboard-context";
+import { useDashboard, type DataMode } from "../state/dashboard-context";
+import {
+  hasCompleteOneTimeAuthorizationScope,
+  oneTimeAuthorizationScopeFingerprint,
+} from "../state/action-consent";
 
 function OverviewView() {
   const {
@@ -31,12 +36,9 @@ function OverviewView() {
     scenario,
     replayCoffeeShop,
     restoreShield,
-    sendOnce,
-    pendingCommand,
   } = useDashboard();
   const exposed = data.posture.state === "EXPOSED";
   const protectedState = data.posture.state === "PROTECTED";
-  const heldAction = data.actions.find((action) => action.decision === "HOLD");
   const currentPath = data.paths[0];
 
   return (
@@ -96,9 +98,7 @@ function OverviewView() {
           </div>
           <div className="alert-actions">
             <button className="button button-primary" type="button" onClick={restoreShield}>{mode === "demo" ? "Restore Shield (demo)" : "Recheck protection"}</button>
-            <button className="button button-warning" type="button" onClick={() => heldAction && void sendOnce(heldAction.id)} disabled={!heldAction || pendingCommand === "send-once"}>
-              {pendingCommand === "send-once" ? "Authorizing..." : "Send once"}
-            </button>
+            <Link className="button button-warning" href="/actions">Review held actions</Link>
             <Link className="button button-quiet" href="/field">View environment</Link>
           </div>
         </section>
@@ -447,6 +447,69 @@ function PoliciesView() {
   );
 }
 
+export function OneTimeAuthorizationControl({
+  action,
+  mode,
+  pending,
+  onAuthorize,
+}: {
+  action: SecureAction;
+  mode: DataMode;
+  pending: boolean;
+  onAuthorize: (actionId: string) => Promise<void>;
+}) {
+  const [confirmedFingerprint, setConfirmedFingerprint] = useState<string | null>(null);
+  const scopeFingerprint = oneTimeAuthorizationScopeFingerprint(action);
+  const confirmed = confirmedFingerprint === scopeFingerprint;
+  const hasCompleteScope = hasCompleteOneTimeAuthorizationScope(action);
+  const authorizationAvailable = hasCompleteScope
+    && (mode === "demo" || Boolean(action.oneTimeAuthorization?.enabled));
+
+  return (
+    <footer className="action-consent">
+      <div className="action-consent-copy">
+        <p className="eyebrow">Confirm exact one-time scope</p>
+        <p>This authorization does not disable global protection and applies only to every value shown below.</p>
+        <dl className="consent-scope">
+          <KeyValue label="Action ID" value={action.id} mono />
+          <KeyValue label="Operation ID" value={action.operationId} mono />
+          <KeyValue label="Application ID" value={action.applicationId} mono />
+          <KeyValue label="Node ID" value={action.nodeId} mono />
+          <KeyValue label="Action type" value={action.actionType} mono />
+          <KeyValue label="Destinations" value={action.destinations.join(", ") || "Not reported"} mono />
+          <KeyValue label="Data class" value={action.dataClass} mono />
+          <KeyValue label="Sensitivity" value={action.sensitivity} mono />
+          <KeyValue label="Authorization expires" value={action.oneTimeAuthorization?.maximumExpiresAt ? formatTimestamp(action.oneTimeAuthorization.maximumExpiresAt) : "Not reported"} />
+        </dl>
+        {authorizationAvailable ? (
+          <label className="consent-confirmation">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(event) => setConfirmedFingerprint(event.target.checked ? scopeFingerprint : null)}
+              disabled={pending}
+            />
+            <span>I confirm this exact application, action, destination, data, and sensitivity scope.</span>
+          </label>
+        ) : (
+          <p className="consent-unavailable" role="status">Core did not provide a complete, enabled one-time authorization scope.</p>
+        )}
+      </div>
+      <button
+        className="button button-warning"
+        type="button"
+        onClick={() => {
+          setConfirmedFingerprint(null);
+          void onAuthorize(action.id);
+        }}
+        disabled={!authorizationAvailable || !confirmed || pending}
+      >
+        {pending ? "Authorizing..." : authorizationAvailable ? "Authorize this exact scope once" : "One-time authorization unavailable"}
+      </button>
+    </footer>
+  );
+}
+
 function ActionsView() {
   const { data, mode, sendOnce, pendingCommand } = useDashboard();
   const [decision, setDecision] = useState("all");
@@ -459,10 +522,12 @@ function ActionsView() {
       </div>
       {visible.length ? <div className="action-list">{visible.map((action) => (
         <article className={`action-card action-${action.decision.toLowerCase()}`} key={action.id}>
-          <header><span className="action-app">AC</span><div><p className="eyebrow">{action.application}</p><h2>{action.actionType}</h2></div><StateBadge value={action.decision} /></header>
-          <dl className="action-facts"><KeyValue label="Destination" value={action.destination} mono /><KeyValue label="Data class" value={action.dataClass} /><KeyValue label="Created" value={formatTimestamp(action.createdAt)} /><KeyValue label="Expiry" value={action.expiresAt ? formatTimestamp(action.expiresAt) : "No expiry reported"} /></dl>
+          <header><span className="action-app">AC</span><div><p className="eyebrow">{action.applicationId}</p><h2>{action.actionType}</h2></div><StateBadge value={action.decision} /></header>
+          <dl className="action-facts"><KeyValue label="Destination" value={action.destination} mono /><KeyValue label="Data class" value={action.dataClass} /><KeyValue label="Sensitivity" value={action.sensitivity} mono /><KeyValue label="Created" value={formatTimestamp(action.createdAt)} /><KeyValue label="Expiry" value={action.expiresAt ? formatTimestamp(action.expiresAt) : "No expiry reported"} /></dl>
           <div className="reason-codes"><span>Decision reasons</span>{action.reasonCodes.map((code) => <code key={code}>{code}</code>)}</div>
-          {action.decision === "HOLD" && <footer><p>Authorization applies only to this application, destination, and action. It does not disable global protection.</p><button className="button button-warning" type="button" onClick={() => void sendOnce(action.id)} disabled={pendingCommand === "send-once" || (mode !== "demo" && !action.oneTimeAuthorization?.enabled)}>{pendingCommand === "send-once" ? "Authorizing..." : action.oneTimeAuthorization?.enabled || mode === "demo" ? "Allow this action once" : "One-time authorization unavailable"}</button></footer>}
+          {["HOLD", "BLOCK", "REQUIRE_CONSENT"].includes(action.decision) && action.oneTimeAuthorization?.enabled && (
+            <OneTimeAuthorizationControl action={action} mode={mode} pending={pendingCommand === "send-once"} onAuthorize={sendOnce} />
+          )}
         </article>
       ))}</div> : <EmptyState title="No matching actions" text="No secure actions meet this decision filter." />}
       <Panel labelledBy="sdk-boundary-title"><PanelHeader title="Enforcement boundary" eyebrow="Evidence honesty" id="sdk-boundary-title" /><div className="boundary-grid"><div><strong>Universal protection</strong><p>The VPN or firewall can block network egress. A third-party application may show its own pending or failed state.</p></div><div><strong>Integrated protection</strong><p>The Secure Action SDK can hold a specific action, explain the reason, authorize once, and retry after verification.</p></div></div></Panel>

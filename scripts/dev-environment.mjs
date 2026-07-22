@@ -64,12 +64,17 @@ function generatedValues() {
 }
 
 function validateRequiredValues(values) {
+	const distinctTokens = new Set();
   for (const key of tokenKeys) {
     const value = values.get(key);
     if (!value || Buffer.byteLength(value, "utf8") < 32) {
       throw new Error(`${key} must contain at least 32 bytes.`);
     }
+		distinctTokens.add(value);
   }
+	if (distinctTokens.size !== tokenKeys.length) {
+		throw new Error("Development credentials must be pairwise distinct.");
+	}
   for (const key of idKeys) {
     const value = values.get(key);
     if (!value || !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(value)) {
@@ -168,6 +173,18 @@ export function ensureDevelopmentEnvironment(repositoryRoot) {
     values.set("ANTIFLOCK_SDK_APPLICATION_ID", developmentSDKApplicationID);
     updated = true;
   }
+	const seenTokens = new Set();
+	for (const key of tokenKeys) {
+		let value = values.get(key);
+		if (seenTokens.has(value)) {
+			do {
+				value = randomBytes(32).toString("base64url");
+			} while (seenTokens.has(value));
+			values.set(key, value);
+			updated = true;
+		}
+		seenTokens.add(value);
+	}
   validateRequiredValues(values);
 
   if (updated) {

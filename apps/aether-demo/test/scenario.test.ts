@@ -33,6 +33,7 @@ describe("coffee-shop secure action scenario", () => {
         return "sent";
       },
       {
+        allowSimulationExecution: true,
         onDecision: (decision) => {
           decisions.push(decision.decision);
         },

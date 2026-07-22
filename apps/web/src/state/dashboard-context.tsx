@@ -27,6 +27,7 @@ import {
   scenarioState,
   type ScenarioState,
 } from "./scenario";
+import { hasCompleteOneTimeAuthorizationScope } from "./action-consent";
 
 export type DataMode = "checking" | "live" | "partial" | "demo" | "error";
 export type StreamStatus = "idle" | "connecting" | "connected" | "reconnecting" | "unsupported" | "simulated";
@@ -275,7 +276,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       return;
     }
     const authorization = action.oneTimeAuthorization;
-    if (mode !== "demo" && (!authorization?.enabled || !authorization.maximumExpiresAt || !action.operationId || !action.destinations.length)) {
+    if (mode !== "demo" && (!authorization?.enabled || !authorization.maximumExpiresAt || !hasCompleteOneTimeAuthorizationScope(action))) {
       setCommandFeedback({ kind: "error", message: "Core did not offer a complete, bounded one-time authorization for this action." });
       return;
     }

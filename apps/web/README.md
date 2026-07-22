@@ -11,7 +11,12 @@ npm install
 npm run dev
 ```
 
-The dashboard uses the current origin for Core by default. Set `NEXT_PUBLIC_ANTIFLOCK_API_URL` or save a Core URL in Settings when the API is hosted elsewhere.
+In the local stack, the dashboard reaches Core only through its authenticated
+same-origin server proxy. The proxy holds the scoped Core credential
+server-side; browser JavaScript cannot configure or receive it. When that proxy
+is unavailable, the standalone build can show the deterministic coffee-shop
+fixture only when demo fallback was enabled at build time, and labels the data
+as a simulation throughout the interface.
 
 ```bash
 npm run build
@@ -24,7 +29,7 @@ npm run lint
 - REST projections come from `/v1/overview`, `/v1/nodes`, `/v1/topology`, `/v1/paths`, `/v1/events`, `/v1/findings`, `/v1/posture`, `/v1/field/reports`, `/v1/footprint`, and `/v1/scrambler/state`.
 - Durable live projection events come from `/v1/stream`, with topic filters and cursor resume.
 - Canonical snake_case fields are accepted. Partial projection failures remain visible.
-- When no Core endpoint is reachable, a deterministic coffee-shop incident is shown only if demo fallback is enabled. It is labeled as fixture data throughout the shell.
+- When the server proxy cannot reach Core, a deterministic coffee-shop incident is shown only if demo fallback is enabled. It is labeled as fixture data throughout the shell.
 - The UI never treats nearby reported infrastructure as evidence of interception.
 
 The web app does not collect packet payloads, upload exact field location, or independently infer a live protection state.

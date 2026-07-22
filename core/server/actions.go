@@ -48,6 +48,7 @@ type actionGate struct {
 	postureEngine    *postureengine.Engine
 	findings         *findings.Service
 	authorizationKey []byte
+	simulation       bool
 	clock            func() time.Time
 
 	mu       sync.RWMutex
@@ -63,6 +64,7 @@ func newActionGate(
 	authorizationKey []byte,
 	postureEngine *postureengine.Engine,
 	findingService *findings.Service,
+	simulation bool,
 	clock func() time.Time,
 ) (*actionGate, error) {
 	if database == nil || auditService == nil || postureEngine == nil || findingService == nil || deploymentID == "" {
@@ -74,13 +76,13 @@ func newActionGate(
 	return &actionGate{
 		database: database, audit: auditService, deploymentID: deploymentID,
 		protection: protection, postureEngine: postureEngine, findings: findingService,
-		authorizationKey: append([]byte(nil), authorizationKey...), clock: clock,
+		authorizationKey: append([]byte(nil), authorizationKey...), simulation: simulation, clock: clock,
 		postures: make(map[string]postureReport), updated: make(chan struct{}),
 	}, nil
 }
 
 func (gate *actionGate) list(ctx context.Context, decision string, limit int) ([]secureActionListItem, error) {
-	records, err := gate.database.ListSecureActions(ctx, decision, limit)
+	records, err := gate.database.ListSecureActions(ctx, "", 200)
 	if err != nil {
 		return nil, err
 	}
@@ -95,18 +97,53 @@ func (gate *actionGate) list(ctx context.Context, decision string, limit int) ([
 		if err := json.Unmarshal(record.DecisionJSON, &committed); err != nil {
 			return nil, errors.New("stored secure action decision is invalid")
 		}
+		execution, executionErr := gate.database.GetSecureActionExecutionState(ctx, record.ID)
+		if executionErr != nil {
+			return nil, executionErr
+		}
+		posture, nodeActive, postureErr := gate.actionPosture(ctx, request.NodeID, now)
+		if postureErr != nil {
+			return nil, postureErr
+		}
+		effective := committed
+		deadline, deadlineErr := time.Parse(time.RFC3339Nano, request.Deadline)
+		if deadlineErr != nil {
+			return nil, errors.New("stored secure action deadline is invalid")
+		}
+		switch {
+		case record.Decision == "ALLOW_ONCE" && record.ReleasedAt != nil:
+			effective = gate.decisionBase(request, posture, "BLOCK", []string{"AF-ONE-TIME-GRANT-CONSUMED"}, now)
+		case execution.Started:
+			// A started decision is immutable. Do not present a running or
+			// completed operation as a newly held action after posture changes.
+		case record.Decision == "ALLOW":
+			effective = gate.decideForNode(request, posture, nodeActive, deadline, now)
+		case record.Decision == "ALLOW_ONCE":
+			if !nodeActive {
+				effective = gate.decisionBase(request, posture, "BLOCK", []string{"AF-NODE-NOT-ACTIVE"}, now)
+			} else if record.BypassExpiresAt == nil || !record.BypassExpiresAt.After(now) || !deadline.After(now) {
+				effective = gate.decide(request, gate.posture(request.NodeID, now), deadline, now)
+			}
+		}
+		if decision != "" && effective.Decision != decision {
+			continue
+		}
+		expiresAt := effective.ExpiresAt
+		if expiresAt == "" && effective.Decision == "ALLOW" {
+			expiresAt = effective.Protection.ValidUntil
+		}
 		item := secureActionListItem{
 			ActionID: record.ID, OperationID: record.OperationID, ApplicationID: record.ApplicationID,
-			NodeID: request.NodeID, Decision: record.Decision,
-			ReasonCodes: append([]string(nil), committed.ReasonCodes...), Protection: committed.Protection,
+			NodeID: request.NodeID, Decision: effective.Decision,
+			ReasonCodes: append([]string(nil), effective.ReasonCodes...), Protection: effective.Protection,
 			Scope: secureActionScopeView{
 				ActionType: request.ActionType, Destinations: append([]string(nil), request.Destinations...),
 				DataClass: request.DataClass, Sensitivity: request.Sensitivity, Deadline: request.Deadline,
 			},
-			ExpiresAt: committed.ExpiresAt, CreatedAt: record.CreatedAt.UTC().Format(time.RFC3339Nano),
+			ExpiresAt: expiresAt, CreatedAt: record.CreatedAt.UTC().Format(time.RFC3339Nano),
 			UpdatedAt: record.UpdatedAt.UTC().Format(time.RFC3339Nano),
 		}
-		if gate.protection.AllowOneTimeBypass && gate.oneTimeEligible(committed) {
+		if gate.protection.AllowOneTimeBypass && gate.oneTimeEligible(committed) && gate.oneTimeEligible(effective) {
 			maximum := now.Add(gate.protection.OneTimeBypassTTL)
 			if deadline, parseErr := time.Parse(time.RFC3339Nano, request.Deadline); parseErr == nil && deadline.Before(maximum) {
 				maximum = deadline
@@ -117,6 +154,9 @@ func (gate *actionGate) list(ctx context.Context, decision string, limit int) ([
 			}
 		}
 		result = append(result, item)
+		if len(result) == limit {
+			break
+		}
 	}
 	return result, nil
 }
@@ -152,32 +192,42 @@ func (gate *actionGate) evaluate(ctx context.Context, request secureActionReques
 	if err != nil {
 		return decisionView{}, http.StatusBadRequest, err
 	}
+	// Persist the caller's required deadline in one canonical form; every later
+	// list, consent, and execution-start check relies on this exact bound.
+	request.Deadline = deadline.UTC().Format(time.RFC3339Nano)
 	canonical, err := json.Marshal(request)
 	if err != nil {
 		return decisionView{}, http.StatusInternalServerError, err
+	}
+	now := gate.clock().UTC()
+	posture, nodeActive, err := gate.actionPosture(ctx, request.NodeID, now)
+	if err != nil {
+		return decisionView{}, http.StatusNotFound, err
 	}
 	existing, err := gate.database.GetSecureActionByOperationID(ctx, request.OperationID)
 	if err == nil {
 		if !existing.RequestMatches(canonical) {
 			return decisionView{}, http.StatusConflict, storage.ErrSecureActionConflict
 		}
+		if existing.Decision == "ALLOW_ONCE" && existing.ReleasedAt != nil {
+			return decisionView{}, http.StatusConflict, storage.ErrOneTimeGrantConsumed
+		}
 		decision, decodeErr := decodeStoredDecision(existing, request, gate.authorizationKey)
 		if decodeErr != nil {
 			return decisionView{}, http.StatusInternalServerError, decodeErr
 		}
-		now := gate.clock().UTC()
 		// The request and operation id are durable, but an executable verdict is
 		// deliberately short-lived. Explicit one-time grants remain stable until
 		// their own/action expiry; every ordinary ALLOW is recomputed from current
 		// posture, policy, and deadline on retrieval.
-		if decision.Decision == "ALLOW_ONCE" {
+		if decision.Decision == "ALLOW_ONCE" && nodeActive {
 			actionExpired := !deadline.After(now)
 			grantExpired := existing.BypassExpiresAt == nil || !existing.BypassExpiresAt.After(now)
 			if !actionExpired && !grantExpired {
 				return decision, http.StatusOK, nil
 			}
 		}
-		fresh := gate.decide(request, gate.posture(request.NodeID, now), deadline, now)
+		fresh := gate.decideForNode(request, posture, nodeActive, deadline, now)
 		if decisionEquivalent(decision, fresh) {
 			if fresh.Decision == "ALLOW" {
 				return fresh, http.StatusOK, nil
@@ -188,6 +238,7 @@ func (gate *actionGate) evaluate(ctx context.Context, request secureActionReques
 		if marshalErr != nil {
 			return decisionView{}, http.StatusInternalServerError, marshalErr
 		}
+		expected := existing
 		existing.Decision, existing.DecisionJSON, existing.UpdatedAt = fresh.Decision, encoded, now
 		existing.BypassExpiresAt = nil
 		if fresh.Decision == "ALLOW" {
@@ -204,8 +255,11 @@ func (gate *actionGate) evaluate(ctx context.Context, request secureActionReques
 			ActorType: "PRINCIPAL", ActorID: actor.ID, Action: action,
 			ResourceType: "secure_action", ResourceID: request.ID, Outcome: fresh.Decision,
 			Details: map[string]any{"operationId": request.OperationID, "policyRevision": fresh.Protection.PolicyRevision, "priorDecision": decision.Decision},
-		}, gate.database.UpdateSecureActionMutation(existing))
+		}, gate.database.CompareAndSwapSecureActionMutation(expected, existing))
 		if updateErr != nil {
+			if errors.Is(updateErr, storage.ErrSecureActionConflict) {
+				return decisionView{}, http.StatusConflict, updateErr
+			}
 			return decisionView{}, http.StatusInternalServerError, updateErr
 		}
 		return fresh, http.StatusOK, nil
@@ -214,9 +268,7 @@ func (gate *actionGate) evaluate(ctx context.Context, request secureActionReques
 		return decisionView{}, http.StatusInternalServerError, err
 	}
 
-	now := gate.clock().UTC()
-	posture := gate.posture(request.NodeID, now)
-	decision := gate.decide(request, posture, deadline, now)
+	decision := gate.decideForNode(request, posture, nodeActive, deadline, now)
 	decisionJSON, err := json.Marshal(decision)
 	if err != nil {
 		return decisionView{}, http.StatusInternalServerError, err
@@ -284,10 +336,20 @@ func (gate *actionGate) authorize(ctx context.Context, actionID string, request 
 	if !principalFromContext(ctx).allowsAction(original) {
 		return decisionView{}, http.StatusForbidden, errors.New("credential scope does not match the secure action")
 	}
+	posture, nodeActive, postureErr := gate.actionPosture(ctx, original.NodeID, now)
+	if postureErr != nil {
+		return decisionView{}, http.StatusNotFound, postureErr
+	}
+	if !nodeActive {
+		return decisionView{}, http.StatusConflict, errors.New("one-time authorization is unavailable while the action node is not active")
+	}
 	if original.OperationID != request.OperationID || !sameStrings(original.Destinations, request.AuthorizedDestinations) {
 		return decisionView{}, http.StatusConflict, errors.New("authorization scope does not match the held action")
 	}
 	if record.Decision == "ALLOW_ONCE" {
+		if record.ReleasedAt != nil {
+			return decisionView{}, http.StatusConflict, storage.ErrOneTimeGrantConsumed
+		}
 		decision, decodeErr := decodeStoredDecision(record, original, gate.authorizationKey)
 		if decodeErr != nil {
 			return decisionView{}, http.StatusInternalServerError, decodeErr
@@ -310,7 +372,6 @@ func (gate *actionGate) authorize(ctx context.Context, actionID string, request 
 	if !gate.oneTimeEligible(prior) {
 		return decisionView{}, http.StatusForbidden, errors.New("the committed decision is not eligible for a one-time authorization")
 	}
-	posture := gate.posture(original.NodeID, now)
 	decision := gate.decisionBase(original, posture, "ALLOW_ONCE", []string{"USER_AUTHORIZED_ONCE"}, now)
 	decision.ExpiresAt = expiresAt.UTC().Format(time.RFC3339Nano)
 	decision.Authorization = gate.authorization(original, expiresAt, now)
@@ -324,6 +385,7 @@ func (gate *actionGate) authorize(ctx context.Context, actionID string, request 
 	if err != nil {
 		return decisionView{}, http.StatusInternalServerError, err
 	}
+	expected := record
 	record.Decision = decision.Decision
 	record.DecisionJSON = decisionJSON
 	record.UpdatedAt = now
@@ -333,8 +395,16 @@ func (gate *actionGate) authorize(ctx context.Context, actionID string, request 
 		ActorType: "PRINCIPAL", ActorID: actor.ID, Action: "secure_action.authorize_once",
 		ResourceType: "secure_action", ResourceID: actionID, Outcome: "ALLOW_ONCE",
 		Details: map[string]any{"operationId": request.OperationID, "expiresAt": decision.ExpiresAt},
-	}, gate.database.UpdateSecureActionMutation(record))
+	}, gate.database.CompareAndSwapSecureActionMutation(expected, record))
 	if err != nil {
+		if errors.Is(err, storage.ErrSecureActionConflict) {
+			current, reloadErr := gate.database.GetSecureAction(ctx, actionID)
+			if reloadErr == nil && current.Decision == "ALLOW_ONCE" && current.ReleasedAt == nil && current.BypassExpiresAt != nil && current.BypassExpiresAt.Equal(expiresAt) {
+				stored, decodeErr := decodeStoredDecision(current, original, gate.authorizationKey)
+				return stored, http.StatusOK, decodeErr
+			}
+			return decisionView{}, http.StatusConflict, err
+		}
 		return decisionView{}, http.StatusInternalServerError, err
 	}
 	return decision, http.StatusOK, nil
@@ -374,14 +444,6 @@ func (gate *actionGate) appendLifecycleAudit(ctx context.Context, actionID strin
 		return http.StatusBadRequest, errors.New("action audit metadata is invalid or too large")
 	}
 	digest := sha256.Sum256(canonical)
-	if existing, err := gate.database.GetSecureActionAuditEvent(ctx, request.EventID); err == nil {
-		if existing.ActionID != actionID || !bytes.Equal(existing.RequestDigest, digest[:]) {
-			return http.StatusConflict, storage.ErrSecureActionAuditConflict
-		}
-		return http.StatusNoContent, nil
-	} else if !errors.Is(err, storage.ErrSecureActionNotFound) {
-		return http.StatusInternalServerError, err
-	}
 	record, err := gate.database.GetSecureAction(ctx, actionID)
 	if errors.Is(err, storage.ErrSecureActionNotFound) {
 		return http.StatusNotFound, err
@@ -395,6 +457,27 @@ func (gate *actionGate) appendLifecycleAudit(ctx context.Context, actionID strin
 	if !principalFromContext(ctx).allowsAction(original) {
 		return http.StatusForbidden, errors.New("credential scope does not match the secure action")
 	}
+	if existing, lookupErr := gate.database.GetSecureActionAuditEvent(ctx, request.EventID); lookupErr == nil {
+		if existing.ActionID != actionID || !bytes.Equal(existing.RequestDigest, digest[:]) {
+			return http.StatusConflict, storage.ErrSecureActionAuditConflict
+		}
+		if request.Lifecycle == "SDK_ACTION_EXECUTION_STARTED" {
+			return http.StatusConflict, errors.New("execution-start audit was already accepted; a replay cannot authorize callback execution")
+		}
+		return http.StatusNoContent, nil
+	} else if !errors.Is(lookupErr, storage.ErrSecureActionNotFound) {
+		return http.StatusInternalServerError, lookupErr
+	}
+	if request.Lifecycle == "SDK_ACTION_EXECUTION_STARTED" {
+		_, nodeActive, postureErr := gate.actionPosture(ctx, original.NodeID, now)
+		if postureErr != nil {
+			return http.StatusNotFound, postureErr
+		}
+		if !nodeActive {
+			return http.StatusConflict, errors.New("secure action node is not active")
+		}
+	}
+	actor := principalFromContext(ctx)
 	if request.RequestID != record.RequestID || request.TraceID != record.OperationID || request.Decision != record.Decision ||
 		occurredAt.Before(record.CreatedAt.Add(-5*time.Minute)) {
 		return http.StatusConflict, errors.New("action audit event does not match the committed action decision")
@@ -421,7 +504,6 @@ func (gate *actionGate) appendLifecycleAudit(ctx context.Context, actionID strin
 			}
 		}
 	}
-	actor := principalFromContext(ctx)
 	_, err = gate.audit.AppendWithMutation(ctx, audit.AppendRequest{
 		ActorType: "APPLICATION", ActorID: actor.ID, Action: "secure_action." + strings.ToLower(request.Lifecycle),
 		ResourceType: "secure_action", ResourceID: actionID, Outcome: request.Decision,
@@ -430,11 +512,14 @@ func (gate *actionGate) appendLifecycleAudit(ctx context.Context, actionID strin
 			"policyRevision": request.PolicyRevision, "reasonCodes": request.ReasonCodes, "metadata": request.Details,
 		},
 	}, gate.database.AppendSecureActionLifecycleMutation(
-		request.EventID, actionID, request.Lifecycle, digest[:], occurredAt.UTC(), now,
+		request.EventID, record, original.NodeID, request.Lifecycle, digest[:], occurredAt.UTC(), now,
 	))
 	if err != nil {
 		if existing, replayErr := gate.database.GetSecureActionAuditEvent(ctx, request.EventID); replayErr == nil {
 			if existing.ActionID == actionID && bytes.Equal(existing.RequestDigest, digest[:]) {
+				if request.Lifecycle == "SDK_ACTION_EXECUTION_STARTED" {
+					return http.StatusConflict, errors.New("execution-start audit was already accepted; a replay cannot authorize callback execution")
+				}
 				return http.StatusNoContent, nil
 			}
 			return http.StatusConflict, storage.ErrSecureActionAuditConflict
@@ -442,9 +527,38 @@ func (gate *actionGate) appendLifecycleAudit(ctx context.Context, actionID strin
 		if errors.Is(err, storage.ErrOneTimeGrantConsumed) {
 			return http.StatusConflict, err
 		}
+		if errors.Is(err, storage.ErrInvalidActionLifecycle) {
+			return http.StatusConflict, err
+		}
+		if errors.Is(err, storage.ErrSecureActionConflict) {
+			return http.StatusConflict, err
+		}
 		return http.StatusInternalServerError, err
 	}
 	return http.StatusNoContent, nil
+}
+
+func (gate *actionGate) actionPosture(ctx context.Context, nodeID string, now time.Time) (protectionView, bool, error) {
+	node, err := gate.database.GetNode(ctx, nodeID)
+	if err != nil {
+		return protectionView{}, false, err
+	}
+	if node.Status != model.NodeActive {
+		return unknownPosture(nodeID, now, "AF-NODE-NOT-ACTIVE"), false, nil
+	}
+	return gate.posture(nodeID, now), true, nil
+}
+
+func (gate *actionGate) invalidateNode(nodeID string, now time.Time) {
+	gate.mu.Lock()
+	gate.postures[nodeID] = postureReport{
+		NodeID: nodeID, State: "UNKNOWN", ObservedAt: now.UTC().Format(time.RFC3339Nano),
+		ReasonCodes: []string{"AF-NODE-NOT-ACTIVE"}, EvidenceClass: "UNKNOWN",
+		EvidenceProvenance: string(provenanceUnknown), Confidence: 1,
+	}
+	close(gate.updated)
+	gate.updated = make(chan struct{})
+	gate.mu.Unlock()
 }
 
 func validReasonCode(value string) bool {
@@ -492,7 +606,14 @@ func (gate *actionGate) wait(ctx context.Context, actionID string, request waitR
 	}
 	for {
 		now := gate.clock().UTC()
-		posture, update := gate.postureAndUpdate(original.NodeID, now)
+		posture, nodeActive, postureErr := gate.actionPosture(ctx, original.NodeID, now)
+		if postureErr != nil {
+			return protectionView{}, false, http.StatusNotFound, postureErr
+		}
+		if !nodeActive {
+			return posture, false, http.StatusConflict, errors.New("secure action node is not active")
+		}
+		_, update := gate.postureAndUpdate(original.NodeID, now)
 		observed, _ := time.Parse(time.RFC3339Nano, posture.ObservedAt)
 		if posture.State == "PROTECTED" && observed.After(after) {
 			return posture, true, http.StatusOK, nil
@@ -523,6 +644,21 @@ func (gate *actionGate) reportPosture(ctx context.Context, report postureReport)
 	if err := validatePostureReport(report, now, gate.protection.TelemetryStaleAfter); err != nil {
 		return err
 	}
+	node, err := gate.database.GetNode(ctx, report.NodeID)
+	if err != nil {
+		return errors.New("posture node is not durably enrolled")
+	}
+	if node.Status != model.NodeActive {
+		return errors.New("posture node is not active")
+	}
+	provenance := nodeEvidenceProvenance(node)
+	if provenance == provenanceUnknown {
+		return errors.New("posture evidence provenance could not be established")
+	}
+	if provenance == provenanceSimulation && !gate.simulation {
+		return errors.New("simulation posture is disabled for this Core")
+	}
+	report.EvidenceProvenance = string(provenance)
 	evidenceClass := antiflockv1.EvidenceClass_EVIDENCE_CLASS_DETECTED
 	verified := protectedEvidenceValidation{}
 	if report.State == "PROTECTED" {
@@ -532,6 +668,7 @@ func (gate *actionGate) reportPosture(ctx context.Context, report postureReport)
 			return err
 		}
 		report.EvidenceClass = "VERIFIED"
+		report.EvidenceProvenance = string(verified.provenance)
 	} else {
 		report.EvidenceClass = "DETECTED"
 	}
@@ -576,6 +713,10 @@ func (gate *actionGate) reportPosture(ctx context.Context, report postureReport)
 	}
 	gate.mu.Lock()
 	defer gate.mu.Unlock()
+	currentNode, currentNodeErr := gate.database.GetNode(ctx, report.NodeID)
+	if currentNodeErr != nil || currentNode.Status != model.NodeActive {
+		return errors.New("posture node status changed while the report was being evaluated")
+	}
 	existing, exists := gate.postures[report.NodeID]
 	if exists {
 		existingTime, _ := time.Parse(time.RFC3339Nano, existing.ObservedAt)
@@ -597,6 +738,7 @@ func (gate *actionGate) reportPosture(ctx context.Context, report postureReport)
 		Details: map[string]any{
 			"policyRevision": report.PolicyRevision, "reasonCodes": report.ReasonCodes,
 			"verificationEventIds": report.VerificationEventIDs, "evidenceClass": report.EvidenceClass,
+			"evidenceProvenance": report.EvidenceProvenance,
 		},
 	}); err != nil {
 		return err
@@ -650,18 +792,38 @@ func unknownPosture(nodeID string, now time.Time, reason string) protectionView 
 	return protectionView{
 		State: "UNKNOWN", ObservedAt: now.UTC().Format(time.RFC3339Nano),
 		ValidUntil: now.UTC().Format(time.RFC3339Nano), NetworkTrust: "UNKNOWN",
-		ReasonCodes: []string{reason}, NodeID: nodeID, EvidenceClass: "UNKNOWN",
+		ReasonCodes: []string{reason}, NodeID: nodeID, EvidenceClass: "UNKNOWN", EvidenceProvenance: string(provenanceUnknown),
 	}
 }
 
 func (gate *actionGate) decide(request secureActionRequest, posture protectionView, deadline, now time.Time) decisionView {
-	if denial := gate.actionPolicyDenial(request); denial != "" {
+	policy, denial := gate.actionPolicy(request)
+	if denial != "" {
 		return gate.decisionBase(request, posture, "BLOCK", []string{denial}, now)
 	}
 	if !deadline.After(now) {
 		return gate.decisionBase(request, posture, "BLOCK", []string{"AF-ACTION-DEADLINE-EXPIRED"}, now)
 	}
 	if posture.State == "PROTECTED" {
+		if policy.ConsentRequired {
+			expiresAt := deadline
+			if maximum := now.Add(2 * time.Minute); expiresAt.After(maximum) {
+				expiresAt = maximum
+			}
+			decision := gate.decisionBase(request, posture, "REQUIRE_CONSENT", []string{"AF-EXPLICIT-CONSENT-REQUIRED"}, now)
+			decision.ExpiresAt = expiresAt.UTC().Format(time.RFC3339Nano)
+			decision.Consent = &consentView{
+				Prompt:    "Authorize this exact action scope once?",
+				ExpiresAt: decision.ExpiresAt,
+				Scope: authorizationScope{
+					ID: request.ID, ApplicationID: request.ApplicationID, NodeID: request.NodeID,
+					OperationID: request.OperationID, ActionType: request.ActionType,
+					DataClass: request.DataClass, Sensitivity: request.Sensitivity,
+					Destinations: append([]string(nil), request.Destinations...),
+				},
+			}
+			return decision
+		}
 		return gate.decisionBase(request, posture, "ALLOW", posture.ReasonCodes, now)
 	}
 	expiresAt := deadline
@@ -674,12 +836,21 @@ func (gate *actionGate) decide(request secureActionRequest, posture protectionVi
 	return decision
 }
 
-func (gate *actionGate) actionPolicyDenial(request secureActionRequest) string {
+func (gate *actionGate) decideForNode(request secureActionRequest, posture protectionView, nodeActive bool, deadline, now time.Time) decisionView {
+	if !nodeActive {
+		return gate.decisionBase(request, posture, "BLOCK", []string{"AF-NODE-NOT-ACTIVE"}, now)
+	}
+	return gate.decide(request, posture, deadline, now)
+}
+
+func (gate *actionGate) actionPolicy(request secureActionRequest) (config.ProtectedActionPolicyConfig, string) {
 	destinationDenied := false
 	for _, policy := range gate.protection.ProtectedActions {
 		if !policyValueMatches(policy.NodeIDs, request.NodeID) ||
 			!policyValueMatches(policy.ApplicationIDs, request.ApplicationID) ||
-			!policyValueMatches(policy.DataClasses, request.DataClass) {
+			!policyValueMatches(policy.ActionTypes, request.ActionType) ||
+			!policyValueMatches(policy.DataClasses, request.DataClass) ||
+			!policyValueMatches(policy.Sensitivities, request.Sensitivity) {
 			continue
 		}
 		allDestinationsAllowed := true
@@ -691,13 +862,18 @@ func (gate *actionGate) actionPolicyDenial(request secureActionRequest) string {
 			}
 		}
 		if allDestinationsAllowed {
-			return ""
+			return policy, ""
 		}
 	}
 	if destinationDenied {
-		return "AF-DESTINATION-OUTSIDE-POLICY"
+		return config.ProtectedActionPolicyConfig{}, "AF-DESTINATION-OUTSIDE-POLICY"
 	}
-	return "AF-ACTION-OUTSIDE-POLICY"
+	return config.ProtectedActionPolicyConfig{}, "AF-ACTION-OUTSIDE-POLICY"
+}
+
+func (gate *actionGate) actionPolicyDenial(request secureActionRequest) string {
+	_, denial := gate.actionPolicy(request)
+	return denial
 }
 
 func policyValueMatches(values []string, wanted string) bool {
@@ -715,13 +891,16 @@ func (gate *actionGate) oneTimeEligible(decision decisionView) bool {
 	}
 	return !slices.Contains(decision.ReasonCodes, "AF-ACTION-OUTSIDE-POLICY") &&
 		!slices.Contains(decision.ReasonCodes, "AF-DESTINATION-OUTSIDE-POLICY") &&
-		!slices.Contains(decision.ReasonCodes, "AF-ACTION-DEADLINE-EXPIRED")
+		!slices.Contains(decision.ReasonCodes, "AF-ACTION-DEADLINE-EXPIRED") &&
+		!slices.Contains(decision.ReasonCodes, "AF-ONE-TIME-GRANT-CONSUMED") &&
+		!slices.Contains(decision.ReasonCodes, "AF-NODE-NOT-ACTIVE")
 }
 
 func decisionEquivalent(left, right decisionView) bool {
 	return left.Decision == right.Decision && left.Protection.State == right.Protection.State &&
 		left.Protection.ObservedAt == right.Protection.ObservedAt && left.Protection.ValidUntil == right.Protection.ValidUntil &&
-		left.Protection.PolicyRevision == right.Protection.PolicyRevision && sameStrings(left.ReasonCodes, right.ReasonCodes)
+		left.Protection.PolicyRevision == right.Protection.PolicyRevision &&
+		left.Protection.EvidenceProvenance == right.Protection.EvidenceProvenance && sameStrings(left.ReasonCodes, right.ReasonCodes)
 }
 
 func (gate *actionGate) decisionBase(request secureActionRequest, posture protectionView, decision string, reasons []string, now time.Time) decisionView {
@@ -758,18 +937,16 @@ func (gate *actionGate) validateAction(request secureActionRequest) (time.Time, 
 		seenDestinations[destination] = struct{}{}
 	}
 	if !slices.Contains([]string{
-		"PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED",
 		"SENSITIVITY_PUBLIC", "SENSITIVITY_INTERNAL", "SENSITIVITY_OPERATOR_PRIVATE", "SENSITIVITY_RESTRICTED",
 	}, request.Sensitivity) {
 		return time.Time{}, errors.New("secure action sensitivity is invalid")
 	}
-	deadline := gate.clock().UTC().Add(30 * time.Second)
-	if request.Deadline != "" {
-		var err error
-		deadline, err = time.Parse(time.RFC3339Nano, request.Deadline)
-		if err != nil {
-			return time.Time{}, errors.New("secure action deadline must be RFC3339")
-		}
+	if request.Deadline == "" {
+		return time.Time{}, errors.New("secure action deadline is required")
+	}
+	deadline, err := time.Parse(time.RFC3339Nano, request.Deadline)
+	if err != nil {
+		return time.Time{}, errors.New("secure action deadline must be RFC3339")
 	}
 	if deadline.After(gate.clock().UTC().Add(24 * time.Hour)) {
 		return time.Time{}, errors.New("secure action deadline exceeds 24 hours")
@@ -828,6 +1005,7 @@ func mustParsePostureTime(value string) time.Time {
 
 type protectedEvidenceValidation struct {
 	validUntil time.Time
+	provenance evidenceProvenance
 	mesh       bool
 	dns        bool
 	route      bool
@@ -838,12 +1016,21 @@ func (gate *actionGate) validateProtectedEvidence(ctx context.Context, report po
 	if len(report.VerificationEventIDs) != 4 {
 		return protectedEvidenceValidation{}, errors.New("protected posture requires distinct durable mesh, DNS, route, and external egress verification events")
 	}
+	node, err := gate.database.GetNode(ctx, report.NodeID)
+	if err != nil {
+		return protectedEvidenceValidation{}, errors.New("protected posture node is not durably enrolled")
+	}
+	nodeProvenance := nodeEvidenceProvenance(node)
+	if nodeProvenance == provenanceUnknown || (!gate.simulation && nodeProvenance == provenanceSimulation) {
+		return protectedEvidenceValidation{}, errors.New("protected posture evidence provenance is not permitted")
+	}
 	seen := make(map[string]struct{}, len(report.VerificationEventIDs))
 	validUntil := now.Add(gate.protection.TelemetryStaleAfter)
 	reportedObservedAt := mustParsePostureTime(report.ObservedAt)
 	meshPathID, routeInterfaceID := "", ""
+	dnsMeshPathID, dnsInterfaceID := "", ""
 	flowMeshPathID, flowInterfaceID := "", ""
-	result := protectedEvidenceValidation{}
+	result := protectedEvidenceValidation{provenance: nodeProvenance}
 	for _, eventID := range report.VerificationEventIDs {
 		if !bounded(eventID, 128) {
 			return protectedEvidenceValidation{}, errors.New("posture verification event id is invalid")
@@ -864,6 +1051,13 @@ func (gate *actionGate) validateProtectedEvidence(ctx context.Context, report po
 		if err := model.ValidateEvidenceAt(event, now); err != nil {
 			return protectedEvidenceValidation{}, errors.New("posture verification event no longer has fresh verified evidence")
 		}
+		eventProvenance := eventEvidenceProvenance(event, node)
+		if eventProvenance == provenanceUnknown || (!gate.simulation && eventProvenance == provenanceSimulation) {
+			return protectedEvidenceValidation{}, errors.New("posture verification event provenance is not permitted")
+		}
+		if eventProvenance == provenanceSimulation {
+			result.provenance = provenanceSimulation
+		}
 		if eventFreshUntil := event.ObservedAt.Add(gate.protection.TelemetryStaleAfter); eventFreshUntil.Before(validUntil) {
 			validUntil = eventFreshUntil
 		}
@@ -879,7 +1073,8 @@ func (gate *actionGate) validateProtectedEvidence(ctx context.Context, report po
 			}
 			var observation antiflockv1.MeshPathObservation
 			if err := proto.Unmarshal(event.Payload, &observation); err != nil || !observation.GetTunnelHealthy() || !observation.GetApprovedExitActive() ||
-				observation.GetSourceNodeId() != report.NodeID || observation.GetPathId() == "" {
+				observation.GetSourceNodeId() != report.NodeID || observation.GetPathId() == "" ||
+				observation.GetProvider() == "" || observation.GetDestinationNodeId() == "" || observation.GetExitNodeId() == "" {
 				return protectedEvidenceValidation{}, errors.New("mesh posture verification event does not establish a healthy approved exit for this node")
 			}
 			result.mesh = true
@@ -889,10 +1084,13 @@ func (gate *actionGate) validateProtectedEvidence(ctx context.Context, report po
 				return protectedEvidenceValidation{}, errors.New("protected posture contains duplicate DNS verification evidence")
 			}
 			var observation antiflockv1.DnsObservation
-			if err := proto.Unmarshal(event.Payload, &observation); err != nil || !observation.GetPathVerified() {
+			if err := proto.Unmarshal(event.Payload, &observation); err != nil || !observation.GetPathVerified() ||
+				len(observation.GetResolverAddresses()) == 0 || observation.GetSource() == "" ||
+				observation.GetEgressInterfaceId() == "" || observation.GetMeshPathId() == "" {
 				return protectedEvidenceValidation{}, errors.New("DNS posture verification event does not establish a verified path")
 			}
 			result.dns = true
+			dnsInterfaceID, dnsMeshPathID = observation.GetEgressInterfaceId(), observation.GetMeshPathId()
 		case "network.route_changed":
 			if result.route {
 				return protectedEvidenceValidation{}, errors.New("protected posture contains duplicate route verification evidence")
@@ -922,7 +1120,8 @@ func (gate *actionGate) validateProtectedEvidence(ctx context.Context, report po
 		}
 	}
 	if !result.mesh || !result.dns || !result.route || !result.egress ||
-		flowInterfaceID != routeInterfaceID || flowMeshPathID != meshPathID {
+		flowInterfaceID != routeInterfaceID || flowMeshPathID != meshPathID ||
+		dnsInterfaceID != routeInterfaceID || dnsMeshPathID != meshPathID {
 		return protectedEvidenceValidation{}, errors.New("protected posture requires bound mesh, DNS, policy-route, and external-egress evidence")
 	}
 	if !validUntil.After(now) {
@@ -933,6 +1132,9 @@ func (gate *actionGate) validateProtectedEvidence(ctx context.Context, report po
 }
 
 func samePostureReport(left, right postureReport) bool {
+	if left.EvidenceClass != right.EvidenceClass || left.EvidenceProvenance != right.EvidenceProvenance || left.Confidence != right.Confidence {
+		return false
+	}
 	leftJSON, leftErr := json.Marshal(left)
 	rightJSON, rightErr := json.Marshal(right)
 	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
@@ -967,6 +1169,7 @@ func makeAuthorization(key []byte, request secureActionRequest, expiresAt, issue
 	payload, _ := json.Marshal(map[string]any{
 		"actionId": request.ID, "applicationId": request.ApplicationID, "nodeId": request.NodeID,
 		"operationId": request.OperationID, "actionType": request.ActionType,
+		"dataClass": request.DataClass, "sensitivity": request.Sensitivity,
 		"destinations": destinations, "expiresAt": expiresAt.UTC().Format(time.RFC3339Nano), "uses": 1,
 	})
 	mac := hmac.New(sha256.New, key)
@@ -977,6 +1180,7 @@ func makeAuthorization(key []byte, request secureActionRequest, expiresAt, issue
 		Scope: authorizationScope{
 			ID: request.ID, ApplicationID: request.ApplicationID, NodeID: request.NodeID,
 			OperationID: request.OperationID, ActionType: request.ActionType,
+			DataClass: request.DataClass, Sensitivity: request.Sensitivity,
 			Destinations: append([]string(nil), request.Destinations...),
 		},
 		IssuedAt: issuedAt.UTC().Format(time.RFC3339Nano), ExpiresAt: expiresAt.UTC().Format(time.RFC3339Nano), RemainingUses: 1,

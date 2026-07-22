@@ -65,6 +65,7 @@ export interface Overview {
   operatorName: string;
   deploymentName: string;
   simulation: boolean | null;
+  evidenceProvenance: "LIVE" | "SIMULATION" | "UNKNOWN";
   environment: Environment;
   protectedDevices: number;
   totalDevices: number;
@@ -168,12 +169,13 @@ export interface Finding {
 export interface SecureAction {
   id: string;
   operationId: string;
-  application: string;
+  applicationId: string;
   nodeId: string;
   actionType: string;
   destination: string;
   destinations: string[];
   dataClass: string;
+  sensitivity: string;
   decision: "ALLOW" | "HOLD" | "BLOCK" | "REQUIRE_CONSENT" | "ALLOW_ONCE";
   reasonCodes: string[];
   createdAt: string;

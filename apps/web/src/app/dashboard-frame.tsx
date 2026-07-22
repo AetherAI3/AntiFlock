@@ -56,15 +56,21 @@ interface SourceBannerViewProps {
   failedEndpoints: string[];
   streamStatus: StreamStatus;
   simulation: boolean | null;
+  evidenceProvenance: "LIVE" | "SIMULATION" | "UNKNOWN";
 }
 
-export function SourceBannerView({ mode, error, failedEndpoints, streamStatus, simulation }: SourceBannerViewProps) {
-  const liveSimulation = simulation === true && (mode === "live" || mode === "partial");
+export function SourceBannerView({ mode, error, failedEndpoints, streamStatus, simulation, evidenceProvenance }: SourceBannerViewProps) {
+  const connected = mode === "live" || mode === "partial";
+  const liveSimulation = connected && (simulation === true || evidenceProvenance === "SIMULATION");
+  const unknownEvidence = connected && !liveSimulation && evidenceProvenance !== "LIVE";
   const copy = liveSimulation ? {
     label: "LIVE SIMULATION - NOT HOST PROTECTION",
     text: mode === "partial"
       ? `Core simulation telemetry is partial; ${failedEndpoints.length} projection${failedEndpoints.length === 1 ? " is" : "s are"} unavailable. Values do not represent protection on this host.`
       : `Core is serving live simulation telemetry. Event stream: ${streamStatus}. Values do not represent protection on this host.`,
+  } : unknownEvidence ? {
+    label: "UNVERIFIED EVIDENCE SOURCE - NOT HOST PROTECTION",
+    text: "Core is connected, but the evidence source is unknown. No host-protection conclusion may be drawn from these values.",
   } : ({
     checking: {
       label: "CHECKING CORE",
@@ -87,13 +93,13 @@ export function SourceBannerView({ mode, error, failedEndpoints, streamStatus, s
       text: "Core is unavailable and demo fallback is disabled. No current protection conclusion can be made.",
     },
   }[mode]);
-  const sourceClass = liveSimulation ? "simulation" : mode;
+  const sourceClass = liveSimulation ? "simulation" : unknownEvidence ? "error" : mode;
 
   return (
     <div
       className={`source-banner source-${sourceClass}`}
       role={mode === "error" ? "alert" : "status"}
-      aria-label={liveSimulation ? "Simulation provenance warning" : undefined}
+      aria-label={liveSimulation ? "Simulation provenance warning" : unknownEvidence ? "Unknown evidence provenance warning" : undefined}
     >
       <span className="source-label">{copy.label}</span>
       <span>{copy.text}</span>
@@ -104,7 +110,7 @@ export function SourceBannerView({ mode, error, failedEndpoints, streamStatus, s
 
 function SourceBanner() {
   const { data, mode, error, failedEndpoints, streamStatus } = useDashboard();
-  return <SourceBannerView mode={mode} error={error} failedEndpoints={failedEndpoints} streamStatus={streamStatus} simulation={data.overview.simulation} />;
+  return <SourceBannerView mode={mode} error={error} failedEndpoints={failedEndpoints} streamStatus={streamStatus} simulation={data.overview.simulation} evidenceProvenance={data.overview.evidenceProvenance} />;
 }
 
 export function DashboardFrame({ children }: { children: ReactNode }) {
@@ -124,6 +130,7 @@ export function DashboardFrame({ children }: { children: ReactNode }) {
   const groups: NavItem["group"][] = ["Command", "Inspect", "Control", "Intelligence"];
   const title = NAV_ITEMS.find((item) => item.section === section)?.label ?? "Overview";
   const liveSimulation = data.overview.simulation === true && (mode === "live" || mode === "partial");
+  const unknownEvidence = (mode === "live" || mode === "partial") && !liveSimulation && data.overview.evidenceProvenance !== "LIVE";
 
   return (
     <div className="dashboard-shell" data-mode={mode} data-posture={data.posture.state.toLowerCase()}>
@@ -164,7 +171,7 @@ export function DashboardFrame({ children }: { children: ReactNode }) {
         <div className="sidebar-status">
           <div className="sidebar-status-row">
             <span className={`status-dot dot-${mode}`} aria-hidden="true" />
-            <span>{liveSimulation ? "Core simulation" : mode === "demo" ? "Local demonstration" : mode === "live" ? "Core connected" : mode === "partial" ? "Core partially connected" : "Checking Core"}</span>
+            <span>{liveSimulation ? "Core simulation" : unknownEvidence ? "Core connected / evidence unverified" : mode === "demo" ? "Local demonstration" : mode === "live" ? "Core connected" : mode === "partial" ? "Core partially connected" : "Checking Core"}</span>
           </div>
           <div className="sidebar-status-row subtle">
             <span className="mini-code" aria-hidden="true">EV</span>

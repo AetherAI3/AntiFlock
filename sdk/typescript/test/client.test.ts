@@ -7,6 +7,7 @@ import {
   OneTimeAuthorizationError,
   SecureActionAbortedError,
   SecureActionClient,
+  SimulationExecutionDeniedError,
   parseCanonicalDecisionResponse,
   parseDecision,
   scopeForRequest,
@@ -40,6 +41,7 @@ const exposed: ProtectionSnapshot = {
   approvedExitActive: false,
   dnsProtected: false,
   reasonCodes: ["AF-PATH-001", "AF-DNS-002"],
+  evidenceProvenance: "LIVE",
 };
 
 const protectedSnapshot: ProtectionSnapshot = {
@@ -52,6 +54,7 @@ const protectedSnapshot: ProtectionSnapshot = {
   approvedExitActive: true,
   dnsProtected: true,
   reasonCodes: [],
+  evidenceProvenance: "LIVE",
 };
 
 const request: SecureActionRequest = {
@@ -286,7 +289,11 @@ describe("SecureActionClient", () => {
       executed = true;
     }, {
       onDecision: (observed) => {
-        (observed as { decision: string }).decision = "ALLOW";
+        try {
+          (observed as { decision: string }).decision = "ALLOW";
+        } catch {
+          // The observer receives a detached, frozen value in strict modules.
+        }
       },
     });
 
@@ -352,6 +359,65 @@ describe("SecureActionClient", () => {
     assert.equal(transport.authorizeRequests.length, 1);
     assert.equal(transport.contexts.length, 1);
     assert.equal(transport.authorizeRequests[0]?.expiresAt, LATER);
+  });
+
+  it("isolates consent and operation callbacks from the bound action scope", async () => {
+    const consentDecision: SecureActionDecision = {
+      decision: "REQUIRE_CONSENT",
+      actionId: request.id,
+      protection: exposed,
+      reasonCodes: ["AF-PATH-001"],
+      audit: audit("decision-consent-isolation"),
+      consent: {
+        prompt: "Authorize this exact scope?",
+        expiresAt: LATER,
+        scope: scopeForRequest(request),
+      },
+    };
+    const onceDecision: AllowOnceDecision = {
+      decision: "ALLOW_ONCE",
+      actionId: request.id,
+      protection: exposed,
+      reasonCodes: ["USER_AUTHORIZED_ONCE"],
+      audit: audit("decision-once-isolation"),
+      authorization: grant("isolated-grant"),
+    };
+    const transport = new ScriptedTransport([consentDecision], [], [onceDecision]);
+    let callbackScope: ReturnType<typeof scopeForRequest> | undefined;
+    const attemptMutation = (mutate: () => void): void => {
+      try {
+        mutate();
+      } catch {
+        // Runtime freezing is expected to reject mutation in strict modules.
+      }
+    };
+
+    const outcome = await client(transport).execute(request, (context) => {
+      attemptMutation(() => {
+        (context.request as { dataClass: string }).dataClass = "credentials";
+      });
+      attemptMutation(() => {
+        (context.decision as { actionId: string }).actionId = "crossed-action";
+      });
+      callbackScope = scopeForRequest(context.request);
+      return "isolated";
+    }, {
+      consentProvider: async (context) => {
+        attemptMutation(() => {
+          (context.request as { actionType: string }).actionType = "secret.delete";
+        });
+        attemptMutation(() => {
+          (context.decision.consent.scope as { sensitivity: "RESTRICTED" }).sensitivity = "RESTRICTED";
+        });
+        return { confirmed: true };
+      },
+    });
+
+    assert.equal(outcome.status, "executed");
+    assert.deepEqual(callbackScope, scopeForRequest(request));
+    assert.deepEqual(transport.authorizeRequests[0]?.scope, scopeForRequest(request));
+    assert.equal(transport.audits.at(-1)?.actionId, request.id);
+    assert.equal(transport.audits.at(-1)?.lifecycle, "SDK_ACTION_EXECUTION_SUCCEEDED");
   });
 
   it("returns consent-required without prompting implicitly", async () => {
@@ -492,6 +558,103 @@ describe("SecureActionClient", () => {
     assert.equal(executed, false);
   });
 
+  it("releases only the local one-time reservation when execution-start storage fails", async () => {
+    const authorization = grant("retry-after-start-failure");
+    const once = (): SecureActionDecision => ({
+      decision: "ALLOW_ONCE",
+      actionId: request.id,
+      protection: exposed,
+      reasonCodes: ["USER_AUTHORIZED_ONCE"],
+      audit: audit("decision-once-retry"),
+      authorization,
+    });
+    const transport = new ScriptedTransport([once(), once()]);
+    const appendAudit = transport.appendAudit.bind(transport);
+    let starts = 0;
+    transport.appendAudit = async (event) => {
+      if (event.lifecycle === "SDK_ACTION_EXECUTION_STARTED" && starts++ === 0) {
+        throw new Error("ambiguous start transport failure");
+      }
+      await appendAudit(event);
+    };
+    const sdk = client(transport);
+
+    await assert.rejects(
+      () => sdk.execute(request, () => "must-not-run"),
+      (error: unknown) => error instanceof AuditAppendError && error.actionMayHaveExecuted === false,
+    );
+    const retried = await sdk.execute(request, () => "retried");
+
+    assert.equal(retried.status, "executed");
+    assert.equal(retried.status === "executed" && retried.value, "retried");
+    assert.equal(transport.contexts.length, 2);
+  });
+
+  it("requires the server execution-start recheck for ALLOW even in best-effort audit mode", async () => {
+    const transport = new ScriptedTransport([allow()]);
+    transport.failAuditLifecycle = "SDK_ACTION_EXECUTION_STARTED";
+    const sdk = new SecureActionClient(transport, {
+      auditMode: "best-effort",
+      now: () => new Date(NOW),
+      idFactory: () => "event-allow-start-required",
+    });
+    let executed = false;
+
+    await assert.rejects(
+      () => sdk.execute(request, () => { executed = true; }),
+      (error: unknown) => error instanceof AuditAppendError && error.actionMayHaveExecuted === false,
+    );
+    assert.equal(executed, false);
+  });
+
+  it("requires explicit opt-in before a simulation verdict can invoke the callback", async () => {
+    const simulated = allow();
+    if (simulated.decision !== "ALLOW") throw new Error("test decision must allow");
+    const simulationDecision: SecureActionDecision = {
+      ...simulated,
+      protection: { ...simulated.protection, evidenceProvenance: "SIMULATION" },
+    };
+    let defaultExecutions = 0;
+    await assert.rejects(
+      () => client(new ScriptedTransport([simulationDecision])).execute(request, () => { defaultExecutions += 1; }),
+      SimulationExecutionDeniedError,
+    );
+    assert.equal(defaultExecutions, 0);
+
+    let optedInExecutions = 0;
+    const outcome = await client(new ScriptedTransport([simulationDecision])).execute(
+      request,
+      () => { optedInExecutions += 1; return "simulated"; },
+      { allowSimulationExecution: true },
+    );
+    assert.equal(outcome.status, "executed");
+    assert.equal(optedInExecutions, 1);
+  });
+
+  it("does not consume a simulated one-time grant before execution opt-in", async () => {
+    const authorization = grant("simulation-opt-in-retry");
+    const simulatedOnce = (): SecureActionDecision => ({
+      decision: "ALLOW_ONCE",
+      actionId: request.id,
+      protection: { ...protectedSnapshot, evidenceProvenance: "SIMULATION" },
+      reasonCodes: ["USER_AUTHORIZED_ONCE"],
+      audit: audit("decision-simulated-once"),
+      authorization,
+    });
+    const transport = new ScriptedTransport([simulatedOnce(), simulatedOnce()]);
+    const sdk = client(transport);
+
+    await assert.rejects(
+      () => sdk.execute(request, () => "must-not-run"),
+      SimulationExecutionDeniedError,
+    );
+    const retried = await sdk.execute(request, () => "simulated", {
+      allowSimulationExecution: true,
+    });
+
+    assert.equal(retried.status, "executed");
+  });
+
   it("does not invoke onDecision when required audit latency expires ALLOW evidence", async () => {
     let currentTime = NOW;
     const transport = new ScriptedTransport([allow()]);
@@ -600,6 +763,24 @@ describe("SecureActionClient", () => {
       () => client(transport).execute(request, () => "should-not-run"),
       OneTimeAuthorizationError,
     );
+
+    for (const scope of [
+      { ...scopeForRequest(request), dataClass: "credentials" },
+      { ...scopeForRequest(request), sensitivity: "RESTRICTED" as const },
+    ]) {
+      const crossed = new ScriptedTransport([{
+        decision: "ALLOW_ONCE",
+        actionId: request.id,
+        protection: exposed,
+        reasonCodes: ["USER_AUTHORIZED_ONCE"],
+        audit: audit("decision-once-crossed"),
+        authorization: { ...grant("crossed-scope"), scope },
+      }]);
+      await assert.rejects(
+        () => client(crossed).execute(request, () => "should-not-run"),
+        OneTimeAuthorizationError,
+      );
+    }
   });
 
   it("fails closed before execution when required audit storage is unavailable", async () => {
@@ -776,6 +957,7 @@ describe("agent response validation", () => {
           protection: {
             id: "snapshot-1",
             nodeId: "phone-1",
+            evidenceProvenance: "EVIDENCE_PROVENANCE_LIVE",
             policyRevision: "9",
             state: "PROTECTION_STATE_EXPOSED",
             evaluatedAt: NOW,
@@ -821,6 +1003,7 @@ describe("agent response validation", () => {
           protection: {
             id: "snapshot-1",
             nodeId: "phone-1",
+            evidenceProvenance: "EVIDENCE_PROVENANCE_LIVE",
             policyRevision: 9,
             state: "PROTECTION_STATE_EXPOSED",
             evaluatedAt: NOW,
@@ -858,6 +1041,7 @@ describe("agent response validation", () => {
               protection: {
                 id: "snapshot-1",
                 nodeId: "phone-1",
+                evidenceProvenance: "EVIDENCE_PROVENANCE_LIVE",
                 policyRevision: "9",
                 state: "PROTECTION_STATE_PROTECTED",
                 evaluatedAt: NOW,
@@ -896,6 +1080,7 @@ describe("agent response validation", () => {
               snapshot: {
                 id: "snapshot-2",
                 nodeId: "phone-1",
+                evidenceProvenance: "EVIDENCE_PROVENANCE_LIVE",
                 policyRevision: "9",
                 state: "PROTECTION_STATE_PROTECTED",
                 evaluatedAt: NOW,
@@ -915,6 +1100,7 @@ describe("agent response validation", () => {
                 protection: {
                   id: "snapshot-1",
                   nodeId: "phone-1",
+                  evidenceProvenance: "EVIDENCE_PROVENANCE_LIVE",
                   policyRevision: "9",
                   state: "PROTECTION_STATE_EXPOSED",
                   evaluatedAt: NOW,

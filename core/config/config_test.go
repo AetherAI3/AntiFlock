@@ -179,6 +179,8 @@ func TestSecurityWindowsAndTLSPairsAreBounded(t *testing.T) {
 		"certificate without key":    func(value *config.Config) { value.Server.TLSCertFile = "server.crt" },
 		"public base path":           func(value *config.Config) { value.Server.PublicBaseURL = "http://127.0.0.1:8787/api" },
 		"invalid unused CIDR":        func(value *config.Config) { value.Server.ApprovedBindCIDRs = []string{"not-a-cidr"} },
+		"missing action types":       func(value *config.Config) { value.Protection.ProtectedActions[0].ActionTypes = nil },
+		"missing sensitivities":      func(value *config.Config) { value.Protection.ProtectedActions[0].Sensitivities = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			value := config.Default()

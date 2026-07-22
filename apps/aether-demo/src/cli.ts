@@ -56,7 +56,7 @@ const result = await client.execute(
     line("[app] Message sent through the verified protected path");
     return { messageId: "demo-message-001", delivered: true };
   },
-  { onDecision: renderDecision },
+  { allowSimulationExecution: true, onDecision: renderDecision },
 );
 
 line();

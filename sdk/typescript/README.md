@@ -7,8 +7,8 @@ that decision permits it. The SDK never sends the action payload to the agent.
 Supported decisions are `ALLOW`, `HOLD`, `BLOCK`, `REQUIRE_CONSENT`, and
 `ALLOW_ONCE`. A `HOLD` can wait for a protection-restored signal and is then
 re-evaluated before release. An `ALLOW_ONCE` grant is bound to the request ID,
-application, action type, and exact destination set; it is claimed before the
-operation begins and cannot be reused by the same client instance.
+application, action type, data class, sensitivity, and exact destination set;
+it is claimed before the operation begins and cannot be reused.
 
 ```ts
 import {
@@ -83,6 +83,11 @@ unless the accompanying posture is `PROTECTED`. Immediately before calling
 application code it rechecks the request deadline, cancellation signal, and any
 one-time expiry after the execution-start audit/consume await.
 
+Executable decisions must also carry explicit evidence provenance. `LIVE` may
+execute, `SIMULATION` is denied unless that individual `execute` call sets
+`allowSimulationExecution: true`, and `UNKNOWN` is always denied. The opt-in is
+for controlled test harnesses; it must not be set by normal applications.
+
 The canonical decision does not carry a separate audit object. The HTTP adapter
 derives correlation metadata from the operation ID and canonical protection
 snapshot (snapshot ID, node ID, policy revision, and evaluation time), labels
@@ -90,8 +95,8 @@ its evidence class `UNKNOWN`, and preserves the server's reason codes. Native
 transports may return richer audit metadata directly.
 
 Audit writes are required by default. Set `auditMode: "best-effort"` only for a
-deliberately degraded integration. The execution-start append for an
-`ALLOW_ONCE` grant remains mandatory in every mode because Core consumes the
-grant atomically with that append. If a completion audit fails after an action
-ran, `AuditAppendError.actionMayHaveExecuted` is `true` so callers do not retry
-the underlying operation blindly.
+deliberately degraded integration. The execution-start append remains mandatory
+for every executable decision; for `ALLOW_ONCE`, Core also consumes the grant
+atomically with that append. If a completion audit fails after an action ran,
+`AuditAppendError.actionMayHaveExecuted` is `true` so callers do not retry the
+underlying operation blindly.

@@ -90,6 +90,26 @@ test("development credentials are private, complete, and stable without secret o
     assert.equal(policyValues.get("ANTIFLOCK_OPERATOR_TOKEN"), firstValues.get("ANTIFLOCK_OPERATOR_TOKEN"));
     assert.equal(output, "");
 
+		const collidingValues = parse(readFileSync(policyRepaired.environmentPath, "utf8"));
+		collidingValues.set("ANTIFLOCK_DASHBOARD_TOKEN", collidingValues.get("ANTIFLOCK_OPERATOR_TOKEN"));
+		writeFileSync(
+			policyRepaired.environmentPath,
+			`${[...collidingValues].map(([key, value]) => `${key}=${value}`).join("\n")}\n`,
+			"utf8",
+		);
+		const collisionRepaired = ensureDevelopmentEnvironment(directory);
+		const collisionValues = parse(readFileSync(collisionRepaired.environmentPath, "utf8"));
+		assert.equal(collisionRepaired.updated, true);
+		assert.equal(collisionValues.get("ANTIFLOCK_OPERATOR_TOKEN"), policyValues.get("ANTIFLOCK_OPERATOR_TOKEN"));
+		assert.notEqual(collisionValues.get("ANTIFLOCK_DASHBOARD_TOKEN"), collisionValues.get("ANTIFLOCK_OPERATOR_TOKEN"));
+		assert.equal(new Set([
+			collisionValues.get("ANTIFLOCK_OPERATOR_TOKEN"),
+			collisionValues.get("ANTIFLOCK_SDK_TOKEN"),
+			collisionValues.get("ANTIFLOCK_AGENT_TOKEN"),
+			collisionValues.get("ANTIFLOCK_DASHBOARD_TOKEN"),
+		]).size, 4);
+		assert.equal(output, "");
+
     if (process.platform !== "win32") {
       assert.equal(statSync(first.environmentPath).mode & 0o777, 0o600);
     }

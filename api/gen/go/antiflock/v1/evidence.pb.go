@@ -85,6 +85,61 @@ func (EvidenceClass) EnumDescriptor() ([]byte, []int) {
 	return file_antiflock_v1_evidence_proto_rawDescGZIP(), []int{0}
 }
 
+// EvidenceProvenance distinguishes measurements from a live system from
+// deterministic simulation. UNKNOWN is fail-closed and must not authorize a
+// protected action.
+type EvidenceProvenance int32
+
+const (
+	EvidenceProvenance_EVIDENCE_PROVENANCE_UNSPECIFIED EvidenceProvenance = 0
+	EvidenceProvenance_EVIDENCE_PROVENANCE_LIVE        EvidenceProvenance = 1
+	EvidenceProvenance_EVIDENCE_PROVENANCE_SIMULATION  EvidenceProvenance = 2
+	EvidenceProvenance_EVIDENCE_PROVENANCE_UNKNOWN     EvidenceProvenance = 3
+)
+
+// Enum value maps for EvidenceProvenance.
+var (
+	EvidenceProvenance_name = map[int32]string{
+		0: "EVIDENCE_PROVENANCE_UNSPECIFIED",
+		1: "EVIDENCE_PROVENANCE_LIVE",
+		2: "EVIDENCE_PROVENANCE_SIMULATION",
+		3: "EVIDENCE_PROVENANCE_UNKNOWN",
+	}
+	EvidenceProvenance_value = map[string]int32{
+		"EVIDENCE_PROVENANCE_UNSPECIFIED": 0,
+		"EVIDENCE_PROVENANCE_LIVE":        1,
+		"EVIDENCE_PROVENANCE_SIMULATION":  2,
+		"EVIDENCE_PROVENANCE_UNKNOWN":     3,
+	}
+)
+
+func (x EvidenceProvenance) Enum() *EvidenceProvenance {
+	p := new(EvidenceProvenance)
+	*p = x
+	return p
+}
+
+func (x EvidenceProvenance) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (EvidenceProvenance) Descriptor() protoreflect.EnumDescriptor {
+	return file_antiflock_v1_evidence_proto_enumTypes[1].Descriptor()
+}
+
+func (EvidenceProvenance) Type() protoreflect.EnumType {
+	return &file_antiflock_v1_evidence_proto_enumTypes[1]
+}
+
+func (x EvidenceProvenance) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use EvidenceProvenance.Descriptor instead.
+func (EvidenceProvenance) EnumDescriptor() ([]byte, []int) {
+	return file_antiflock_v1_evidence_proto_rawDescGZIP(), []int{1}
+}
+
 type EvidenceSourceType int32
 
 const (
@@ -139,11 +194,11 @@ func (x EvidenceSourceType) String() string {
 }
 
 func (EvidenceSourceType) Descriptor() protoreflect.EnumDescriptor {
-	return file_antiflock_v1_evidence_proto_enumTypes[1].Descriptor()
+	return file_antiflock_v1_evidence_proto_enumTypes[2].Descriptor()
 }
 
 func (EvidenceSourceType) Type() protoreflect.EnumType {
-	return &file_antiflock_v1_evidence_proto_enumTypes[1]
+	return &file_antiflock_v1_evidence_proto_enumTypes[2]
 }
 
 func (x EvidenceSourceType) Number() protoreflect.EnumNumber {
@@ -152,7 +207,7 @@ func (x EvidenceSourceType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EvidenceSourceType.Descriptor instead.
 func (EvidenceSourceType) EnumDescriptor() ([]byte, []int) {
-	return file_antiflock_v1_evidence_proto_rawDescGZIP(), []int{1}
+	return file_antiflock_v1_evidence_proto_rawDescGZIP(), []int{2}
 }
 
 type EvidenceRole int32
@@ -191,11 +246,11 @@ func (x EvidenceRole) String() string {
 }
 
 func (EvidenceRole) Descriptor() protoreflect.EnumDescriptor {
-	return file_antiflock_v1_evidence_proto_enumTypes[2].Descriptor()
+	return file_antiflock_v1_evidence_proto_enumTypes[3].Descriptor()
 }
 
 func (EvidenceRole) Type() protoreflect.EnumType {
-	return &file_antiflock_v1_evidence_proto_enumTypes[2]
+	return &file_antiflock_v1_evidence_proto_enumTypes[3]
 }
 
 func (x EvidenceRole) Number() protoreflect.EnumNumber {
@@ -204,7 +259,7 @@ func (x EvidenceRole) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EvidenceRole.Descriptor instead.
 func (EvidenceRole) EnumDescriptor() ([]byte, []int) {
-	return file_antiflock_v1_evidence_proto_rawDescGZIP(), []int{2}
+	return file_antiflock_v1_evidence_proto_rawDescGZIP(), []int{3}
 }
 
 type EvidenceReference struct {
@@ -684,7 +739,12 @@ const file_antiflock_v1_evidence_proto_rawDesc = "" +
 	"\x17EVIDENCE_CLASS_REPORTED\x10\x03\x12\x1b\n" +
 	"\x17EVIDENCE_CLASS_INFERRED\x10\x04\x12\x1c\n" +
 	"\x18EVIDENCE_CLASS_SUSPECTED\x10\x05\x12\x1a\n" +
-	"\x16EVIDENCE_CLASS_UNKNOWN\x10\x06*\xb8\x03\n" +
+	"\x16EVIDENCE_CLASS_UNKNOWN\x10\x06*\x9c\x01\n" +
+	"\x12EvidenceProvenance\x12#\n" +
+	"\x1fEVIDENCE_PROVENANCE_UNSPECIFIED\x10\x00\x12\x1c\n" +
+	"\x18EVIDENCE_PROVENANCE_LIVE\x10\x01\x12\"\n" +
+	"\x1eEVIDENCE_PROVENANCE_SIMULATION\x10\x02\x12\x1f\n" +
+	"\x1bEVIDENCE_PROVENANCE_UNKNOWN\x10\x03*\xb8\x03\n" +
 	"\x12EvidenceSourceType\x12$\n" +
 	" EVIDENCE_SOURCE_TYPE_UNSPECIFIED\x10\x00\x12%\n" +
 	"!EVIDENCE_SOURCE_TYPE_LOCAL_SENSOR\x10\x01\x12+\n" +
@@ -715,43 +775,44 @@ func file_antiflock_v1_evidence_proto_rawDescGZIP() []byte {
 	return file_antiflock_v1_evidence_proto_rawDescData
 }
 
-var file_antiflock_v1_evidence_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_antiflock_v1_evidence_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
 var file_antiflock_v1_evidence_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_antiflock_v1_evidence_proto_goTypes = []any{
 	(EvidenceClass)(0),            // 0: antiflock.v1.EvidenceClass
-	(EvidenceSourceType)(0),       // 1: antiflock.v1.EvidenceSourceType
-	(EvidenceRole)(0),             // 2: antiflock.v1.EvidenceRole
-	(*EvidenceReference)(nil),     // 3: antiflock.v1.EvidenceReference
-	(*VerificationRecord)(nil),    // 4: antiflock.v1.VerificationRecord
-	(*EvidenceClaim)(nil),         // 5: antiflock.v1.EvidenceClaim
-	nil,                           // 6: antiflock.v1.EvidenceReference.AttributesEntry
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
-	(Sensitivity)(0),              // 8: antiflock.v1.Sensitivity
-	(LocationPrecision)(0),        // 9: antiflock.v1.LocationPrecision
-	(*IntegrityDigest)(nil),       // 10: antiflock.v1.IntegrityDigest
-	(*ActorReference)(nil),        // 11: antiflock.v1.ActorReference
+	(EvidenceProvenance)(0),       // 1: antiflock.v1.EvidenceProvenance
+	(EvidenceSourceType)(0),       // 2: antiflock.v1.EvidenceSourceType
+	(EvidenceRole)(0),             // 3: antiflock.v1.EvidenceRole
+	(*EvidenceReference)(nil),     // 4: antiflock.v1.EvidenceReference
+	(*VerificationRecord)(nil),    // 5: antiflock.v1.VerificationRecord
+	(*EvidenceClaim)(nil),         // 6: antiflock.v1.EvidenceClaim
+	nil,                           // 7: antiflock.v1.EvidenceReference.AttributesEntry
+	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
+	(Sensitivity)(0),              // 9: antiflock.v1.Sensitivity
+	(LocationPrecision)(0),        // 10: antiflock.v1.LocationPrecision
+	(*IntegrityDigest)(nil),       // 11: antiflock.v1.IntegrityDigest
+	(*ActorReference)(nil),        // 12: antiflock.v1.ActorReference
 }
 var file_antiflock_v1_evidence_proto_depIdxs = []int32{
-	2,  // 0: antiflock.v1.EvidenceReference.role:type_name -> antiflock.v1.EvidenceRole
+	3,  // 0: antiflock.v1.EvidenceReference.role:type_name -> antiflock.v1.EvidenceRole
 	0,  // 1: antiflock.v1.EvidenceReference.classification:type_name -> antiflock.v1.EvidenceClass
-	1,  // 2: antiflock.v1.EvidenceReference.source_type:type_name -> antiflock.v1.EvidenceSourceType
-	7,  // 3: antiflock.v1.EvidenceReference.observed_at:type_name -> google.protobuf.Timestamp
-	7,  // 4: antiflock.v1.EvidenceReference.received_at:type_name -> google.protobuf.Timestamp
-	7,  // 5: antiflock.v1.EvidenceReference.last_verified_at:type_name -> google.protobuf.Timestamp
-	7,  // 6: antiflock.v1.EvidenceReference.expires_at:type_name -> google.protobuf.Timestamp
-	8,  // 7: antiflock.v1.EvidenceReference.sensitivity:type_name -> antiflock.v1.Sensitivity
-	9,  // 8: antiflock.v1.EvidenceReference.location_precision:type_name -> antiflock.v1.LocationPrecision
-	10, // 9: antiflock.v1.EvidenceReference.integrity:type_name -> antiflock.v1.IntegrityDigest
-	6,  // 10: antiflock.v1.EvidenceReference.attributes:type_name -> antiflock.v1.EvidenceReference.AttributesEntry
-	7,  // 11: antiflock.v1.VerificationRecord.verified_at:type_name -> google.protobuf.Timestamp
-	11, // 12: antiflock.v1.VerificationRecord.reviewer:type_name -> antiflock.v1.ActorReference
+	2,  // 2: antiflock.v1.EvidenceReference.source_type:type_name -> antiflock.v1.EvidenceSourceType
+	8,  // 3: antiflock.v1.EvidenceReference.observed_at:type_name -> google.protobuf.Timestamp
+	8,  // 4: antiflock.v1.EvidenceReference.received_at:type_name -> google.protobuf.Timestamp
+	8,  // 5: antiflock.v1.EvidenceReference.last_verified_at:type_name -> google.protobuf.Timestamp
+	8,  // 6: antiflock.v1.EvidenceReference.expires_at:type_name -> google.protobuf.Timestamp
+	9,  // 7: antiflock.v1.EvidenceReference.sensitivity:type_name -> antiflock.v1.Sensitivity
+	10, // 8: antiflock.v1.EvidenceReference.location_precision:type_name -> antiflock.v1.LocationPrecision
+	11, // 9: antiflock.v1.EvidenceReference.integrity:type_name -> antiflock.v1.IntegrityDigest
+	7,  // 10: antiflock.v1.EvidenceReference.attributes:type_name -> antiflock.v1.EvidenceReference.AttributesEntry
+	8,  // 11: antiflock.v1.VerificationRecord.verified_at:type_name -> google.protobuf.Timestamp
+	12, // 12: antiflock.v1.VerificationRecord.reviewer:type_name -> antiflock.v1.ActorReference
 	0,  // 13: antiflock.v1.EvidenceClaim.classification:type_name -> antiflock.v1.EvidenceClass
-	7,  // 14: antiflock.v1.EvidenceClaim.first_observed_at:type_name -> google.protobuf.Timestamp
-	7,  // 15: antiflock.v1.EvidenceClaim.last_observed_at:type_name -> google.protobuf.Timestamp
-	7,  // 16: antiflock.v1.EvidenceClaim.expires_at:type_name -> google.protobuf.Timestamp
-	3,  // 17: antiflock.v1.EvidenceClaim.evidence:type_name -> antiflock.v1.EvidenceReference
-	4,  // 18: antiflock.v1.EvidenceClaim.verification:type_name -> antiflock.v1.VerificationRecord
-	8,  // 19: antiflock.v1.EvidenceClaim.sensitivity:type_name -> antiflock.v1.Sensitivity
+	8,  // 14: antiflock.v1.EvidenceClaim.first_observed_at:type_name -> google.protobuf.Timestamp
+	8,  // 15: antiflock.v1.EvidenceClaim.last_observed_at:type_name -> google.protobuf.Timestamp
+	8,  // 16: antiflock.v1.EvidenceClaim.expires_at:type_name -> google.protobuf.Timestamp
+	4,  // 17: antiflock.v1.EvidenceClaim.evidence:type_name -> antiflock.v1.EvidenceReference
+	5,  // 18: antiflock.v1.EvidenceClaim.verification:type_name -> antiflock.v1.VerificationRecord
+	9,  // 19: antiflock.v1.EvidenceClaim.sensitivity:type_name -> antiflock.v1.Sensitivity
 	20, // [20:20] is the sub-list for method output_type
 	20, // [20:20] is the sub-list for method input_type
 	20, // [20:20] is the sub-list for extension type_name
@@ -770,7 +831,7 @@ func file_antiflock_v1_evidence_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_antiflock_v1_evidence_proto_rawDesc), len(file_antiflock_v1_evidence_proto_rawDesc)),
-			NumEnums:      3,
+			NumEnums:      4,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,

@@ -259,6 +259,7 @@ type ProtectionSnapshot struct {
 	CapabilitiesConsidered []*Capability          `protobuf:"bytes,11,rep,name=capabilities_considered,json=capabilitiesConsidered,proto3" json:"capabilities_considered,omitempty"`
 	Confidence             float32                `protobuf:"fixed32,12,opt,name=confidence,proto3" json:"confidence,omitempty"`
 	RecommendedResponse    string                 `protobuf:"bytes,13,opt,name=recommended_response,json=recommendedResponse,proto3" json:"recommended_response,omitempty"`
+	EvidenceProvenance     EvidenceProvenance     `protobuf:"varint,14,opt,name=evidence_provenance,json=evidenceProvenance,proto3,enum=antiflock.v1.EvidenceProvenance" json:"evidence_provenance,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -382,6 +383,13 @@ func (x *ProtectionSnapshot) GetRecommendedResponse() string {
 		return x.RecommendedResponse
 	}
 	return ""
+}
+
+func (x *ProtectionSnapshot) GetEvidenceProvenance() EvidenceProvenance {
+	if x != nil {
+		return x.EvidenceProvenance
+	}
+	return EvidenceProvenance_EVIDENCE_PROVENANCE_UNSPECIFIED
 }
 
 type ProtectionTransition struct {
@@ -697,7 +705,7 @@ const file_antiflock_v1_posture_proto_rawDesc = "" +
 	"\fcurrent_fact\x18\x04 \x01(\tR\vcurrentFact\x12#\n" +
 	"\rexpected_fact\x18\x05 \x01(\tR\fexpectedFact\x121\n" +
 	"\x05claim\x18\x06 \x01(\v2\x1b.antiflock.v1.EvidenceClaimR\x05claim\x12X\n" +
-	"\x15required_capabilities\x18\a \x03(\v2#.antiflock.v1.CapabilityRequirementR\x14requiredCapabilities\"\x83\x05\n" +
+	"\x15required_capabilities\x18\a \x03(\v2#.antiflock.v1.CapabilityRequirementR\x14requiredCapabilities\"\xd6\x05\n" +
 	"\x12ProtectionSnapshot\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12#\n" +
 	"\rdeployment_id\x18\x02 \x01(\tR\fdeploymentId\x12\x17\n" +
@@ -715,7 +723,8 @@ const file_antiflock_v1_posture_proto_rawDesc = "" +
 	"\n" +
 	"confidence\x18\f \x01(\x02R\n" +
 	"confidence\x121\n" +
-	"\x14recommended_response\x18\r \x01(\tR\x13recommendedResponse\"\xf9\x02\n" +
+	"\x14recommended_response\x18\r \x01(\tR\x13recommendedResponse\x12Q\n" +
+	"\x13evidence_provenance\x18\x0e \x01(\x0e2 .antiflock.v1.EvidenceProvenanceR\x12evidenceProvenance\"\xf9\x02\n" +
 	"\x14ProtectionTransition\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\anode_id\x18\x02 \x01(\tR\x06nodeId\x120\n" +
@@ -790,8 +799,9 @@ var file_antiflock_v1_posture_proto_goTypes = []any{
 	(*CapabilityRequirement)(nil), // 10: antiflock.v1.CapabilityRequirement
 	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
 	(*Capability)(nil),            // 12: antiflock.v1.Capability
-	(*PageRequest)(nil),           // 13: antiflock.v1.PageRequest
-	(*PageResponse)(nil),          // 14: antiflock.v1.PageResponse
+	(EvidenceProvenance)(0),       // 13: antiflock.v1.EvidenceProvenance
+	(*PageRequest)(nil),           // 14: antiflock.v1.PageRequest
+	(*PageResponse)(nil),          // 15: antiflock.v1.PageResponse
 }
 var file_antiflock_v1_posture_proto_depIdxs = []int32{
 	0,  // 0: antiflock.v1.PostureReason.contributed_state:type_name -> antiflock.v1.ProtectionState
@@ -803,23 +813,24 @@ var file_antiflock_v1_posture_proto_depIdxs = []int32{
 	11, // 6: antiflock.v1.ProtectionSnapshot.valid_until:type_name -> google.protobuf.Timestamp
 	2,  // 7: antiflock.v1.ProtectionSnapshot.reasons:type_name -> antiflock.v1.PostureReason
 	12, // 8: antiflock.v1.ProtectionSnapshot.capabilities_considered:type_name -> antiflock.v1.Capability
-	0,  // 9: antiflock.v1.ProtectionTransition.from_state:type_name -> antiflock.v1.ProtectionState
-	0,  // 10: antiflock.v1.ProtectionTransition.to_state:type_name -> antiflock.v1.ProtectionState
-	11, // 11: antiflock.v1.ProtectionTransition.occurred_at:type_name -> google.protobuf.Timestamp
-	3,  // 12: antiflock.v1.GetPostureResponse.snapshot:type_name -> antiflock.v1.ProtectionSnapshot
-	0,  // 13: antiflock.v1.ListPostureRequest.states:type_name -> antiflock.v1.ProtectionState
-	13, // 14: antiflock.v1.ListPostureRequest.page:type_name -> antiflock.v1.PageRequest
-	3,  // 15: antiflock.v1.ListPostureResponse.snapshots:type_name -> antiflock.v1.ProtectionSnapshot
-	14, // 16: antiflock.v1.ListPostureResponse.page:type_name -> antiflock.v1.PageResponse
-	5,  // 17: antiflock.v1.PostureService.GetPosture:input_type -> antiflock.v1.GetPostureRequest
-	7,  // 18: antiflock.v1.PostureService.ListPosture:input_type -> antiflock.v1.ListPostureRequest
-	6,  // 19: antiflock.v1.PostureService.GetPosture:output_type -> antiflock.v1.GetPostureResponse
-	8,  // 20: antiflock.v1.PostureService.ListPosture:output_type -> antiflock.v1.ListPostureResponse
-	19, // [19:21] is the sub-list for method output_type
-	17, // [17:19] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	13, // 9: antiflock.v1.ProtectionSnapshot.evidence_provenance:type_name -> antiflock.v1.EvidenceProvenance
+	0,  // 10: antiflock.v1.ProtectionTransition.from_state:type_name -> antiflock.v1.ProtectionState
+	0,  // 11: antiflock.v1.ProtectionTransition.to_state:type_name -> antiflock.v1.ProtectionState
+	11, // 12: antiflock.v1.ProtectionTransition.occurred_at:type_name -> google.protobuf.Timestamp
+	3,  // 13: antiflock.v1.GetPostureResponse.snapshot:type_name -> antiflock.v1.ProtectionSnapshot
+	0,  // 14: antiflock.v1.ListPostureRequest.states:type_name -> antiflock.v1.ProtectionState
+	14, // 15: antiflock.v1.ListPostureRequest.page:type_name -> antiflock.v1.PageRequest
+	3,  // 16: antiflock.v1.ListPostureResponse.snapshots:type_name -> antiflock.v1.ProtectionSnapshot
+	15, // 17: antiflock.v1.ListPostureResponse.page:type_name -> antiflock.v1.PageResponse
+	5,  // 18: antiflock.v1.PostureService.GetPosture:input_type -> antiflock.v1.GetPostureRequest
+	7,  // 19: antiflock.v1.PostureService.ListPosture:input_type -> antiflock.v1.ListPostureRequest
+	6,  // 20: antiflock.v1.PostureService.GetPosture:output_type -> antiflock.v1.GetPostureResponse
+	8,  // 21: antiflock.v1.PostureService.ListPosture:output_type -> antiflock.v1.ListPostureResponse
+	20, // [20:22] is the sub-list for method output_type
+	18, // [18:20] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_antiflock_v1_posture_proto_init() }

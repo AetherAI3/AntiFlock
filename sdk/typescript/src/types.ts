@@ -28,6 +28,7 @@ export type EvidenceClass =
   | "INFERRED"
   | "SUSPECTED"
   | "UNKNOWN";
+export type EvidenceProvenance = "LIVE" | "SIMULATION" | "UNKNOWN";
 export type NetworkTrust = "TRUSTED" | "UNTRUSTED" | "UNKNOWN";
 export type Sensitivity = "PUBLIC" | "INTERNAL" | "CONFIDENTIAL" | "RESTRICTED";
 
@@ -43,6 +44,7 @@ export interface ProtectionSnapshot {
   readonly approvedExitActive: boolean | null;
   readonly dnsProtected: boolean | null;
   readonly reasonCodes: readonly string[];
+  readonly evidenceProvenance: EvidenceProvenance;
 }
 
 /**
@@ -79,6 +81,8 @@ export interface OneTimeScope {
   readonly nodeId: string;
   readonly operationId: string;
   readonly actionType: string;
+  readonly dataClass: string;
+  readonly sensitivity: Sensitivity;
   readonly destinations: readonly string[];
 }
 
@@ -225,6 +229,8 @@ export interface ExecuteOptions {
   readonly maxProtectionRestorations?: number;
   readonly consentProvider?: ConsentProvider;
   readonly onDecision?: (decision: SecureActionDecision, attempt: number) => void | Promise<void>;
+  /** Explicitly permits a simulation-labeled decision to invoke the callback. */
+  readonly allowSimulationExecution?: boolean;
 }
 
 export type SecureActionOutcome<T> =

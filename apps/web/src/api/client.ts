@@ -132,6 +132,7 @@ export function createUnknownLiveData(): DashboardData {
     operatorName: "Local operator",
     deploymentName: "AntiFlock deployment",
     simulation: null,
+    evidenceProvenance: "UNKNOWN",
     environment: {
       name: "Not reported by Core",
       type: "unknown",
@@ -487,12 +488,13 @@ function normalizeActions(value: unknown): DashboardData["actions"] {
     return {
       id: stringValue(action, ["actionId", "action_id", "id"], `action-${index}`),
       operationId: stringValue(action, ["operationId", "operation_id"], ""),
-      application: stringValue(action, ["applicationId", "application_id", "application"], "Unknown application"),
+      applicationId: stringValue(action, ["applicationId", "application_id", "application"], "Unknown application"),
       nodeId: stringValue(action, ["nodeId", "node_id"], ""),
       actionType: stringValue(scope, ["actionType", "action_type"], "Unknown action"),
       destination: destinations.join(", ") || "No destination reported",
       destinations,
       dataClass: stringValue(scope, ["dataClass", "data_class"], "Unknown"),
+      sensitivity: stringValue(scope, ["sensitivity"], "Unknown"),
       decision: stringValue(action, ["decision"], "HOLD") as DashboardData["actions"][number]["decision"],
       reasonCodes: list(first(action, "reasonCodes", "reason_codes")).filter((entry): entry is string => typeof entry === "string"),
       createdAt: stringValue(action, ["createdAt", "created_at"], new Date(0).toISOString()),
@@ -590,11 +592,20 @@ export async function loadDashboard(baseUrl: string, signal: AbortSignal): Promi
   const environment = record(first(overview, "environment", "current_environment"));
   const rawEnvironmentType = enumToken(first(environment, "type", "network_type"), "unknown");
   const rawTrust = enumToken(first(environment, "trust", "trust_state"), "unknown");
+  const rawEvidenceProvenance = stringValue(
+    overview,
+    ["evidence_provenance", "evidenceProvenance"],
+    data.overview.evidenceProvenance,
+  ).toUpperCase();
+  const evidenceProvenance = (["LIVE", "SIMULATION", "UNKNOWN"] as const).find(
+    (value) => value === rawEvidenceProvenance,
+  ) ?? "UNKNOWN";
   data.overview = {
     ...data.overview,
     operatorName: stringValue(overview, ["operator_name", "operatorName"], data.overview.operatorName),
     deploymentName: stringValue(overview, ["deployment_name", "deploymentName"], data.overview.deploymentName),
     simulation: optionalBooleanValue(overview, ["simulation", "simulation_mode", "simulationMode"], data.overview.simulation),
+    evidenceProvenance,
     protectedDevices: numberValue(overview, ["protected_devices", "protectedDevices"], data.nodes.filter((node) => node.protection === "PROTECTED").length),
     totalDevices: numberValue(overview, ["total_devices", "totalDevices", "node_count"], data.nodes.length),
     openFindings: numberValue(overview, ["open_findings", "openFindings", "active_finding_count"], data.findings.filter((finding) => finding.status === "open").length),

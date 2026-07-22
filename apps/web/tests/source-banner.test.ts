@@ -7,15 +7,18 @@ import { SourceBannerView } from "../src/app/dashboard-frame";
 function renderBanner({
   mode = "live",
   simulation = null,
+  evidenceProvenance = "UNKNOWN",
   failedEndpoints = [],
 }: {
   mode?: "checking" | "live" | "partial" | "demo" | "error";
   simulation?: boolean | null;
+  evidenceProvenance?: "LIVE" | "SIMULATION" | "UNKNOWN";
   failedEndpoints?: string[];
 } = {}): string {
   return renderToStaticMarkup(createElement(SourceBannerView, {
     mode,
     simulation,
+    evidenceProvenance,
     failedEndpoints,
     error: null,
     streamStatus: "connected",
@@ -38,7 +41,8 @@ test("keeps simulation provenance when live projections are partial", () => {
 });
 
 test("does not infer simulation provenance when Core omits it", () => {
-  assert.match(renderBanner({ simulation: null }), /LIVE CORE/);
-  assert.match(renderBanner({ simulation: false }), /LIVE CORE/);
+  assert.match(renderBanner({ simulation: null }), /UNVERIFIED EVIDENCE SOURCE/);
+  assert.match(renderBanner({ simulation: false, evidenceProvenance: "LIVE" }), /LIVE CORE/);
+  assert.match(renderBanner({ simulation: false, evidenceProvenance: "SIMULATION" }), /LIVE SIMULATION/);
   assert.doesNotMatch(renderBanner({ mode: "demo", simulation: true }), /LIVE SIMULATION/);
 });

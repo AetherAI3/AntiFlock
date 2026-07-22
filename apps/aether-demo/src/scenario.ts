@@ -27,6 +27,7 @@ const exposedSnapshot: ProtectionSnapshot = {
   approvedExitActive: false,
   dnsProtected: null,
   reasonCodes: ["AF-MESH-001", "AF-PATH-001", "AF-DNS-002"],
+  evidenceProvenance: "SIMULATION",
 };
 
 const restoredSnapshot: ProtectionSnapshot = {
@@ -39,6 +40,7 @@ const restoredSnapshot: ProtectionSnapshot = {
   approvedExitActive: true,
   dnsProtected: true,
   reasonCodes: [],
+  evidenceProvenance: "SIMULATION",
 };
 
 export interface CoffeeShopTransportOptions {

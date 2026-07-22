@@ -74,6 +74,12 @@ Posture is a derived snapshot, not a mutable truth flag. Findings link a
 deterministic reason code to current and expected facts, evidence, confidence,
 wording, response, and false-positive context.
 
+Nano v0.1 sits above that decision state as a deterministic proposal layer.
+Typed findings become bounded numeric signals; admitted programs may emit only
+trace-only observations or immutable proposals for the existing Secure Action
+gate. Nano never receives a mutation or provider capability. See
+[the Nano watchdog boundary](nano-watchdog.md).
+
 ## Plan transaction
 
 Mutating behavior uses one transaction shape for Guard and Scrambler:
@@ -102,8 +108,13 @@ plaintext. Standard collectors record connection metadata, not payloads.
 
 ## First vertical slice
 
-A production-worthy proof joins an endpoint to an untrusted network, loses the
-approved route, evaluates locally, blocks protected egress, reports the broken
-path without alleging interception, holds an integrated sensitive action,
-restores and verifies mesh/DNS/exit state, releases the action, and leaves a
-complete local audit trail.
+The reference proof joins a simulated endpoint to an untrusted network, loses
+the approved route, evaluates locally, records fail-closed enforcement intent,
+reports the broken path without alleging interception, holds an integrated
+sensitive action, restores and verifies simulation-labeled mesh/DNS/exit state,
+releases the action, and leaves a complete durable local audit trail.
+
+Production readiness is a separate gate. It requires a real packet transport,
+privileged platform enforcement, real-network and real-device validation, and
+independent security and privacy review; see
+[release status](release-status.md).

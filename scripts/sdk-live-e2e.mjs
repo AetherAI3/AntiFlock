@@ -307,6 +307,7 @@ async function main() {
     const nonce = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
     let nextAudit = 0;
     let operationCallbackCount = 0;
+    let startPersistedBeforeCallback = false;
     let recoveryStarted = false;
     const decisions = [];
     const client = new sdk.SecureActionClient(recordingTransport, {
@@ -329,14 +330,36 @@ async function main() {
     const outcome = await client.execute(
       request,
       async () => {
+        const startEvent = persistedEvents.find(
+          (event) => event.lifecycle === "SDK_ACTION_EXECUTION_STARTED",
+        );
+        invariant(startEvent, "SDK invoked the callback before persisting execution start.");
+        let replayStatus;
+        try {
+          await fetchTransport.appendAudit(startEvent);
+        } catch (error) {
+          if (error instanceof sdk.AgentTransportError) replayStatus = error.status;
+          else throw error;
+        }
+        invariant(replayStatus === 409, "Execution-start replay was not rejected before callback execution.");
+        startPersistedBeforeCallback = true;
         operationCallbackCount += 1;
         return "executed-once";
       },
       {
         retryOnProtectionRestored: true,
         maxProtectionRestorations: 1,
+        allowSimulationExecution: true,
         onDecision: async (decision, attempt) => {
-          decisions.push({ decision: decision.decision, attempt });
+          invariant(
+            decision.protection.evidenceProvenance === "SIMULATION",
+            `Core returned ${decision.protection.evidenceProvenance} provenance for simulator evidence.`,
+          );
+          decisions.push({
+            decision: decision.decision,
+            attempt,
+            evidenceProvenance: decision.protection.evidenceProvenance,
+          });
           if (decision.decision === "HOLD" && !recoveryStarted) {
             recoveryStarted = true;
             compose(
@@ -355,8 +378,12 @@ async function main() {
     invariant(outcome.value === "executed-once", "SDK returned an unexpected operation value.");
     invariant(outcome.decision === "ALLOW" && outcome.attempts === 1, "SDK did not re-evaluate HOLD into ALLOW exactly once.");
     invariant(operationCallbackCount === 1, `Operation callback ran ${operationCallbackCount} times instead of exactly once.`);
+    invariant(startPersistedBeforeCallback, "Callback crossed without a durably acknowledged execution start.");
     invariant(
-      JSON.stringify(decisions) === JSON.stringify([{ decision: "HOLD", attempt: 0 }, { decision: "ALLOW", attempt: 1 }]),
+      JSON.stringify(decisions) === JSON.stringify([
+        { decision: "HOLD", attempt: 0, evidenceProvenance: "SIMULATION" },
+        { decision: "ALLOW", attempt: 1, evidenceProvenance: "SIMULATION" },
+      ]),
       `SDK decision path was ${JSON.stringify(decisions)} instead of HOLD then ALLOW.`,
     );
     invariant(
@@ -395,7 +422,7 @@ async function main() {
     invariant(actions.status === 200 && durableAction?.decision === "ALLOW", "Core did not retain the released secure action across restart.");
 
     const changedReplayStatuses = [];
-    for (const event of persistedEvents.filter((candidate) => candidate.decision === "ALLOW")) {
+    for (const event of persistedEvents) {
       const conflictEvent = {
         ...event,
         details: { ...(event.details ?? {}), conflictProbe: "different-payload" },
@@ -410,9 +437,24 @@ async function main() {
       invariant(conflictStatus === 409, `Core returned ${String(conflictStatus)} instead of 409 for a changed event-id replay.`);
       changedReplayStatuses.push(conflictStatus);
     }
-    for (const event of persistedEvents) {
+    const idempotentEvents = persistedEvents.filter(
+      (event) => event.lifecycle !== "SDK_ACTION_EXECUTION_STARTED",
+    );
+    for (const event of idempotentEvents) {
       await fetchTransport.appendAudit(event);
     }
+    const startEvent = persistedEvents.find(
+      (event) => event.lifecycle === "SDK_ACTION_EXECUTION_STARTED",
+    );
+    invariant(startEvent, "Persisted lifecycle omitted execution start.");
+    let executionStartReplayStatus;
+    try {
+      await fetchTransport.appendAudit(startEvent);
+    } catch (error) {
+      if (error instanceof sdk.AgentTransportError) executionStartReplayStatus = error.status;
+      else throw error;
+    }
+    invariant(executionStartReplayStatus === 409, "Core did not reject an execution-start replay after restart.");
 
     result = {
       schemaVersion: "antiflock.sdk-live-e2e/v1",
@@ -420,13 +462,15 @@ async function main() {
       transport: "FetchLoopbackTransport",
       initialDecision: decisions[0].decision,
       finalDecision: decisions[1].decision,
+      evidenceProvenance: "SIMULATION",
       reevaluationCount: 1,
       operationCallbackCount,
       lifecycleEventCount: persistedEvents.length,
       lifecycleSequence: persistedEvents.map((event) => event.lifecycle),
       coreRestartVerified: true,
       durableActionDecision: durableAction.decision,
-      idempotentReplayCount: persistedEvents.length,
+      idempotentReplayCount: idempotentEvents.length,
+      executionStartReplayStatus,
       changedReplayCount: changedReplayStatuses.length,
       changedReplayStatus: changedReplayStatuses.every((status) => status === 409) ? 409 : undefined,
       temporaryCoreExposure: "loopback-ephemeral-removed",

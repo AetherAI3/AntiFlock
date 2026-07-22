@@ -17,6 +17,16 @@ enum EvidenceClass {
   EVIDENCE_CLASS_UNKNOWN = 6;
 }
 
+// EvidenceProvenance distinguishes measurements from a live system from
+// deterministic simulation. UNKNOWN is fail-closed and must not authorize a
+// protected action.
+enum EvidenceProvenance {
+  EVIDENCE_PROVENANCE_UNSPECIFIED = 0;
+  EVIDENCE_PROVENANCE_LIVE = 1;
+  EVIDENCE_PROVENANCE_SIMULATION = 2;
+  EVIDENCE_PROVENANCE_UNKNOWN = 3;
+}
+
 enum EvidenceSourceType {
   EVIDENCE_SOURCE_TYPE_UNSPECIFIED = 0;
   EVIDENCE_SOURCE_TYPE_LOCAL_SENSOR = 1;

@@ -79,7 +79,7 @@ type LiveStreamEvent struct {
 
 // LiveCoffeeShopResult is returned only after the live Core flow completes.
 // Verified means the caller requested verification and every durable readback
-// plus idempotent audit replay succeeded.
+// plus fail-closed audit replay semantics succeeded.
 type LiveCoffeeShopResult struct {
 	SchemaVersion        string   `json:"schemaVersion"`
 	Simulation           bool     `json:"simulation"`
@@ -91,6 +91,10 @@ type LiveCoffeeShopResult struct {
 	ContextEventIDs      []string `json:"contextEventIds"`
 	VerificationEventIDs []string `json:"verificationEventIds"`
 	AuditEventIDs        []string `json:"auditEventIds"`
+	EvidenceProvenance   string   `json:"evidenceProvenance"`
+	IdempotentReplays    int      `json:"idempotentReplays"`
+	ChangedReplayRejects int      `json:"changedReplayRejects"`
+	StartReplayRejected  bool     `json:"startReplayRejected"`
 	Verified             bool     `json:"verified"`
 }
 
@@ -802,7 +806,8 @@ func (session *liveSession) sendVerifiedRecovery(ctx context.Context, runID stri
 		ExitNodeId: "simulated-exit", ApprovedExitActive: true, TunnelHealthy: true, ObservedAt: timestamppb.New(observedAt),
 	}
 	dns := &antiflockv1.DnsObservation{
-		ResolverAddresses: []string{"192.0.2.53"}, Source: "simulation", PathVerified: true, ObservedAt: timestamppb.New(observedAt),
+		ResolverAddresses: []string{"192.0.2.53"}, Source: "simulation", PathVerified: true,
+		EgressInterfaceId: "simulated-mesh0", MeshPathId: "simulated-path", ObservedAt: timestamppb.New(observedAt),
 	}
 	route := &antiflockv1.RouteObservation{
 		RouteId: "simulated-protected-default", Destination: "0.0.0.0/0", InterfaceId: "simulated-mesh0",
@@ -848,8 +853,9 @@ type liveDecision struct {
 	ActionID    string   `json:"actionId"`
 	ReasonCodes []string `json:"reasonCodes"`
 	Protection  struct {
-		ObservedAt     string `json:"observedAt"`
-		PolicyRevision uint64 `json:"policyRevision"`
+		ObservedAt         string `json:"observedAt"`
+		PolicyRevision     uint64 `json:"policyRevision"`
+		EvidenceProvenance string `json:"evidenceProvenance"`
 	} `json:"protection"`
 	Audit struct {
 		PolicyRevision uint64 `json:"policyRevision"`
@@ -911,8 +917,12 @@ func safeReasonCodes(values []string, fallback string) []string {
 }
 
 func (session *liveSession) appendAudit(ctx context.Context, event liveAuditEvent) error {
+	return session.appendAuditExpect(ctx, event, http.StatusNoContent)
+}
+
+func (session *liveSession) appendAuditExpect(ctx context.Context, event liveAuditEvent, expected ...int) error {
 	path := "/v1/actions/" + url.PathEscape(event.ActionID) + "/audit"
-	if err := session.client.doJSON(ctx, http.MethodPost, path, session.client.sdkToken, event, nil, http.StatusNoContent); err != nil {
+	if err := session.client.doJSON(ctx, http.MethodPost, path, session.client.sdkToken, event, nil, expected...); err != nil {
 		return fmt.Errorf("append simulator action audit: %w", err)
 	}
 	return nil
@@ -931,7 +941,8 @@ func makeAudit(runID, lifecycle string, index int, now time.Time, actionID, oper
 // RunLiveCoffeeShop performs a real Core-backed demo. VERIFIED records describe
 // only deterministic simulated facts and are labeled as such; no host network
 // or tunnel state is claimed. When verify is true, success requires durable
-// event/action/posture readback and exact audit-event replay.
+// event/action/posture readback plus idempotent non-start replay, rejected
+// execution-start replay, and changed-content conflict probes.
 func RunLiveCoffeeShop(ctx context.Context, config LiveConfig, verify bool) (*LiveCoffeeShopResult, error) {
 	client, err := newLiveClient(config)
 	if err != nil {
@@ -965,7 +976,7 @@ func RunLiveCoffeeShop(ctx context.Context, config LiveConfig, verify bool) (*Li
 	if err != nil {
 		return nil, err
 	}
-	if held.Decision != "HOLD" || held.ActionID != actionID {
+	if held.Decision != "HOLD" || held.ActionID != actionID || held.Protection.EvidenceProvenance != "SIMULATION" {
 		return nil, errors.New("core did not hold the exposed simulator action")
 	}
 	audits := []liveAuditEvent{
@@ -1011,7 +1022,7 @@ func RunLiveCoffeeShop(ctx context.Context, config LiveConfig, verify bool) (*Li
 	if err != nil {
 		return nil, err
 	}
-	if allowed.Decision != "ALLOW" || allowed.ActionID != actionID {
+	if allowed.Decision != "ALLOW" || allowed.ActionID != actionID || allowed.Protection.EvidenceProvenance != "SIMULATION" {
 		return nil, errors.New("core did not release the held simulator action")
 	}
 	finalAudits := []liveAuditEvent{
@@ -1029,7 +1040,8 @@ func RunLiveCoffeeShop(ctx context.Context, config LiveConfig, verify bool) (*Li
 		SchemaVersion: "antiflock.live-simulation/v1", Simulation: true,
 		NodeID: client.nodeID, DeploymentID: session.deploymentID, ActionID: actionID,
 		InitialDecision: held.Decision, FinalDecision: allowed.Decision,
-		ContextEventIDs: contextEventIDs, VerificationEventIDs: verificationEventIDs,
+		EvidenceProvenance: "SIMULATION",
+		ContextEventIDs:    contextEventIDs, VerificationEventIDs: verificationEventIDs,
 		AuditEventIDs: make([]string, 0, len(audits)),
 	}
 	for _, event := range audits {
@@ -1101,21 +1113,41 @@ func (session *liveSession) verifyCoffeeShop(ctx context.Context, result *LiveCo
 		}
 	}
 	var posture struct {
-		State          string `json:"state"`
-		NodeID         string `json:"nodeId"`
-		EvidenceClass  string `json:"evidenceClass"`
-		PolicyRevision uint64 `json:"policyRevision"`
+		State              string `json:"state"`
+		NodeID             string `json:"nodeId"`
+		EvidenceClass      string `json:"evidenceClass"`
+		EvidenceProvenance string `json:"evidenceProvenance"`
+		PolicyRevision     uint64 `json:"policyRevision"`
 	}
 	if err := session.client.doJSON(ctx, http.MethodGet, "/v1/posture", session.client.operatorToken, nil, &posture, http.StatusOK); err != nil {
 		return err
 	}
-	if posture.State != "PROTECTED" || posture.NodeID != session.client.nodeID || posture.EvidenceClass != "VERIFIED" || posture.PolicyRevision != 7 {
+	if posture.State != "PROTECTED" || posture.NodeID != session.client.nodeID || posture.EvidenceClass != "VERIFIED" ||
+		posture.EvidenceProvenance != "SIMULATION" || posture.PolicyRevision != 7 {
 		return errors.New("durable protected simulator posture was not found")
 	}
 	for _, event := range audits {
-		if err := session.appendAudit(ctx, event); err != nil {
-			return errors.New("durable action audit replay failed")
+		changed := event
+		changed.Details = make(map[string]any, len(event.Details)+1)
+		for key, value := range event.Details {
+			changed.Details[key] = value
 		}
+		changed.Details["conflictProbe"] = "different-payload"
+		if err := session.appendAuditExpect(ctx, changed, http.StatusConflict); err != nil {
+			return errors.New("changed durable action audit replay was not rejected")
+		}
+		result.ChangedReplayRejects++
+		if event.Lifecycle == "SDK_ACTION_EXECUTION_STARTED" {
+			if err := session.appendAuditExpect(ctx, event, http.StatusConflict); err != nil {
+				return errors.New("execution-start audit replay was not rejected")
+			}
+			result.StartReplayRejected = true
+			continue
+		}
+		if err := session.appendAudit(ctx, event); err != nil {
+			return errors.New("durable non-start action audit replay failed")
+		}
+		result.IdempotentReplays++
 	}
 	return nil
 }

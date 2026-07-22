@@ -708,6 +708,10 @@ type DnsObservation struct {
 	PathVerified      bool                   `protobuf:"varint,4,opt,name=path_verified,json=pathVerified,proto3" json:"path_verified,omitempty"`
 	ObservedAt        *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
 	Evidence          []*EvidenceReference   `protobuf:"bytes,6,rep,name=evidence,proto3" json:"evidence,omitempty"`
+	// Required when path_verified is true so DNS proof can be bound to the
+	// same policy route and mesh path as the external egress proof.
+	EgressInterfaceId string `protobuf:"bytes,7,opt,name=egress_interface_id,json=egressInterfaceId,proto3" json:"egress_interface_id,omitempty"`
+	MeshPathId        string `protobuf:"bytes,8,opt,name=mesh_path_id,json=meshPathId,proto3" json:"mesh_path_id,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -782,6 +786,20 @@ func (x *DnsObservation) GetEvidence() []*EvidenceReference {
 		return x.Evidence
 	}
 	return nil
+}
+
+func (x *DnsObservation) GetEgressInterfaceId() string {
+	if x != nil {
+		return x.EgressInterfaceId
+	}
+	return ""
+}
+
+func (x *DnsObservation) GetMeshPathId() string {
+	if x != nil {
+		return x.MeshPathId
+	}
+	return ""
 }
 
 type WifiObservation struct {
@@ -1722,7 +1740,7 @@ const file_antiflock_v1_observation_proto_rawDesc = "" +
 	"\rdefault_route\x18\x06 \x01(\bR\fdefaultRoute\x12!\n" +
 	"\fpolicy_route\x18\a \x01(\bR\vpolicyRoute\x12;\n" +
 	"\vobserved_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"observedAt\"\x9d\x02\n" +
+	"observedAt\"\xef\x02\n" +
 	"\x0eDnsObservation\x12-\n" +
 	"\x12resolver_addresses\x18\x01 \x03(\tR\x11resolverAddresses\x12%\n" +
 	"\x0esearch_domains\x18\x02 \x03(\tR\rsearchDomains\x12\x16\n" +
@@ -1730,7 +1748,10 @@ const file_antiflock_v1_observation_proto_rawDesc = "" +
 	"\rpath_verified\x18\x04 \x01(\bR\fpathVerified\x12;\n" +
 	"\vobserved_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"observedAt\x12;\n" +
-	"\bevidence\x18\x06 \x03(\v2\x1f.antiflock.v1.EvidenceReferenceR\bevidence\"\xaf\x02\n" +
+	"\bevidence\x18\x06 \x03(\v2\x1f.antiflock.v1.EvidenceReferenceR\bevidence\x12.\n" +
+	"\x13egress_interface_id\x18\a \x01(\tR\x11egressInterfaceId\x12 \n" +
+	"\fmesh_path_id\x18\b \x01(\tR\n" +
+	"meshPathId\"\xaf\x02\n" +
 	"\x0fWifiObservation\x12\x12\n" +
 	"\x04ssid\x18\x01 \x01(\tR\x04ssid\x12\x1d\n" +
 	"\n" +

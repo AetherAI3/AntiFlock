@@ -61,6 +61,10 @@ func (server *Server) handleEnrollNode(response http.ResponseWriter, request *ht
 		writeAPIError(response, http.StatusBadRequest, "INVALID_ENROLLMENT", "Enrollment request is invalid.", "", false)
 		return
 	}
+	if !server.simulation && enrollmentEvidenceProvenance(input.GetPlatformVersion(), input.GetCapabilities()) == provenanceSimulation {
+		writeAPIError(response, http.StatusPreconditionFailed, "SIMULATION_MODE_REQUIRED", "Simulation-only nodes may enroll only in an explicitly configured simulation Core.", input.GetRequestId(), false)
+		return
+	}
 	enrollmentRequest, err := server.enrollment.Enroll(request.Context(), &input)
 	if err != nil {
 		server.writeDomainError(response, statusForEnrollmentError(err), err, input.GetRequestId())
@@ -187,6 +191,9 @@ func (server *Server) handleNodeStatus(target model.NodeStatus) http.HandlerFunc
 			server.writeDomainError(response, statusForNodeMutationError(err), err, input.OperationID)
 			return
 		}
+		// Every status transition starts a new posture epoch. Reactivation must
+		// collect fresh evidence rather than reviving a pre-suspension snapshot.
+		server.actions.invalidateNode(nodeID, server.clock().UTC())
 		server.writeNodeMutationResponse(response, request, nodeID, input.OperationID)
 	}
 }

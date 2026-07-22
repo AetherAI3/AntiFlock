@@ -88,10 +88,11 @@ func New(options Options) (*Server, error) {
 	if len(options.AuthorizationKey) < 32 {
 		return nil, errors.New("one-time authorization key must contain at least 32 bytes")
 	}
+	simulation := strings.EqualFold(os.Getenv("ANTIFLOCK_DEMO_MODE"), "true")
 	authorizationKey := sha256.Sum256(append([]byte("AntiFlock-One-Time-Authorization-v1\x00"), options.AuthorizationKey...))
 	actions, err := newActionGate(
 		options.Database, options.Audit, options.DeploymentID, options.Config.Protection,
-		authorizationKey[:], options.PostureEngine, options.Findings, clock,
+		authorizationKey[:], options.PostureEngine, options.Findings, simulation, clock,
 	)
 	if err != nil {
 		return nil, err
@@ -103,7 +104,7 @@ func New(options Options) (*Server, error) {
 		authenticator: authenticator, actions: actions,
 		deploymentID: options.DeploymentID, version: options.Version, clock: clock,
 		requestSlots: make(chan struct{}, defaultRequestLimit), nodeClientCAs: options.NodeClientCAs,
-		simulation: strings.EqualFold(os.Getenv("ANTIFLOCK_DEMO_MODE"), "true"),
+		simulation: simulation,
 	}
 	if server.version == "" {
 		server.version = "development"

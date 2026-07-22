@@ -192,6 +192,14 @@ func actionBody(now time.Time, id, operationID string) map[string]any {
 	}}
 }
 
+func lifecycleBody(eventID, lifecycle, actionID, operationID, decision string, policyRevision any, occurredAt time.Time) map[string]any {
+	return map[string]any{
+		"eventId": eventID, "lifecycle": lifecycle, "occurredAt": occurredAt.Format(time.RFC3339Nano),
+		"actionId": actionID, "requestId": actionID, "decision": decision, "traceId": operationID,
+		"policyRevision": policyRevision, "reasonCodes": []string{"AF-SDK-LIFECYCLE-TEST"}, "details": map[string]any{},
+	}
+}
+
 func postureBody(runtime *testRuntime, state string, observedAt time.Time, policyRevision uint64, eventIDs []string) map[string]any {
 	protected := state == "PROTECTED"
 	return map[string]any{
@@ -244,9 +252,17 @@ func testCapabilities(nodeID string, now time.Time) *antiflockv1.CapabilityManif
 }
 
 func appendProtectedVerificationEvents(t *testing.T, runtime *testRuntime) []string {
+	return appendProtectedVerificationEventsWithDNSBinding(t, runtime, "mesh0", "path-test")
+}
+
+func appendProtectedVerificationEventsWithDNSBinding(t *testing.T, runtime *testRuntime, interfaceID, meshPathID string) []string {
+	return appendProtectedVerificationEventsWithProvenance(t, runtime, interfaceID, meshPathID, false)
+}
+
+func appendProtectedVerificationEventsWithProvenance(t *testing.T, runtime *testRuntime, interfaceID, meshPathID string, simulation bool) []string {
 	t.Helper()
 	meshPayload, err := proto.Marshal(&antiflockv1.MeshPathObservation{
-		PathId: "path-test", SourceNodeId: "node-test", DestinationNodeId: "exit-test",
+		PathId: "path-test", Provider: "test-mesh", SourceNodeId: "node-test", DestinationNodeId: "exit-test",
 		ConnectionType: antiflockv1.MeshConnectionType_MESH_CONNECTION_TYPE_DIRECT,
 		ExitNodeId:     "exit-test", ApprovedExitActive: true, TunnelHealthy: true,
 		ObservedAt: timestamppb.New(runtime.now),
@@ -256,7 +272,7 @@ func appendProtectedVerificationEvents(t *testing.T, runtime *testRuntime) []str
 	}
 	dnsPayload, err := proto.Marshal(&antiflockv1.DnsObservation{
 		ResolverAddresses: []string{"100.100.100.100"}, Source: "agent", PathVerified: true,
-		ObservedAt: timestamppb.New(runtime.now),
+		EgressInterfaceId: interfaceID, MeshPathId: meshPathID, ObservedAt: timestamppb.New(runtime.now),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -293,6 +309,10 @@ func appendProtectedVerificationEvents(t *testing.T, runtime *testRuntime) []str
 		evidenceDigest := sha256.Sum256([]byte(input.id + ":evidence"))
 		signedDigest := sha256.Sum256([]byte(input.id + ":signed"))
 		verifiedAt, expiresAt := runtime.now, runtime.now.Add(time.Minute)
+		attributes := map[string]string{}
+		if simulation {
+			attributes = map[string]string{"simulation": "true", "methodId": "antiflock.simulation.test.v1"}
+		}
 		event := model.EventEnvelope{
 			ID: input.id, SchemaVersion: "antiflock.event/v1", DeploymentID: runtime.deploymentID, NodeID: "node-test",
 			Kind: input.kind, ObservedAt: runtime.now, ReceivedAt: runtime.now, Sequence: uint64(index + 1), BootID: "boot-test",
@@ -305,6 +325,7 @@ func appendProtectedVerificationEvents(t *testing.T, runtime *testRuntime) []str
 				LastVerifiedAt: &verifiedAt, ExpiresAt: &expiresAt, Confidence: 1,
 				Sensitivity: model.SensitivityInternal, Explanation: "Deterministic verified test measurement.",
 				LocationPrecision: "WITHHELD",
+				Attributes:        attributes,
 				Integrity:         model.IntegrityDigest{Algorithm: "sha256", Digest: evidenceDigest[:]},
 			}},
 			SourceSignature: model.Signature{
@@ -409,6 +430,63 @@ func TestOverviewCapturesSimulationModeAtServerStartup(t *testing.T) {
 	overview := decodeObject(t, runtime.request(t, http.MethodGet, "/v1/overview", nil, true))
 	if overview["simulation"] != true {
 		t.Fatalf("overview simulation provenance = %#v", overview["simulation"])
+	}
+}
+
+func TestSimulationEvidenceRequiresDemoModeAndPropagatesToDecisions(t *testing.T) {
+	t.Run("non-demo Core rejects simulation evidence", func(t *testing.T) {
+		t.Setenv("ANTIFLOCK_DEMO_MODE", "false")
+		runtime := newTestRuntime(t)
+		eventIDs := appendProtectedVerificationEventsWithProvenance(t, runtime, "mesh0", "path-test", true)
+		response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs), true)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("non-demo simulation posture = %d %s", response.Code, response.Body.String())
+		}
+		overviewResponse := runtime.request(t, http.MethodGet, "/v1/overview", nil, true)
+		overview := decodeObject(t, overviewResponse)
+		if overviewResponse.Code != http.StatusOK || overview["currentExit"] != "Unknown" || overview["dnsState"] != "UNKNOWN" || overview["exitVerified"] != false {
+			t.Fatalf("non-demo projection did not quarantine simulation facts: %d %#v", overviewResponse.Code, overview)
+		}
+	})
+
+	t.Run("demo Core labels posture and action decision as simulation", func(t *testing.T) {
+		t.Setenv("ANTIFLOCK_DEMO_MODE", "true")
+		runtime := newTestRuntime(t)
+		eventIDs := appendProtectedVerificationEventsWithProvenance(t, runtime, "mesh0", "path-test", true)
+		response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs), true)
+		if response.Code != http.StatusAccepted {
+			t.Fatalf("demo simulation posture = %d %s", response.Code, response.Body.String())
+		}
+		posture := decodeObject(t, runtime.request(t, http.MethodGet, "/v1/posture", nil, true))
+		if posture["state"] != "PROTECTED" || posture["evidenceProvenance"] != "SIMULATION" {
+			t.Fatalf("simulation posture projection = %#v", posture)
+		}
+		decisionResponse := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", actionBody(runtime.now, "simulation-action", "simulation-operation"), true)
+		decision := decodeObject(t, decisionResponse)
+		protection, _ := decision["protection"].(map[string]any)
+		if decisionResponse.Code != http.StatusCreated || decision["decision"] != "ALLOW" || protection["evidenceProvenance"] != "SIMULATION" {
+			t.Fatalf("simulation action decision = %d %#v", decisionResponse.Code, decision)
+		}
+		overview := decodeObject(t, runtime.request(t, http.MethodGet, "/v1/overview", nil, true))
+		if overview["simulation"] != true || overview["evidenceProvenance"] != "SIMULATION" {
+			t.Fatalf("simulation overview = %#v", overview)
+		}
+	})
+}
+
+func TestNonDemoCoreRejectsSimulationOnlyEnrollmentBeforeMutation(t *testing.T) {
+	t.Setenv("ANTIFLOCK_DEMO_MODE", "false")
+	runtime := newTestRuntime(t)
+	response := runtime.request(t, http.MethodPost, "/v1/enrollment/nodes", map[string]any{
+		"tokenValue": "not-consumed", "requestId": "simulation-enrollment",
+		"displayName": "Simulator", "nodeType": "NODE_TYPE_AGENT", "platform": "linux", "platformVersion": "simulation",
+		"keyAlgorithm": "ed25519", "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", "requestedNodeId": "sim-node",
+		"capabilities": map[string]any{"revision": 1, "capabilities": []any{map[string]any{
+			"key": "mesh.path.verify", "implementation": "antiflock-sim", "constraints": []string{"simulation-only"},
+		}}},
+	}, false)
+	if response.Code != http.StatusPreconditionFailed || !strings.Contains(response.Body.String(), "SIMULATION_MODE_REQUIRED") {
+		t.Fatalf("simulation enrollment = %d %s", response.Code, response.Body.String())
 	}
 }
 
@@ -575,7 +653,9 @@ func TestActionEvaluationEnforcesExplicitPolicyScope(t *testing.T) {
 		name, field, value, reason string
 	}{
 		{"application", "applicationId", "other-app", "AF-ACTION-OUTSIDE-POLICY"},
+		{"action type", "actionType", "shell.execute", "AF-ACTION-OUTSIDE-POLICY"},
 		{"data class", "dataClass", "credentials", "AF-ACTION-OUTSIDE-POLICY"},
+		{"sensitivity", "sensitivity", "SENSITIVITY_RESTRICTED", "AF-ACTION-OUTSIDE-POLICY"},
 		{"destination", "destinations", "evil.example", "AF-DESTINATION-OUTSIDE-POLICY"},
 		{"case variant", "destinations", "GitHub.com", "AF-DESTINATION-OUTSIDE-POLICY"},
 	}
@@ -595,8 +675,13 @@ func TestActionEvaluationEnforcesExplicitPolicyScope(t *testing.T) {
 			t.Fatalf("%s policy denial = %d %s", test.name, response.Code, response.Body.String())
 		}
 	}
-	authorizeDenied := runtime.request(t, http.MethodPost, "/v1/actions/policy-action-2/authorize", map[string]any{
-		"actionId": "policy-action-2", "operationId": "policy-operation-2",
+	aliasBody := actionBody(runtime.now, "policy-alias", "policy-alias-operation")
+	aliasBody["action"].(map[string]any)["sensitivity"] = "CONFIDENTIAL"
+	if response := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", aliasBody, true); response.Code != http.StatusBadRequest {
+		t.Fatalf("noncanonical sensitivity alias = %d %s", response.Code, response.Body.String())
+	}
+	authorizeDenied := runtime.request(t, http.MethodPost, "/v1/actions/policy-action-4/authorize", map[string]any{
+		"actionId": "policy-action-4", "operationId": "policy-operation-4",
 		"authorizedDestinations": []string{"evil.example"},
 		"expiresAt":              runtime.now.Add(time.Minute).Format(time.RFC3339Nano), "consentReasonCode": "USER_EXPLICIT",
 	}, true)
@@ -626,6 +711,11 @@ func TestAllowIsReevaluatedAndExecutionStartRejectsStaleEvidence(t *testing.T) {
 		runtime.advance(time.Second)
 		if response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "EXPOSED", runtime.now, 7, nil), true); response.Code != http.StatusAccepted {
 			t.Fatalf("exposed posture = %d %s", response.Code, response.Body.String())
+		}
+		listed := runtime.request(t, http.MethodGet, "/v1/actions?limit=10", nil, true)
+		if listed.Code != http.StatusOK || strings.Contains(listed.Body.String(), `"decision":"ALLOW"`) ||
+			!strings.Contains(listed.Body.String(), `"decision":"HOLD"`) || !strings.Contains(listed.Body.String(), `"expiresAt"`) {
+			t.Fatalf("stale ALLOW list projection = %d %s", listed.Code, listed.Body.String())
 		}
 		rechecked := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true)
 		if rechecked.Code != http.StatusOK || decodeObject(t, rechecked)["decision"] != "HOLD" {
@@ -703,7 +793,179 @@ func TestAllowIsReevaluatedAndExecutionStartRejectsStaleEvidence(t *testing.T) {
 	})
 }
 
+func TestExecutionLifecycleAndNodeAuthorityFailClosed(t *testing.T) {
+	t.Run("blocked and not-started actions cannot claim success", func(t *testing.T) {
+		runtime := newTestRuntime(t)
+		blockedBody := actionBody(runtime.now, "blocked-lifecycle", "blocked-lifecycle-operation")
+		blockedBody["action"].(map[string]any)["actionType"] = "shell.execute"
+		blockedResponse := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", blockedBody, true)
+		blocked := decodeObject(t, blockedResponse)
+		if blockedResponse.Code != http.StatusCreated || blocked["decision"] != "BLOCK" {
+			t.Fatalf("blocked action = %d %s", blockedResponse.Code, blockedResponse.Body.String())
+		}
+		blockedAudit := blocked["audit"].(map[string]any)
+		terminal := lifecycleBody(
+			"blocked-success", "SDK_ACTION_EXECUTION_SUCCEEDED", "blocked-lifecycle",
+			"blocked-lifecycle-operation", "BLOCK", blockedAudit["policyRevision"], runtime.now,
+		)
+		if response := runtime.request(t, http.MethodPost, "/v1/actions/blocked-lifecycle/audit", terminal, true); response.Code != http.StatusConflict {
+			t.Fatalf("blocked action success = %d %s", response.Code, response.Body.String())
+		}
+
+		eventIDs := appendProtectedVerificationEvents(t, runtime)
+		if response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs), true); response.Code != http.StatusAccepted {
+			t.Fatalf("protected posture = %d %s", response.Code, response.Body.String())
+		}
+		allowedResponse := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", actionBody(runtime.now, "not-started", "not-started-operation"), true)
+		allowed := decodeObject(t, allowedResponse)
+		terminal = lifecycleBody(
+			"not-started-success", "SDK_ACTION_EXECUTION_SUCCEEDED", "not-started",
+			"not-started-operation", "ALLOW", allowed["audit"].(map[string]any)["policyRevision"], runtime.now,
+		)
+		if response := runtime.request(t, http.MethodPost, "/v1/actions/not-started/audit", terminal, true); response.Code != http.StatusConflict {
+			t.Fatalf("success before start = %d %s", response.Code, response.Body.String())
+		}
+	})
+
+	t.Run("started decision freezes while exactly one terminal remains auditable", func(t *testing.T) {
+		runtime := newTestRuntime(t)
+		eventIDs := appendProtectedVerificationEvents(t, runtime)
+		if response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs), true); response.Code != http.StatusAccepted {
+			t.Fatalf("protected posture = %d %s", response.Code, response.Body.String())
+		}
+		body := actionBody(runtime.now, "frozen-execution", "frozen-execution-operation")
+		allowedResponse := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true)
+		allowed := decodeObject(t, allowedResponse)
+		policyRevision := allowed["audit"].(map[string]any)["policyRevision"]
+		start := lifecycleBody(
+			"frozen-start", "SDK_ACTION_EXECUTION_STARTED", "frozen-execution",
+			"frozen-execution-operation", "ALLOW", policyRevision, runtime.now,
+		)
+		if response := runtime.request(t, http.MethodPost, "/v1/actions/frozen-execution/audit", start, true); response.Code != http.StatusNoContent {
+			t.Fatalf("execution start = %d %s", response.Code, response.Body.String())
+		}
+		runtime.advance(time.Second)
+		if response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "EXPOSED", runtime.now, 7, nil), true); response.Code != http.StatusAccepted {
+			t.Fatalf("exposed posture = %d %s", response.Code, response.Body.String())
+		}
+		if response := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true); response.Code != http.StatusConflict {
+			t.Fatalf("started action was mutated by reevaluation: %d %s", response.Code, response.Body.String())
+		}
+		listed := runtime.request(t, http.MethodGet, "/v1/actions?decision=HOLD&limit=10", nil, true)
+		if listed.Code != http.StatusOK || strings.Contains(listed.Body.String(), "frozen-execution") {
+			t.Fatalf("started action projected as pending HOLD: %d %s", listed.Code, listed.Body.String())
+		}
+		terminal := lifecycleBody(
+			"frozen-success", "SDK_ACTION_EXECUTION_SUCCEEDED", "frozen-execution",
+			"frozen-execution-operation", "ALLOW", policyRevision, runtime.now,
+		)
+		if response := runtime.request(t, http.MethodPost, "/v1/actions/frozen-execution/audit", terminal, true); response.Code != http.StatusNoContent {
+			t.Fatalf("terminal success = %d %s", response.Code, response.Body.String())
+		}
+		secondTerminal := lifecycleBody(
+			"frozen-failure", "SDK_ACTION_EXECUTION_FAILED", "frozen-execution",
+			"frozen-execution-operation", "ALLOW", policyRevision, runtime.now,
+		)
+		if response := runtime.request(t, http.MethodPost, "/v1/actions/frozen-execution/audit", secondTerminal, true); response.Code != http.StatusConflict {
+			t.Fatalf("second terminal = %d %s", response.Code, response.Body.String())
+		}
+		if response := runtime.request(t, http.MethodPost, "/v1/actions/frozen-execution/audit", terminal, true); response.Code != http.StatusNoContent {
+			t.Fatalf("terminal replay = %d %s", response.Code, response.Body.String())
+		}
+		if response := runtime.request(t, http.MethodPost, "/v1/actions/frozen-execution/audit", start, true); response.Code != http.StatusConflict {
+			t.Fatalf("start replay = %d %s", response.Code, response.Body.String())
+		}
+	})
+
+	t.Run("suspension invalidates ordinary and one-time authority", func(t *testing.T) {
+		runtime := newTestRuntime(t)
+		body := actionBody(runtime.now, "revoked-once", "revoked-once-operation")
+		heldResponse := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true)
+		if heldResponse.Code != http.StatusCreated || decodeObject(t, heldResponse)["decision"] != "HOLD" {
+			t.Fatalf("initial hold = %d %s", heldResponse.Code, heldResponse.Body.String())
+		}
+		authorizedResponse := runtime.request(t, http.MethodPost, "/v1/actions/revoked-once/authorize", map[string]any{
+			"actionId": "revoked-once", "operationId": "revoked-once-operation",
+			"authorizedDestinations": []string{"github.com"},
+			"expiresAt":              runtime.now.Add(time.Minute).Format(time.RFC3339Nano), "consentReasonCode": "USER_EXPLICIT",
+		}, true)
+		authorized := decodeObject(t, authorizedResponse)
+		if authorizedResponse.Code != http.StatusOK || authorized["decision"] != "ALLOW_ONCE" {
+			t.Fatalf("one-time authorization = %d %s", authorizedResponse.Code, authorizedResponse.Body.String())
+		}
+		if response := runtime.request(t, http.MethodPost, "/v1/nodes/node-test/suspend", map[string]any{
+			"operationId": "action-node-suspend", "reasonCode": "OPERATOR_SUSPENDED",
+		}, true); response.Code != http.StatusOK {
+			t.Fatalf("node suspension = %d %s", response.Code, response.Body.String())
+		}
+		if response := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true); response.Code != http.StatusOK || decodeObject(t, response)["decision"] != "BLOCK" {
+			t.Fatalf("suspended one-time action = %d %s", response.Code, response.Body.String())
+		}
+		start := lifecycleBody(
+			"revoked-start", "SDK_ACTION_EXECUTION_STARTED", "revoked-once", "revoked-once-operation",
+			"ALLOW_ONCE", authorized["audit"].(map[string]any)["policyRevision"], runtime.now,
+		)
+		if response := runtime.request(t, http.MethodPost, "/v1/actions/revoked-once/audit", start, true); response.Code != http.StatusConflict {
+			t.Fatalf("suspended grant execution = %d %s", response.Code, response.Body.String())
+		}
+		if response := runtime.request(t, http.MethodPost, "/v1/nodes/node-test/reactivate", map[string]any{
+			"operationId": "action-node-reactivate", "reasonCode": "OPERATOR_REACTIVATED",
+		}, true); response.Code != http.StatusOK {
+			t.Fatalf("node reactivation = %d %s", response.Code, response.Body.String())
+		}
+		fresh := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", actionBody(runtime.now, "reactivated-fresh", "reactivated-fresh-operation"), true)
+		if fresh.Code != http.StatusCreated || decodeObject(t, fresh)["decision"] != "HOLD" {
+			t.Fatalf("reactivation reused stale posture = %d %s", fresh.Code, fresh.Body.String())
+		}
+	})
+
+	t.Run("deadline is mandatory for durable action projections", func(t *testing.T) {
+		runtime := newTestRuntime(t)
+		body := actionBody(runtime.now, "missing-deadline", "missing-deadline-operation")
+		delete(body["action"].(map[string]any), "deadline")
+		if response := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true); response.Code != http.StatusBadRequest {
+			t.Fatalf("missing action deadline = %d %s", response.Code, response.Body.String())
+		}
+	})
+}
+
+func TestConsentRequiredPolicyNeverAutoAllowsProtectedNanoProposal(t *testing.T) {
+	runtime := newTestRuntime(t)
+	eventIDs := appendProtectedVerificationEvents(t, runtime)
+	if response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs), true); response.Code != http.StatusAccepted {
+		t.Fatalf("protected posture = %d %s", response.Code, response.Body.String())
+	}
+	action := secureActionRequest{
+		ID: "nano-scrambler-proposal", ApplicationID: "antiflock-nano", NodeID: "node-test",
+		ActionType: "scrambler.simulate", Destinations: []string{"local://scrambler/simulation"},
+		DataClass: "network-control", Sensitivity: "SENSITIVITY_OPERATOR_PRIVATE",
+		Deadline: runtime.now.Add(time.Minute).Format(time.RFC3339Nano), OperationID: "nano-scrambler-proposal-operation",
+	}
+	request := withPrincipal(httptest.NewRequest(http.MethodPost, "/v1/actions/evaluate", nil), principal{
+		ID: "application:antiflock-nano", ApplicationID: "antiflock-nano", NodeID: "node-test",
+	})
+	decision, status, err := runtime.server.actions.evaluate(request.Context(), action)
+	if err != nil || status != http.StatusCreated {
+		t.Fatalf("evaluate Nano proposal = %d %#v %v", status, decision, err)
+	}
+	if decision.Decision != "REQUIRE_CONSENT" || decision.Consent == nil ||
+		decision.Consent.Scope.ApplicationID != action.ApplicationID ||
+		decision.Consent.Scope.ActionType != action.ActionType ||
+		!sameStrings(decision.Consent.Scope.Destinations, action.Destinations) {
+		t.Fatalf("Nano proposal was not bound to informed consent: %#v", decision)
+	}
+}
+
 func TestPostureRevisionAndControlEvidenceFailClosed(t *testing.T) {
+	t.Run("DNS proof must bind to the same route and mesh path", func(t *testing.T) {
+		runtime := newTestRuntime(t)
+		eventIDs := appendProtectedVerificationEventsWithDNSBinding(t, runtime, "other-interface", "other-path")
+		response := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs), true)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("unbound DNS proof was accepted: %d %s", response.Code, response.Body.String())
+		}
+	})
+
 	runtime := newTestRuntime(t)
 	eventIDs := appendProtectedVerificationEvents(t, runtime)
 	missingRoute := runtime.request(t, http.MethodPost, "/v1/posture/report", postureBody(runtime, "PROTECTED", runtime.now, 7, eventIDs[:2]), true)
@@ -789,9 +1051,20 @@ func TestAuthorizeOnceAndLifecycleConsumptionAreIdempotent(t *testing.T) {
 	if consumed.Code != http.StatusNoContent {
 		t.Fatalf("consume lifecycle = %d %s", consumed.Code, consumed.Body.String())
 	}
+	if response := runtime.request(t, http.MethodPost, "/v1/actions/evaluate", body, true); response.Code != http.StatusConflict {
+		t.Fatalf("consumed grant evaluate = %d %s", response.Code, response.Body.String())
+	}
+	if response := runtime.request(t, http.MethodPost, "/v1/actions/action-once/authorize", authorizeBody, true); response.Code != http.StatusConflict {
+		t.Fatalf("consumed grant authorize = %d %s", response.Code, response.Body.String())
+	}
+	consumedList := runtime.request(t, http.MethodGet, "/v1/actions?limit=10", nil, true)
+	if consumedList.Code != http.StatusOK || !strings.Contains(consumedList.Body.String(), `"decision":"BLOCK"`) ||
+		!strings.Contains(consumedList.Body.String(), "AF-ONE-TIME-GRANT-CONSUMED") || strings.Contains(consumedList.Body.String(), "oneTimeAuthorization") {
+		t.Fatalf("consumed grant list projection = %d %s", consumedList.Code, consumedList.Body.String())
+	}
 	idempotent := runtime.request(t, http.MethodPost, "/v1/actions/action-once/audit", auditBody, true)
-	if idempotent.Code != http.StatusNoContent {
-		t.Fatalf("idempotent lifecycle = %d %s", idempotent.Code, idempotent.Body.String())
+	if idempotent.Code != http.StatusConflict {
+		t.Fatalf("execution-start replay = %d %s", idempotent.Code, idempotent.Body.String())
 	}
 	for name, mutate := range map[string]func(map[string]any){
 		"lifecycle": func(value map[string]any) { value["lifecycle"] = "SDK_ACTION_EXECUTION_SUCCEEDED" },

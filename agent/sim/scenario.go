@@ -69,7 +69,8 @@ func RunCoffeeShop(start time.Time) (*Result, error) {
 		return nil, err
 	}
 	gate, err := actions.New(actions.Policy{
-		ApplicationIDs: []string{"aether-code"}, DataClasses: []string{"repository-source"},
+		NodeIDs: []string{"simulated-phone"}, ApplicationIDs: []string{"aether-code"}, ActionTypes: []string{"git.push"},
+		DataClasses: []string{"repository-source"}, Sensitivities: []string{"SENSITIVITY_OPERATOR_PRIVATE"},
 		AllowedDestinations: []string{"github.com"}, AllowOneTimeBypass: false, OneTimeBypassTTL: 5 * time.Minute,
 	}, bytes.Repeat([]byte{0x5a}, 32))
 	if err != nil {
@@ -91,6 +92,7 @@ func RunCoffeeShop(start time.Time) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	exposed.EvidenceProvenance = antiflockv1.EvidenceProvenance_EVIDENCE_PROVENANCE_SIMULATION
 	if err := ensureEvidenceHonesty(exposed); err != nil {
 		return nil, err
 	}
@@ -116,6 +118,7 @@ func RunCoffeeShop(start time.Time) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	protected.EvidenceProvenance = antiflockv1.EvidenceProvenance_EVIDENCE_PROVENANCE_SIMULATION
 	if err := ensureEvidenceHonesty(protected); err != nil {
 		return nil, err
 	}

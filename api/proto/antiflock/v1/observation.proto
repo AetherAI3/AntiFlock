@@ -101,6 +101,10 @@ message DnsObservation {
   bool path_verified = 4;
   google.protobuf.Timestamp observed_at = 5;
   repeated EvidenceReference evidence = 6;
+  // Required when path_verified is true so DNS proof can be bound to the
+  // same policy route and mesh path as the external egress proof.
+  string egress_interface_id = 7;
+  string mesh_path_id = 8;
 }
 
 message WifiObservation {

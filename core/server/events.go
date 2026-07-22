@@ -64,6 +64,12 @@ func (server *Server) handleEventBatch(response http.ResponseWriter, request *ht
 		writeAPIError(response, http.StatusForbidden, "NODE_SCOPE_MISMATCH", "Agent credential does not match the event batch node.", "", false)
 		return
 	}
+	node, err := server.database.GetNode(request.Context(), batch.GetNodeId())
+	if err != nil {
+		server.writeDomainError(response, http.StatusForbidden, err, "")
+		return
+	}
+	nodeProvenance := nodeEvidenceProvenance(node)
 	receivedAt := server.clock().UTC()
 	rejected := make([]*antiflockv1.RejectedEvent, 0)
 	batchBootID := ""
@@ -85,6 +91,15 @@ func (server *Server) handleEventBatch(response http.ResponseWriter, request *ht
 		event, convertErr := model.EventFromProto(wire)
 		if convertErr != nil {
 			rejected = append(rejected, rejectedEvent(eventID, "EVENT_SCHEMA_INVALID", "Event failed schema validation."))
+			continue
+		}
+		provenance := eventEvidenceProvenance(event, node)
+		if nodeProvenance == provenanceUnknown || provenance == provenanceUnknown {
+			rejected = append(rejected, rejectedEvent(eventID, "EVIDENCE_PROVENANCE_UNKNOWN", "Event provenance could not be established."))
+			continue
+		}
+		if !server.simulation && provenance == provenanceSimulation {
+			rejected = append(rejected, rejectedEvent(eventID, "SIMULATION_PROVENANCE_DISABLED", "Simulation evidence is disabled for this Core."))
 			continue
 		}
 		_, appendErr := server.events.Append(request.Context(), event)

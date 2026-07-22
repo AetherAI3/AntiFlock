@@ -22,6 +22,9 @@ Start with:
 - [Event contracts](event-contracts.md)
 - [Signing contracts](signing-contracts.md)
 - [Open decisions and release gates](open-questions.md)
+- [Reference vertical-slice release status](release-status.md)
+- [Local operator runbook](operator-runbook.md)
+- [Nano watchdog boundary](nano-watchdog.md)
 - [Architecture decisions](adr/README.md)
 
 Normative words such as **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are

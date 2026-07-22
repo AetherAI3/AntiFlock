@@ -89,19 +89,21 @@ func (database *DB) CreateSecureActionMutation(record SecureActionRecord) Audite
 	})
 }
 
-func (database *DB) UpdateSecureActionMutation(record SecureActionRecord) AuditedMutation {
+func (database *DB) CompareAndSwapSecureActionMutation(expected, next SecureActionRecord) AuditedMutation {
 	return auditedMutationFunc(func(ctx context.Context, entry model.AuditEntry) error {
-		return database.UpdateSecureActionWithAudit(ctx, record, entry)
+		return database.CompareAndSwapSecureActionWithAudit(ctx, expected, next, entry)
 	})
 }
 
 func (database *DB) AppendSecureActionLifecycleMutation(
-	eventID, actionID, lifecycle string,
+	eventID string,
+	expected SecureActionRecord,
+	nodeID, lifecycle string,
 	requestDigest []byte,
 	occurredAt, now time.Time,
 ) AuditedMutation {
 	digestCopy := append([]byte(nil), requestDigest...)
 	return auditedMutationFunc(func(ctx context.Context, entry model.AuditEntry) error {
-		return database.AppendSecureActionLifecycleWithAudit(ctx, eventID, actionID, lifecycle, digestCopy, occurredAt, now, entry)
+		return database.AppendSecureActionLifecycleWithAudit(ctx, eventID, expected, nodeID, lifecycle, digestCopy, occurredAt, now, entry)
 	})
 }

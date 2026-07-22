@@ -133,6 +133,8 @@ const goScopes = Object.freeze({
   decisionPlane: Object.freeze([
     "./core/actions",
     "./core/findings",
+    "./core/footprint",
+    "./core/nano",
     "./core/policy",
     "./core/posture",
     "./core/scrambler",
@@ -267,6 +269,11 @@ function npmTest(directory) {
   return run(npm, ["run", script, "--prefix", directory], root, 300_000);
 }
 
+function npmRootScript(script, timeout = 300_000) {
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  return run(npm, ["run", script], root, timeout);
+}
+
 const gates = [
   workingNameContractsGate([
     "LICENSE",
@@ -318,9 +325,12 @@ const gates = [
   runnableGate("secure-action-sdk", "Secure Action SDK and Aether fail-closed lifecycle behavior", [
     "sdk/typescript/package.json",
     "apps/aether-demo/package.json",
+    "scripts/sdk-live-e2e.mjs",
+    "deploy/compose/sdk-live.override.yml",
   ], () => combine([
     npmTest("sdk/typescript"),
     npmTest("apps/aether-demo"),
+    npmRootScript("test:sdk:live", 600_000),
   ])),
   runnableGate("android", "Android Guard reference state-machine and fail-closed adapter behavior", [
     "apps/android/settings.gradle.kts",

@@ -99,7 +99,7 @@ test("hydrates bounded one-time authorization metadata from the live action proj
         nodeId: "node-1",
         decision: "HOLD",
         reasonCodes: ["AF-PATH-001"],
-        scope: { actionType: "repository request", destinations: ["api.github.com"], dataClass: "repository-source" },
+        scope: { actionType: "git.push", destinations: ["api.github.com"], dataClass: "repository-source", sensitivity: "SENSITIVITY_OPERATOR_PRIVATE" },
         createdAt: "2026-07-21T13:42:00Z",
         oneTimeAuthorization: { enabled: true, maximumExpiresAt: "2026-07-21T13:47:00Z", consentReasonCode: "USER_EXPLICIT" },
       }] });
@@ -110,7 +110,9 @@ test("hydrates bounded one-time authorization metadata from the live action proj
   try {
     const result = await loadDashboard("https://core.internal", new AbortController().signal);
     assert.equal(result.data.actions[0]?.id, "action-1");
+    assert.equal(result.data.actions[0]?.applicationId, "aether-code");
     assert.deepEqual(result.data.actions[0]?.destinations, ["api.github.com"]);
+    assert.equal(result.data.actions[0]?.sensitivity, "SENSITIVITY_OPERATOR_PRIVATE");
     assert.equal(result.data.actions[0]?.oneTimeAuthorization?.consentReasonCode, "USER_EXPLICIT");
   } finally {
     globalThis.fetch = originalFetch;

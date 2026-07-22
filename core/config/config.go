@@ -57,8 +57,11 @@ type ProtectionConfig struct {
 type ProtectedActionPolicyConfig struct {
 	NodeIDs             []string `yaml:"nodeIds"`
 	ApplicationIDs      []string `yaml:"applicationIds"`
+	ActionTypes         []string `yaml:"actionTypes"`
 	DataClasses         []string `yaml:"dataClasses"`
+	Sensitivities       []string `yaml:"sensitivities"`
 	AllowedDestinations []string `yaml:"allowedDestinations"`
+	ConsentRequired     bool     `yaml:"consentRequired"`
 }
 
 type TelemetryConfig struct {
@@ -84,7 +87,24 @@ func Default() Config {
 			OneTimeBypassTTL:       5 * time.Minute,
 			ProtectedActions: []ProtectedActionPolicyConfig{{
 				NodeIDs: []string{"*"}, ApplicationIDs: []string{"aether-code"},
-				DataClasses: []string{"repository-source"}, AllowedDestinations: []string{"github.com"},
+				ActionTypes: []string{"git.push"}, DataClasses: []string{"repository-source"},
+				Sensitivities: []string{"SENSITIVITY_OPERATOR_PRIVATE"}, AllowedDestinations: []string{"github.com"},
+			}, {
+				NodeIDs: []string{"*"}, ApplicationIDs: []string{"antiflock-nano"},
+				ActionTypes: []string{"scrambler.simulate"}, DataClasses: []string{"network-control"},
+				Sensitivities: []string{"SENSITIVITY_OPERATOR_PRIVATE"}, AllowedDestinations: []string{"local://scrambler/simulation"},
+				ConsentRequired: true,
+			}, {
+				NodeIDs: []string{"*"}, ApplicationIDs: []string{"antiflock-nano"},
+				ActionTypes: []string{"watchdog.public_surface.query"}, DataClasses: []string{"owned-public-surface"},
+				Sensitivities:       []string{"SENSITIVITY_OPERATOR_PRIVATE"},
+				AllowedDestinations: []string{"provider://fixture-shodan", "provider://fixture-broker-registry", "provider://fixture-paste-reference"},
+				ConsentRequired:     true,
+			}, {
+				NodeIDs: []string{"*"}, ApplicationIDs: []string{"antiflock-nano"},
+				ActionTypes: []string{"watchdog.countermeasure.plan"}, DataClasses: []string{"owned-public-surface"},
+				Sensitivities: []string{"SENSITIVITY_OPERATOR_PRIVATE"}, AllowedDestinations: []string{"local://countermeasure/plan"},
+				ConsentRequired: true,
 			}},
 		},
 		Telemetry: TelemetryConfig{CollectFlowMetadata: true, CollectPayloads: false},
@@ -212,7 +232,8 @@ func (config Config) Validate() error {
 	for index, action := range config.Protection.ProtectedActions {
 		for field, values := range map[string][]string{
 			"nodeIds": action.NodeIDs, "applicationIds": action.ApplicationIDs,
-			"dataClasses": action.DataClasses, "allowedDestinations": action.AllowedDestinations,
+			"actionTypes": action.ActionTypes, "dataClasses": action.DataClasses,
+			"sensitivities": action.Sensitivities, "allowedDestinations": action.AllowedDestinations,
 		} {
 			if err := validateProtectedActionValues(values); err != nil {
 				return fmt.Errorf("protection.protectedActions[%d].%s: %w", index, field, err)

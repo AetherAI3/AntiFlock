@@ -62,6 +62,18 @@ const PROTECTION_FROM_PROTO = new Map<string | number, ProtectionState>([
   ["PROTECTION_STATE_UNAVAILABLE", "UNAVAILABLE"],
 ]);
 
+const PROVENANCE_FROM_PROTO = new Map<string | number, ProtectionSnapshot["evidenceProvenance"]>([
+  [1, "LIVE"],
+  [2, "SIMULATION"],
+  [3, "UNKNOWN"],
+  ["LIVE", "LIVE"],
+  ["SIMULATION", "SIMULATION"],
+  ["UNKNOWN", "UNKNOWN"],
+  ["EVIDENCE_PROVENANCE_LIVE", "LIVE"],
+  ["EVIDENCE_PROVENANCE_SIMULATION", "SIMULATION"],
+  ["EVIDENCE_PROVENANCE_UNKNOWN", "UNKNOWN"],
+]);
+
 function asRecord(value: unknown, path: string): WireRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new InvalidAgentResponseError(`${path} must be an object`);
@@ -146,6 +158,12 @@ export function parseCanonicalProtectionSnapshot(raw: unknown): ProtectionSnapsh
     if (!["TRUSTED", "UNTRUSTED", "UNKNOWN"].includes(networkTrust)) {
       throw new InvalidAgentResponseError("protection.networkTrust is invalid");
     }
+    const evidenceProvenance = PROVENANCE_FROM_PROTO.get(
+      value.evidenceProvenance as string | number,
+    );
+    if (evidenceProvenance === undefined) {
+      throw new InvalidAgentResponseError("protection.evidenceProvenance is invalid");
+    }
     return {
       state,
       observedAt: timestamp(value.observedAt, "protection.observedAt"),
@@ -157,6 +175,7 @@ export function parseCanonicalProtectionSnapshot(raw: unknown): ProtectionSnapsh
         typeof value.approvedExitActive === "boolean" ? value.approvedExitActive : null,
       dnsProtected: typeof value.dnsProtected === "boolean" ? value.dnsProtected : null,
       reasonCodes: stringList(value.reasonCodes ?? [], "protection.reasonCodes"),
+      evidenceProvenance,
     };
   }
 
@@ -174,6 +193,14 @@ export function parseCanonicalProtectionSnapshot(raw: unknown): ProtectionSnapsh
         );
       })
     : [];
+  const evidenceProvenance = PROVENANCE_FROM_PROTO.get(
+    first(value, "evidenceProvenance", "evidence_provenance") as string | number,
+  );
+  if (evidenceProvenance === undefined) {
+    throw new InvalidAgentResponseError(
+      "canonical protection.evidenceProvenance is invalid or unspecified",
+    );
+  }
   return {
     state,
     observedAt: timestamp(
@@ -190,6 +217,7 @@ export function parseCanonicalProtectionSnapshot(raw: unknown): ProtectionSnapsh
     approvedExitActive: null,
     dnsProtected: null,
     reasonCodes,
+    evidenceProvenance,
   };
 }
 
@@ -231,6 +259,10 @@ export function parseCanonicalDecisionResponse(
       ? protection.reasonCodes
       : stringList(reasonCodesRaw, "decision.reasonCodes");
   const protectionRecord = asRecord(protectionRaw, "protection");
+  const protectionNodeId = requiredString(
+    first(protectionRecord, "nodeId", "node_id"),
+    "protection.nodeId",
+  );
   const policyRevision = protection.policyRevision;
   const audit: ActionAuditMetadata = {
     // The canonical protection snapshot id identifies evidence, not the
@@ -240,10 +272,7 @@ export function parseCanonicalDecisionResponse(
     decisionId: `${request.operationId}:${decision}:${actionId}`,
     policyRevision,
     evaluatedAt: protection.observedAt,
-    agentId:
-      typeof first(protectionRecord, "nodeId", "node_id") === "string"
-        ? (first(protectionRecord, "nodeId", "node_id") as string)
-        : request.nodeId,
+    agentId: protectionNodeId,
     evidenceClass: "UNKNOWN" as EvidenceClass,
   };
   const base = { actionId, protection, reasonCodes, audit };

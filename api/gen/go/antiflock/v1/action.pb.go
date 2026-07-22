@@ -267,8 +267,13 @@ type SecureActionDecision struct {
 	ExpiresAt           *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	UserMessage         string                 `protobuf:"bytes,8,opt,name=user_message,json=userMessage,proto3" json:"user_message,omitempty"`
 	RecommendedResponse string                 `protobuf:"bytes,9,opt,name=recommended_response,json=recommendedResponse,proto3" json:"recommended_response,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Opaque keyed binding to the complete request, verdict, and protection
+	// snapshot evaluated for this decision.
+	// AuthorizeSecureAction implementations must reject a missing or mismatched
+	// binding rather than trusting caller-supplied request fields.
+	RequestBinding string `protobuf:"bytes,10,opt,name=request_binding,json=requestBinding,proto3" json:"request_binding,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SecureActionDecision) Reset() {
@@ -360,6 +365,13 @@ func (x *SecureActionDecision) GetUserMessage() string {
 func (x *SecureActionDecision) GetRecommendedResponse() string {
 	if x != nil {
 		return x.RecommendedResponse
+	}
+	return ""
+}
+
+func (x *SecureActionDecision) GetRequestBinding() string {
+	if x != nil {
+		return x.RequestBinding
 	}
 	return ""
 }
@@ -588,7 +600,7 @@ const file_antiflock_v1_action_proto_rawDesc = "" +
 	"data_class\x18\x06 \x01(\tR\tdataClass\x12;\n" +
 	"\vsensitivity\x18\a \x01(\x0e2\x19.antiflock.v1.SensitivityR\vsensitivity\x126\n" +
 	"\bdeadline\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\bdeadline\x12!\n" +
-	"\foperation_id\x18\t \x01(\tR\voperationId\"\xcd\x03\n" +
+	"\foperation_id\x18\t \x01(\tR\voperationId\"\xf6\x03\n" +
 	"\x14SecureActionDecision\x12\x1b\n" +
 	"\taction_id\x18\x01 \x01(\tR\bactionId\x12B\n" +
 	"\bdecision\x18\x02 \x01(\x0e2&.antiflock.v1.SecureActionDecisionTypeR\bdecision\x128\n" +
@@ -601,7 +613,9 @@ const file_antiflock_v1_action_proto_rawDesc = "" +
 	"\n" +
 	"expires_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12!\n" +
 	"\fuser_message\x18\b \x01(\tR\vuserMessage\x121\n" +
-	"\x14recommended_response\x18\t \x01(\tR\x13recommendedResponse\"X\n" +
+	"\x14recommended_response\x18\t \x01(\tR\x13recommendedResponse\x12'\n" +
+	"\x0frequest_binding\x18\n" +
+	" \x01(\tR\x0erequestBinding\"X\n" +
 	"\x1bEvaluateSecureActionRequest\x129\n" +
 	"\x06action\x18\x01 \x01(\v2!.antiflock.v1.SecureActionRequestR\x06action\"^\n" +
 	"\x1cEvaluateSecureActionResponse\x12>\n" +

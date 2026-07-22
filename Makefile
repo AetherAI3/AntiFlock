@@ -1,4 +1,4 @@
-.PHONY: dev dev-env down lab test verify fmt lint build clean
+.PHONY: dev dev-env down lab sdk-live test verify fmt lint build clean
 
 dev:
 	node scripts/compose.mjs dev
@@ -11,6 +11,9 @@ down:
 
 lab:
 	node scripts/compose.mjs lab
+
+sdk-live:
+	node scripts/sdk-live-e2e.mjs
 
 test:
 	node scripts/test-all.mjs

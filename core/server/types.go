@@ -27,9 +27,10 @@ type database interface {
 	ListSecureActions(context.Context, string, int) ([]storage.SecureActionRecord, error)
 	CountSecureActionsByDecision(context.Context, string) (int, error)
 	CreateSecureActionMutation(storage.SecureActionRecord) storage.AuditedMutation
-	UpdateSecureActionMutation(storage.SecureActionRecord) storage.AuditedMutation
+	CompareAndSwapSecureActionMutation(storage.SecureActionRecord, storage.SecureActionRecord) storage.AuditedMutation
 	GetSecureActionAuditEvent(context.Context, string) (storage.SecureActionAuditEventRecord, error)
-	AppendSecureActionLifecycleMutation(string, string, string, []byte, time.Time, time.Time) storage.AuditedMutation
+	GetSecureActionExecutionState(context.Context, string) (storage.SecureActionExecutionState, error)
+	AppendSecureActionLifecycleMutation(string, storage.SecureActionRecord, string, string, []byte, time.Time, time.Time) storage.AuditedMutation
 }
 
 type eventBus interface {
@@ -94,6 +95,7 @@ type protectionView struct {
 	PolicyRevision     uint64   `json:"policyRevision"`
 	NodeID             string   `json:"nodeId"`
 	EvidenceClass      string   `json:"evidenceClass"`
+	EvidenceProvenance string   `json:"evidenceProvenance"`
 	Confidence         float32  `json:"confidence"`
 }
 
@@ -136,6 +138,8 @@ type authorizationScope struct {
 	NodeID        string   `json:"nodeId"`
 	OperationID   string   `json:"operationId"`
 	ActionType    string   `json:"actionType"`
+	DataClass     string   `json:"dataClass"`
+	Sensitivity   string   `json:"sensitivity"`
 	Destinations  []string `json:"destinations"`
 }
 
@@ -191,6 +195,7 @@ type postureReport struct {
 	PolicyRevision       uint64   `json:"policyRevision"`
 	VerificationEventIDs []string `json:"verificationEventIds,omitempty"`
 	EvidenceClass        string   `json:"-"`
+	EvidenceProvenance   string   `json:"-"`
 	Confidence           float32  `json:"-"`
 }
 
@@ -201,7 +206,8 @@ func (report postureReport) view() protectionView {
 		ApprovedExitActive: report.ApprovedExitActive, DNSProtected: report.DNSProtected,
 		RouteProtected: report.RouteProtected,
 		ReasonCodes:    append([]string(nil), report.ReasonCodes...), PolicyRevision: report.PolicyRevision,
-		NodeID: report.NodeID, EvidenceClass: report.EvidenceClass, Confidence: report.Confidence,
+		NodeID: report.NodeID, EvidenceClass: report.EvidenceClass,
+		EvidenceProvenance: report.EvidenceProvenance, Confidence: report.Confidence,
 	}
 }
 
