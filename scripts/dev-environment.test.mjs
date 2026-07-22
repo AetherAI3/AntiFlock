@@ -83,3 +83,16 @@ test("development credentials are private, complete, and stable without secret o
     rmSync(directory, { force: true, recursive: true });
   }
 });
+
+test("web container context excludes common credential files", () => {
+  const rules = new Set(
+    readFileSync(new URL("../apps/web/.dockerignore", import.meta.url), "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#")),
+  );
+
+  for (const required of [".env*", ".antiflock/", "**/.antiflock/", "*.pem", "**/*.pem", "*.key", "**/*.key"]) {
+    assert.equal(rules.has(required), true, `web Docker context must exclude ${required}`);
+  }
+});

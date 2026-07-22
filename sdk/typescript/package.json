@@ -1,6 +1,7 @@
 {
   "name": "@aether/antiflock-secure-action",
   "version": "0.1.0",
+  "private": true,
   "description": "Fail-closed Secure Action SDK for AntiFlock-aware applications",
   "type": "module",
   "main": "./dist/src/index.js",
