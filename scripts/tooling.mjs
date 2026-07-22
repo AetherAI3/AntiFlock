@@ -31,6 +31,16 @@ export const javascriptWorkspaces = Object.freeze([
   "apps/web",
 ]);
 
+export const goPackagePatterns = Object.freeze([
+  "./adapters/...",
+  "./agent/...",
+  "./api/gen/go/...",
+  "./cmd/...",
+  "./core/...",
+  "./internal/...",
+  "./tests/...",
+]);
+
 const ignoredDirectoryNames = new Set([
   ".git",
   ".cache",

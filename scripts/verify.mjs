@@ -11,6 +11,7 @@ import {
 import { join, relative, sep } from "node:path";
 import {
   checkGoFormatting,
+  goPackagePatterns,
   installJavascriptWorkspaces,
   javascriptWorkspaces,
   readPackage,
@@ -155,11 +156,11 @@ function verifyGo() {
   check("Go formatting", checkGoFormatting());
   if (!lintOnly) {
     check("Go module reproducibility", runGoStep("Go module reproducibility", ["mod", "tidy", "-diff"], { cgo: false }));
-    check("Go tests", runGoStep("Go tests", ["test", "./..."], { cgo: false, timeout: 900_000 }));
-    check("Go race tests", runGoStep("Go race tests", ["test", "-race", "./..."], { timeout: 900_000 }));
+    check("Go tests", runGoStep("Go tests", ["test", ...goPackagePatterns], { cgo: false, timeout: 900_000 }));
+    check("Go race tests", runGoStep("Go race tests", ["test", "-race", ...goPackagePatterns], { timeout: 900_000 }));
   }
-  check("Go vet", runGoStep("Go vet", ["vet", "./..."], { cgo: false, timeout: 900_000 }));
-  if (!lintOnly) check("Go build", runGoStep("Go build", ["build", "./..."], { cgo: false, timeout: 900_000 }));
+  check("Go vet", runGoStep("Go vet", ["vet", ...goPackagePatterns], { cgo: false, timeout: 900_000 }));
+  if (!lintOnly) check("Go build", runGoStep("Go build", ["build", ...goPackagePatterns], { cgo: false, timeout: 900_000 }));
   check(
     "Staticcheck",
     runGoToolStep(
@@ -167,7 +168,7 @@ function verifyGo() {
       "staticcheck",
       "honnef.co/go/tools/cmd/staticcheck",
       versions.staticcheck,
-      ["./..."],
+      goPackagePatterns,
       { cgo: false, timeout: 900_000 },
     ),
   );
@@ -179,7 +180,7 @@ function verifyGo() {
         "govulncheck",
         "golang.org/x/vuln/cmd/govulncheck",
         versions.govulncheck,
-        ["./..."],
+        goPackagePatterns,
         { cgo: false, timeout: 900_000 },
       ),
     );

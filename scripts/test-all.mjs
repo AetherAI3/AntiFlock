@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import {
+  goPackagePatterns,
   javascriptWorkspaces,
   requireFile,
   runAndroidTests,
@@ -23,7 +24,7 @@ check(
 );
 
 if (requireFile("go.mod", "Go module")) {
-  check("Go race tests", runGoStep("Go race tests", ["test", "-race", "./..."], { timeout: 900_000 }));
+  check("Go race tests", runGoStep("Go race tests", ["test", "-race", ...goPackagePatterns], { timeout: 900_000 }));
 } else {
   failures.push("Go race tests");
 }

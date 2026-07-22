@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { goPackagePatterns } from "./tooling.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const strict = process.argv.includes("--strict");
@@ -70,12 +71,12 @@ function runnableGate(id, title, prerequisites, runner) {
 
 function goTest() {
   if (commandExists("go")) {
-    return run("go", ["test", "./..."], root, 300_000);
+    return run("go", ["test", ...goPackagePatterns], root, 300_000);
   }
 
   if (!commandExists("docker")) {
     return {
-      command: "go test ./...",
+      command: `go test ${goPackagePatterns.join(" ")}`,
       passed: false,
       status: null,
       stderr: "Neither Go nor Docker is available.",
@@ -106,7 +107,7 @@ function goTest() {
       "golang:1.26.5-bookworm",
       "go",
       "test",
-      "./...",
+      ...goPackagePatterns,
     ],
     root,
     600_000,
