@@ -1,7 +1,6 @@
 # AntiFlock
+<img width="380" height="346" alt="image" src="https://github.com/user-attachments/assets/84ab4fbb-9f44-43e4-b781-6279d7300a8a" />
 
-> Internal working title. Do not publicly launch under the AntiFlock name until
-> the documented namespace collision has been cleared or the project is renamed.
 
 AntiFlock is an open-source, self-hosted personal private-security operating
 layer. It joins an operator's enrolled devices into one explainable protection
