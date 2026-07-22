@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createUnknownLiveData } from "../src/api/client";
 import { createDemoData } from "../src/test-fixtures/demo";
-import { dataForScenario, protectionStateForStage, scenarioState } from "../src/state/scenario";
+import { dataForScenario, liveScenarioState, protectionStateForStage, scenarioState } from "../src/state/scenario";
 
 test("coffee-shop failure is fail-closed and evidence-honest", () => {
   const joined = dataForScenario("joining", createDemoData("PROTECTED"));
@@ -28,6 +29,22 @@ test("verified recovery releases the held action", () => {
   assert.equal(recovered.findings[0].status, "resolved");
   assert.equal(recovered.events[0].kind, "action.allowed");
   assert.equal(scenarioState("recovered").step, 7);
+});
+
+test("live data never labels an initial protected projection as a recovery", () => {
+  const protectedData = createDemoData("PROTECTED");
+
+  assert.equal(liveScenarioState(null, protectedData).stage, "protected");
+  assert.equal(liveScenarioState(null, createUnknownLiveData()).label, "Awaiting current Core evidence");
+});
+
+test("live recovery requires the same held action to become allowed", () => {
+  const held = createDemoData("EXPOSED");
+  const allowed = createDemoData("PROTECTED");
+  assert.equal(liveScenarioState(held, allowed).stage, "recovered");
+
+  allowed.actions[0] = { ...allowed.actions[0], id: "different-action" };
+  assert.equal(liveScenarioState(held, allowed).stage, "protected");
 });
 
 test("send-once bypass is narrow, expiring, and does not claim protection", () => {

@@ -13,14 +13,17 @@ import {
 import type { DashboardData } from "../api/contracts";
 import {
   COMMAND_ENDPOINTS,
+  createUnknownLiveData,
   loadDashboard,
   openLiveStream,
   postCommand,
 } from "../api/client";
 import { createDemoData } from "../test-fixtures/demo";
 import {
+  checkingScenario,
   dataForScenario,
   initialScenario,
+  liveScenarioState,
   scenarioState,
   type ScenarioState,
 } from "./scenario";
@@ -112,7 +115,7 @@ function policyValidationRequest(data: DashboardData): unknown {
 }
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState<DashboardData>(() => createDemoData("EXPOSED"));
+  const [data, setData] = useState<DashboardData>(() => createUnknownLiveData());
   const [mode, setMode] = useState<DataMode>("checking");
   const [streamStatus, setStreamStatus] = useState<StreamStatus>("idle");
   const [isLoading, setIsLoading] = useState(true);
@@ -121,13 +124,14 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [apiBase, setApiBase] = useState(DEFAULT_API_BASE);
   const [demoFallback, setDemoFallback] = useState(true);
-  const [scenario, setScenario] = useState<ScenarioState>(initialScenario);
+  const [scenario, setScenario] = useState<ScenarioState>(checkingScenario);
   const [commandFeedback, setCommandFeedback] = useState<CommandFeedback | null>(null);
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const [enrollmentSecret, setEnrollmentSecret] = useState<EnrollmentSecret | null>(null);
   const scenarioTimers = useRef<number[]>([]);
   const refreshTimer = useRef<number | null>(null);
   const enrollmentTimer = useRef<number | null>(null);
+  const lastLiveData = useRef<DashboardData | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -149,7 +153,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setMode(result.mode);
       setFailedEndpoints(result.failedEndpoints);
       setLastRefresh(new Date().toISOString());
-      setScenario(scenarioState(result.data.posture.state === "PROTECTED" ? "recovered" : "exposed"));
+      setScenario(liveScenarioState(lastLiveData.current, result.data));
+      lastLiveData.current = result.data;
     } catch (reason) {
       const message = reason instanceof Error && reason.name !== "AbortError"
         ? reason.message
@@ -157,6 +162,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setError(message);
       setFailedEndpoints([]);
       if (demoFallback) {
+        lastLiveData.current = null;
         setData(createDemoData("EXPOSED"));
         setMode("demo");
         setStreamStatus("simulated");
@@ -206,6 +212,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   const replayCoffeeShop = useCallback(() => {
     clearScenarioTimers();
+    lastLiveData.current = null;
     setMode("demo");
     setStreamStatus("simulated");
     setError("Replay uses deterministic local fixtures; it is not live telemetry.");

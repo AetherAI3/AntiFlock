@@ -22,8 +22,9 @@ test("server-renders the AntiFlock command shell with honest source state", asyn
   assert.match(html, /AntiFlock/);
   assert.match(html, /Third-Eye Console/);
   assert.match(html, /CHECKING CORE/);
-  assert.match(html, /Protection interrupted/);
-  assert.match(html, /Active interception is not confirmed/);
+  assert.match(html, /Awaiting current Core evidence/);
+  assert.doesNotMatch(html, /Protection interrupted/);
+  assert.doesNotMatch(html, /held Aether Code action was released/);
   assert.match(html, /aria-label="Primary navigation"/);
   assert.match(html, /Skip to dashboard content/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Your site is taking shape/i);

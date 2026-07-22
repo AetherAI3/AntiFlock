@@ -1,7 +1,7 @@
 /** Cloudflare Worker entry point for the AntiFlock Third-Eye dashboard. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
-import { proxyCoreRequest, withSecurityHeaders, type CoreProxyEnv } from "./proxy";
+import { dashboardAccessResponse, proxyCoreRequest, withSecurityHeaders, type CoreProxyEnv } from "./proxy";
 
 interface Env extends CoreProxyEnv {
   ASSETS: {
@@ -30,6 +30,9 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    const accessResponse = await dashboardAccessResponse(request, env);
+    if (accessResponse) return withSecurityHeaders(accessResponse, request.url);
 
     const coreResponse = await proxyCoreRequest(request, env);
     if (coreResponse) return coreResponse;

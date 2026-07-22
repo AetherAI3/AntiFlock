@@ -15,6 +15,26 @@ export const initialScenario: ScenarioState = {
   label: "Protected traffic paused",
 };
 
+export const checkingScenario: ScenarioState = {
+  stage: "protected",
+  step: 0,
+  label: "Awaiting current Core evidence",
+};
+
+export function liveScenarioState(previous: DashboardData | null, current: DashboardData): ScenarioState {
+  if (current.posture.state === "EXPOSED") return scenarioState("exposed");
+  if (current.posture.state === "VERIFYING" || current.posture.state === "DEGRADED") {
+    return scenarioState("verifying");
+  }
+  if (current.posture.state !== "PROTECTED") return checkingScenario;
+
+  const releasedHeldAction = previous?.actions.some((prior) =>
+    prior.decision === "HOLD" &&
+    current.actions.some((next) => next.id === prior.id && next.decision === "ALLOW"),
+  ) ?? false;
+  return scenarioState(releasedHeldAction ? "recovered" : "protected");
+}
+
 export function scenarioState(stage: ScenarioStage): ScenarioState {
   const states: Record<ScenarioStage, ScenarioState> = {
     protected: { stage, step: 0, label: "Ready to replay" },

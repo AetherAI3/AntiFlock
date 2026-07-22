@@ -3,6 +3,7 @@ const maximumProxyRequestBytes = 1 << 20;
 export interface CoreProxyEnv {
   ANTIFLOCK_API_ORIGIN?: string;
   ANTIFLOCK_OPERATOR_TOKEN?: string;
+  ANTIFLOCK_DASHBOARD_TOKEN?: string;
 }
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -41,6 +42,46 @@ function jsonError(status: number, code: string, message: string): Response {
   return Response.json({ code, message }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
+async function sameSecret(left: string, right: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const [leftHash, rightHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(left)),
+    crypto.subtle.digest("SHA-256", encoder.encode(right)),
+  ]);
+  const leftBytes = new Uint8Array(leftHash);
+  const rightBytes = new Uint8Array(rightHash);
+  let difference = 0;
+  for (let index = 0; index < leftBytes.length; index += 1) difference |= leftBytes[index] ^ rightBytes[index];
+  return difference === 0;
+}
+
+export async function dashboardAccessResponse(request: Request, env: CoreProxyEnv): Promise<Response | null> {
+  const coreOrigin = configured(env, "ANTIFLOCK_API_ORIGIN");
+  const operatorToken = configured(env, "ANTIFLOCK_OPERATOR_TOKEN");
+  const dashboardToken = configured(env, "ANTIFLOCK_DASHBOARD_TOKEN");
+  if (!coreOrigin && !operatorToken && !dashboardToken) return null;
+  if (!coreOrigin || operatorToken.length < 32 || dashboardToken.length < 32) {
+    return jsonError(503, "DASHBOARD_ACCESS_MISCONFIGURED", "The private dashboard access gate is not fully configured.");
+  }
+
+  const header = request.headers.get("Authorization") ?? "";
+  let password = "";
+  if (header.startsWith("Basic ") && !header.slice(6).includes(" ")) {
+    try {
+      const decoded = atob(header.slice(6));
+      const separator = decoded.indexOf(":");
+      if (separator >= 0 && decoded.slice(0, separator) === "operator") password = decoded.slice(separator + 1);
+    } catch {
+      // Malformed Basic credentials fail closed below.
+    }
+  }
+  if (await sameSecret(password, dashboardToken)) return null;
+
+  const response = jsonError(401, "DASHBOARD_AUTHENTICATION_REQUIRED", "Private dashboard authentication is required.");
+  response.headers.set("WWW-Authenticate", 'Basic realm="AntiFlock private dashboard", charset="UTF-8"');
+  return response;
+}
+
 export function withSecurityHeaders(response: Response, requestURL: string): Response {
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", headers.get("Cache-Control") ?? "no-store");
@@ -65,6 +106,9 @@ export async function proxyCoreRequest(
 ): Promise<Response | null> {
   const incomingURL = new URL(request.url);
   if (!incomingURL.pathname.startsWith("/v1/")) return null;
+
+  const accessResponse = await dashboardAccessResponse(request, env);
+  if (accessResponse) return withSecurityHeaders(accessResponse, request.url);
 
   const rawOrigin = configured(env, "ANTIFLOCK_API_ORIGIN");
   const token = configured(env, "ANTIFLOCK_OPERATOR_TOKEN");
