@@ -1,6 +1,6 @@
 # Reference vertical-slice release status
 
-Status date: 2026-07-22
+Status date: 2026-07-23
 
 The repository implements the locked, local, simulation-backed protected-action
 vertical slice. This is an engineering completion boundary, not a claim of
@@ -10,16 +10,16 @@ production network protection or public-launch readiness.
 
 | Capability | Current state | Evidence boundary |
 | --- | --- | --- |
-| Identity and enrollment | Durable deployment/operator identity, one-time enrollment, node lifecycle, scoped credentials | Local Core and reference agents; platform keystore enrollment remains external work |
+| Identity and enrollment | Durable deployment/operator identity, operator-scoped one-time enrollment, node lifecycle, scoped credentials, and an agent-side retry-safe key/proof bootstrap that retrieves an approved matching certificate | Operator approval remains intentional; platform-keystore enrollment, service packaging, and status visibility remain external work |
 | Event and projection spine | Immutable idempotent events, SQLite projections, replay cursors, retention, signed hash-chained audit | Local relational store; no hosted replication claim |
 | Decision plane | Deterministic posture, findings, policy compilation, signed expiring plans, secure-action gate | Decisions use available evidence and remain fail-closed on missing or stale inputs |
-| Agent observation | Linux network/route/DNS collection plus read-only Tailscale and Headscale probes | Host observations are `DETECTED` unless an explicit verification method succeeds |
+| Agent observation | Enrolled mTLS agent, signed durable queue, continuous Linux network/route/DNS collection, opt-in socket metadata, Tailscale read-only CLI probe, and Headscale BYOK read | Host observations are `DETECTED`; no packet/application payload, provider mutation, or process attribution is claimed |
 | Enforcement transaction | Validate, snapshot, apply, verify, commit or roll back; durable local transaction state | The executable agent does not enable production host mutation in this release |
 | Secure Action SDK | Request binding, callback isolation, hold/block/allow, durable single-use grant consumption, mandatory execution-start audit, evidence-provenance enforcement | Reference TypeScript SDK and Aether demonstration only; simulation callbacks require an explicit per-call test opt-in |
 | Android Guard | Pure Kotlin/JVM fail-closed state machine, platform ports, recording adapters, deterministic reference app | No APK, `VpnService`, real packet transport, or real-device validation |
-| Third-Eye dashboard | Authenticated same-origin Core proxy, live projections/stream, all locked views and command boundaries | Private/local operator surface; Core credentials never enter browser JavaScript |
+| Third-Eye dashboard | Authenticated same-origin Core proxy, live projections/stream, locked views, and explicit enrolled-agent/flow/mesh/Nano setup cards | Private/local operator surface; Core credentials never enter browser JavaScript |
 | Scrambler | Deterministic bounded simulation and explanation | Execution is disabled and no host/provider state is changed |
-| Nano watchdog | Pinned Nano v0.1 Go conformance compiler/runtime, caller-owned schedule cursor, bounded finding projection, and immutable admitted Secure Action proposals | Proposal-only reference; Nano has no I/O or mutation capability and `antiflock-nano` actions require consent even under protected posture |
+| Nano watchdog | Pinned Nano v0.1 compiler/runtime, audited immutable program admission, atomically advanced durable per-program SQLite cursor, and deterministic typed-finding proposal API | Proposal-only; Nano has no I/O or mutation capability and `antiflock-nano` actions still require consent under protected posture |
 | Public surface | Verified-owned-asset provider contract plus deterministic Shodan-style, broker-registry, and paste-reference fixtures | Offline digest-only `REPORTED`/`SIMULATION` evidence; no live third-party scraping or raw public data retrieval |
 | Vehicle appearance | Android coarse-feature, session-local HMAC correlation and aggregate-only output | In-memory reference only; no frames, faces, plates, VIN/OCR, embeddings, make/model, exact location, or cross-session tracking |
 | Coffee-shop flow | Live Core + durable SQLite + simulator executes `HOLD` through verified recovery to `ALLOW` with five audit events | All network and recovery verification is explicitly labeled simulation |
@@ -43,10 +43,9 @@ coffee-shop gates. The SDK gate includes a live Core/SQLite restart test that
 proves hold-to-allow re-evaluation, exactly-once callback execution, durable
 lifecycle audit, idempotent replay, and changed-content conflict rejection.
 
-## Explicitly not complete
+## OPEN — production gates
 
-The following are intentionally outside this reference-release boundary and
-must not be inferred from a green verification run:
+The following are intentionally outside this reference-release boundary. They are **OPEN**, and must not be inferred from a green verification run:
 
 - production VPN or packet transport;
 - a validated Android always-on/lockdown kill switch;
@@ -60,5 +59,5 @@ must not be inferred from a green verification run:
 - public use of the `AntiFlock` working name;
 - external penetration testing, privacy review, legal review, or release signing.
 
-These are separate release gates because falsely claiming them would weaken the
-project's safety and evidence contracts.
+These are separate **OPEN** gates because falsely claiming them would weaken the
+project's safety and evidence contracts. The integration-level acceptance criteria are in [open decisions](open-questions.md).

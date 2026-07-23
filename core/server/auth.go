@@ -68,11 +68,11 @@ type tokenAuthenticator struct {
 }
 
 func newTokenAuthenticator(credentials []Credential, clock func() time.Time) (*tokenAuthenticator, error) {
-	if len(credentials) == 0 {
-		return nil, errors.New("at least one API credential is required")
-	}
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
+	}
+	if len(credentials) == 0 {
+		return &tokenAuthenticator{clock: clock}, nil
 	}
 	result := &tokenAuthenticator{credentials: make([]credentialDigest, 0, len(credentials)), clock: clock}
 	seenTokens := make(map[[sha256.Size]byte]struct{}, len(credentials))

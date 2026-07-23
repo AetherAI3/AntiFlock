@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/DBarr3/AntiFlock/core/enrollment"
 	"github.com/DBarr3/AntiFlock/core/events"
 	"github.com/DBarr3/AntiFlock/core/findings"
+	"github.com/DBarr3/AntiFlock/core/nano"
 	"github.com/DBarr3/AntiFlock/core/policy"
 	"github.com/DBarr3/AntiFlock/core/posture"
 	"github.com/DBarr3/AntiFlock/core/scrambler"
@@ -36,6 +38,7 @@ type Options struct {
 	PostureEngine    *posture.Engine
 	Findings         *findings.Service
 	Scrambler        *scrambler.Planner
+	NanoRegistry     *nano.Registry
 	DeploymentID     string
 	Credentials      []Credential
 	AuthorizationKey []byte
@@ -57,6 +60,7 @@ type Server struct {
 	posture       *posture.Engine
 	findings      *findings.Service
 	scrambler     *scrambler.Planner
+	nano          *nano.Registry
 	authenticator *tokenAuthenticator
 	actions       *actionGate
 	deploymentID  string
@@ -100,7 +104,7 @@ func New(options Options) (*Server, error) {
 	server := &Server{
 		config: options.Config, database: options.Database, events: options.Events,
 		audit: options.Audit, enrollment: options.Enrollment, policy: options.PolicyCompiler,
-		posture: options.PostureEngine, findings: options.Findings, scrambler: options.Scrambler,
+		posture: options.PostureEngine, findings: options.Findings, scrambler: options.Scrambler, nano: options.NanoRegistry,
 		authenticator: authenticator, actions: actions,
 		deploymentID: options.DeploymentID, version: options.Version, clock: clock,
 		requestSlots: make(chan struct{}, defaultRequestLimit), nodeClientCAs: options.NodeClientCAs,
@@ -185,6 +189,9 @@ func (server *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/events/batch", server.handleEventBatch)
 	mux.HandleFunc("POST /v1/telemetry/events:submit", server.handleEventBatch)
 	mux.HandleFunc("GET /v1/findings", server.handleFindings)
+	mux.HandleFunc("GET /v1/watchdogs", server.handleListWatchdogs)
+	mux.HandleFunc("POST /v1/watchdogs", server.handleAdmitWatchdog)
+	mux.HandleFunc("POST /v1/watchdogs/{id}/run", server.handleRunWatchdog)
 	mux.HandleFunc("GET /v1/posture", server.handlePosture)
 	mux.HandleFunc("POST /v1/posture/report", server.handlePostureReport)
 	mux.HandleFunc("GET /v1/field/reports", server.handleEmptyList("reports"))
@@ -228,6 +235,9 @@ func (server *Server) authenticate(next http.Handler) http.Handler {
 		}
 		value, ok := server.authenticator.authenticate(request)
 		if !ok {
+			value, ok = server.enrolledNodePrincipal(request)
+		}
+		if !ok {
 			response.Header().Set("WWW-Authenticate", `Bearer realm="antiflock-core"`)
 			writeAPIError(response, http.StatusUnauthorized, "UNAUTHENTICATED", "Authentication is required.", "", false)
 			return
@@ -250,6 +260,30 @@ func (server *Server) authenticate(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(response, withPrincipal(request, value))
 	})
+}
+
+
+func (server *Server) enrolledNodePrincipal(request *http.Request) (principal, bool) {
+	// Dynamic agent identity is accepted only from a chain verified by the
+	// configured node CA. The certificate name is then bound to an active
+	// enrollment record; a valid but suspended or revoked node is rejected.
+	if request.TLS == nil || len(request.TLS.VerifiedChains) == 0 || len(request.TLS.VerifiedChains[0]) == 0 {
+		return principal{}, false
+	}
+	leaf := request.TLS.VerifiedChains[0][0]
+	nodeID := strings.TrimSpace(leaf.Subject.CommonName)
+	if nodeID == "" || !slices.Contains(leaf.Subject.Organization, server.deploymentID) ||
+		!slices.Contains(leaf.ExtKeyUsage, x509.ExtKeyUsageClientAuth) {
+		return principal{}, false
+	}
+	node, err := server.database.GetNode(request.Context(), nodeID)
+	if err != nil || node.Status != model.NodeActive {
+		return principal{}, false
+	}
+	return principal{
+		ID: "node:" + nodeID, NodeID: nodeID, RequireMTLS: true,
+		Scopes: map[string]bool{ScopeAgentIngest: true},
+	}, true
 }
 
 func requiredScope(request *http.Request) string {

@@ -1,7 +1,5 @@
-# Secret scanning. Closes the "no secret-scan in CI" launch gap for a
-# security-sensitive repository (SECURITY.md forbids committed secrets).
-# NOTE: pin these actions to commit SHAs to match ci.yml's supply-chain policy;
-# Dependabot (github-actions ecosystem) will propose the pins.
+# Secret scanning. Every third-party action is pinned to an immutable commit;
+# Dependabot maintains the pins.
 name: gitleaks
 
 on:
@@ -19,11 +17,11 @@ jobs:
   scan:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # full history so historical commits are scanned
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v3
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITLEAKS_CONFIG: .gitleaks.toml
           # gitleaks-action is free for public repositories.

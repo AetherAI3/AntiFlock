@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://github.com/user-attachments/assets/84ab4fbb-9f44-43e4-b781-6279d7300a8a" alt="AntiFl0ck" width="360" />
+<img src="assets/antiflock-mark.svg" alt="AntiFl0ck" width="360" />
 
 **Open-source, self-hosted digital counterintelligence.**
 
@@ -12,7 +12,7 @@ See your exposure. Understand your environment. Control the path.
 [![Node 24](https://img.shields.io/badge/Node-24-339933?logo=node.js&logoColor=white)](package.json)
 [![GitHub stars](https://img.shields.io/github/stars/DBarr3/AntiFlock?style=social)](https://github.com/DBarr3/AntiFlock/stargazers)
 
-**[Quick start](#quick-start)** · **[What it is](#what-it-is)** · **[Demo](#try-it--the-coffee-shop-demo)** · **[Docs](docs/README.md)** · **[Contribute](#contributing)**
+**[Quick start](#quick-start)** · **[Integrations](#integration-map)** · **[OPEN work](#open--production-work)** · **[Docs](docs/README.md)** · **[Contribute](#contributing)**
 
 <sub>⭐ Star it — that's how people find an open security project.</sub>
 
@@ -25,7 +25,18 @@ See your exposure. Understand your environment. Control the path.
 
 **Where it stands:** the local, simulated demo works and is tested behind a 10-check release
 gate. It is **not** yet a real VPN, a phone kill-switch, or proof that anyone is watching you.
-Details in [release status](docs/release-status.md).
+Details in [release status](docs/release-status.md). The roadmap uses **OPEN** for work that is deliberately not connected or production-ready yet.
+
+## Start here
+
+Run the simulation first. It gives you a safe, local tour of the action gate, evidence labels, audit trail, and Third-Eye dashboard without a VPN account, provider key, or host-level network changes.
+
+```powershell
+npm run dev
+npm run lab
+```
+
+Then use the dashboard at <http://127.0.0.1:4173> with the password in `.antiflock/dev.env`. Treat that file as a secret. The [operator runbook](docs/operator-runbook.md) has the full lifecycle and recovery steps.
 
 ## What it is
 
@@ -78,6 +89,50 @@ keeps working even if Core goes offline.
                      verify, or roll back
 ```
 
+## Integration map
+
+```text
+Linux device ── read-only routes / DNS / interface state ──┐
+Tailscale CLI ── `tailscale status --json` (read-only) ───┼──> signed events / Third-Eye
+Headscale API ── read-only `GET /api/v1/node` BYOK probe ─────────────┘             │
+                                                                            v
+Nano source + typed finding ── deterministic proposal ──> Secure Action gate ──> consent + audit
+```
+
+The safe direction of travel is deliberately one-way: adapters observe, Nano proposes, and only the existing gate can authorize a bounded action. No adapter, Nano program, dashboard, or provider key can silently become a host-mutation capability.
+
+### Enroll an endpoint, then observe
+
+The agent now has a small deterministic bootstrap command. An operator creates a short-lived enrollment token, saves it in a local `0600` file, then the endpoint proves ownership of a new Ed25519 key. The key and request ID stay private in the selected state directory, so retrying after an outage does not mint a second identity.
+
+```bash
+chmod 600 /etc/antiflock/enrollment.token
+antiflock-agent enroll \\
+  --core-url https://core.example.test \\
+  --enrollment-token-file /etc/antiflock/enrollment.token \\
+  --state-dir /var/lib/antiflock \\
+  --ca-cert /etc/antiflock/node-ca.pem \\
+  --node-id node_laptop_01 \\
+  --display-name "Laptop 01"
+```
+
+Use `--ca-cert` only when Core uses a private CA; omit it for a publicly trusted certificate. The first result remains `pending-operator-approval`. An authorized operator must review and approve it. Then rerun the same command: Core returns the approved certificate only to the holder of the original private enrollment token, and the agent verifies it matches `node.seed` before saving private PEM at `state-dir/node.pem`. Only then can `--submit` use mTLS. This preserves a human enrollment decision while making endpoint-side setup repeatable.
+
+### Tailscale status preview
+
+On a Linux device with the official Tailscale client already installed and connected, the current agent can inspect local mesh state without changing it:
+
+```bash
+antiflock-agent --node-id YOUR_ENROLLED_NODE --mesh-provider tailscale --mesh-dry-run
+antiflock-agent --node-id YOUR_ENROLLED_NODE --mesh-provider tailscale
+```
+
+It runs only `tailscale status --json`; it never invokes `up`, `down`, `set`, `serve`, or `funnel`. With an approved node identity, `--submit` sends the same read-only peer/path observations through the durable agent queue. It does not configure an exit node or change traffic. See the [enrolled-agent setup](docs/agent-watchdog-loop.md) for the exact certificate, key, and queue contract.
+
+### BYOK today
+
+The local demo generates its own development credentials. Current Tailscale and Headscale probes are read-only and do not need a provider API key. If you add a provider integration, keep credentials in a local secret file or platform keystore, scope them to read-only access, and never put them in YAML, browser code, Git, or issue text. The agent accepts a separate `--headscale-ca-cert` for a private Headscale HTTPS certificate. Live provider execution is **OPEN**, not a hidden feature flag.
+
 ## The evidence rule
 
 AntiFl0ck labels every claim with how sure it is, so a guess never reads like a fact:
@@ -125,11 +180,23 @@ milestones — we don't claim them until they're proven.
 
 **Working now:** identity + enrollment · event log with signed audit · deterministic policy,
 findings, and signed plans · secure-action gate + TypeScript SDK · Linux network observation ·
-Third-Eye dashboard · Android Guard reference · Nano watchdog · the coffee-shop demo end-to-end.
+Third-Eye dashboard · Android Guard reference · Nano watchdog evaluator/proposal boundary · the coffee-shop demo end-to-end.
 
-**Not here yet:** production VPN / packet transport · validated phone kill-switch · privileged
-host changes · real Tailscale / DNS / roaming tests · any "proof of surveillance" · live OSINT ·
-production Scrambler · external audit and release signing.
+## OPEN — production work
+
+These are visible project work items, not implied capabilities. They are tracked in more detail in [OPEN decisions and release gates](docs/open-questions.md).
+
+| Area | What exists now | OPEN before calling it production |
+| --- | --- | --- |
+| Tailscale / Headscale | Tailscale CLI and Headscale `GET /api/v1/node` can run through the enrolled agent queue; Headscale uses an explicit read-only BYOK file and identity map | roaming/partition tests, key rotation/revocation, and operator-visible status |
+| Third-Eye | authenticated local dashboard with live Core projections and endpoint setup cards | topology provenance UX, live setup/status polling, and production deployment/review |
+| Network traffic monitor | opt-in Linux socket-table endpoint metadata (`flow.updated`); no packets, payloads, bytes, direction, or process data | retention controls, process attribution limits, non-Linux collectors, and real-network/privacy validation |
+| Nano watchdog | deterministic parser/evaluator, durable SQLite cursor, audited immutable program admission, and proposal-only Core API | automatic finding scheduling, disable/version lifecycle, replay fixtures, and dashboard/audit presentation |
+| BYOK providers | local Core credentials; mTLS agent identity; Tailscale CLI and Headscale read-only live mesh probes | provider-specific secret reference/rotation, narrow scopes, revocation, audit, and integration coverage |
+| Enforcement | signed plans and rollback transaction model | reviewed privileged helper, real packet transport, kill-switch tests, and independent security/privacy review |
+| Public opening | Repository is still private at this audit; security/CI/community files are present. | Before changing visibility: enable private vulnerability reporting, name the security contact, confirm branch protections and billing, and rerun the full CI workflow. |
+
+No **OPEN** item should be enabled by changing a boolean. Each needs its stated contracts, tests, and a security/privacy review before it can affect a real host or provider.
 
 ## Repo layout
 
@@ -142,7 +209,7 @@ apps/web/        Third-Eye dashboard — React on a Cloudflare Worker
 apps/android/    Android Guard reference — Kotlin
 sdk/typescript/  Secure Action SDK
 cmd/             the four binaries: core, agent, sim, ctl
-docs/            architecture, threat model, evidence model, ADRs, release status
+docs/            architecture, threat model, evidence model, OPEN roadmap, ADRs, release status
 scripts/         dev + verify tooling (Node)
 ```
 

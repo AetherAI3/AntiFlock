@@ -1,6 +1,5 @@
-# Static analysis (SAST) for Go and JavaScript/TypeScript. Closes the "no SAST
-# in CI" launch gap. NOTE: pin these actions to commit SHAs to match ci.yml's
-# supply-chain policy; Dependabot will propose the pins.
+# Static analysis (SAST) for Go and JavaScript/TypeScript. Every third-party
+# action is pinned to an immutable commit; Dependabot maintains the pins.
 name: codeql
 
 on:
@@ -28,15 +27,15 @@ jobs:
           - language: javascript-typescript
             build-mode: none
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - if: matrix.language == 'go'
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.x"
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           category: "/language:${{ matrix.language }}"

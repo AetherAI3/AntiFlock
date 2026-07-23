@@ -23,6 +23,7 @@ import (
 	"github.com/DBarr3/AntiFlock/core/events"
 	"github.com/DBarr3/AntiFlock/core/findings"
 	"github.com/DBarr3/AntiFlock/core/identity"
+	"github.com/DBarr3/AntiFlock/core/nano"
 	"github.com/DBarr3/AntiFlock/core/policy"
 	"github.com/DBarr3/AntiFlock/core/posture"
 	"github.com/DBarr3/AntiFlock/core/scrambler"
@@ -81,15 +82,18 @@ func serve(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	agentToken, err := loadToken("ANTIFLOCK_AGENT_TOKEN", "ANTIFLOCK_AGENT_TOKEN_FILE", "", "")
+	agentToken, err := loadOptionalToken("ANTIFLOCK_AGENT_TOKEN", "ANTIFLOCK_AGENT_TOKEN_FILE")
 	if err != nil {
 		return err
 	}
 	sdkApplicationID := strings.TrimSpace(os.Getenv("ANTIFLOCK_SDK_APPLICATION_ID"))
 	sdkNodeID := strings.TrimSpace(os.Getenv("ANTIFLOCK_SDK_NODE_ID"))
 	agentNodeID := strings.TrimSpace(os.Getenv("ANTIFLOCK_AGENT_NODE_ID"))
-	if sdkApplicationID == "" || sdkNodeID == "" || agentNodeID == "" {
-		return errors.New("ANTIFLOCK_SDK_APPLICATION_ID, ANTIFLOCK_SDK_NODE_ID, and ANTIFLOCK_AGENT_NODE_ID are required")
+	if sdkApplicationID == "" || sdkNodeID == "" {
+		return errors.New("ANTIFLOCK_SDK_APPLICATION_ID and ANTIFLOCK_SDK_NODE_ID are required")
+	}
+	if agentToken != "" && agentNodeID == "" {
+		return errors.New("ANTIFLOCK_AGENT_NODE_ID is required when ANTIFLOCK_AGENT_TOKEN is configured")
 	}
 	now := time.Now().UTC()
 	authority, err := identity.Ensure(configuration.Identity.StateDirectory, now)
@@ -136,6 +140,10 @@ func serve(arguments []string) error {
 	if err != nil {
 		return fmt.Errorf("initialize Scrambler planner: %w", err)
 	}
+	nanoRegistry, err := nano.NewRegistry(database, auditService, nil)
+	if err != nil {
+		return fmt.Errorf("initialize Nano watchdog registry: %w", err)
+	}
 	clientCAs := x509.NewCertPool()
 	clientCAs.AddCert(authority.CACert)
 	host, _, _ := net.SplitHostPort(configuration.Server.Listen)
@@ -146,16 +154,18 @@ func serve(arguments []string) error {
 		slog.Warn("DEMO SECURITY EXCEPTION ACTIVE: Core private HTTP and bearer-only agent ingestion are enabled",
 			"listen", configuration.Server.Listen, "productionSafe", false)
 	}
+	credentials := []server.Credential{
+		{Token: operatorToken, PrincipalID: authority.Deployment.OperatorID, Scopes: []string{server.ScopeDashboardRead, server.ScopeOperatorMutate, server.ScopeEnrollmentAdmin, server.ScopeActionsAuthorize}},
+		{Token: sdkToken, PrincipalID: "application:" + sdkApplicationID, ApplicationID: sdkApplicationID, NodeID: sdkNodeID, Scopes: []string{server.ScopeActionsExecute}},
+	}
+	if agentToken != "" {
+		credentials = append(credentials, server.Credential{Token: agentToken, PrincipalID: "node:" + agentNodeID, NodeID: agentNodeID, Scopes: []string{server.ScopeAgentIngest}, RequireMTLS: requireAgentMTLS})
+	}
 	coreServer, err := server.New(server.Options{
 		Config: configuration, Database: database, Events: eventStore, Audit: auditService,
 		Enrollment: enrollmentService, DeploymentID: authority.Deployment.DeploymentID,
 		PolicyCompiler: policyCompiler, PostureEngine: postureEngine,
-		Findings: findingService, Scrambler: scramblerPlanner,
-		Credentials: []server.Credential{
-			{Token: operatorToken, PrincipalID: authority.Deployment.OperatorID, Scopes: []string{server.ScopeDashboardRead, server.ScopeOperatorMutate, server.ScopeEnrollmentAdmin, server.ScopeActionsAuthorize}},
-			{Token: sdkToken, PrincipalID: "application:" + sdkApplicationID, ApplicationID: sdkApplicationID, NodeID: sdkNodeID, Scopes: []string{server.ScopeActionsExecute}},
-			{Token: agentToken, PrincipalID: "node:" + agentNodeID, NodeID: agentNodeID, Scopes: []string{server.ScopeAgentIngest}, RequireMTLS: requireAgentMTLS},
-		},
+		Findings: findingService, Scrambler: scramblerPlanner, NanoRegistry: nanoRegistry, Credentials: credentials,
 		AuthorizationKey: []byte(sdkToken), NodeClientCAs: clientCAs, Version: version,
 	})
 	if err != nil {
@@ -173,6 +183,14 @@ func serve(arguments []string) error {
 	stop()
 	<-retentionDone
 	return serveErr
+}
+
+
+func loadOptionalToken(environmentName, fileEnvironmentName string) (string, error) {
+	if os.Getenv(environmentName) == "" && os.Getenv(fileEnvironmentName) == "" {
+		return "", nil
+	}
+	return loadToken(environmentName, fileEnvironmentName, "", "")
 }
 
 func loadToken(environmentName, fileEnvironmentName, legacyName, legacyFileName string) (string, error) {

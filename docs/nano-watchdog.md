@@ -45,6 +45,37 @@ Core policies mark its currently admitted operations `consentRequired`, so a
 protected posture still returns `REQUIRE_CONSENT`; only the operator's existing
 one-time authorization route can produce one exact, expiring grant.
 
+## Admitted watchdog runner
+
+Core now admits a source program at `POST /v1/watchdogs`. Admission compiles the
+source against the pinned Nano limits and watchdog profile, verifies the fixed
+binding, persists trimmed immutable source plus canonical digest in SQLite, and
+commits a signed audit entry in the same transaction. `POST
+/v1/watchdogs/{id}/run` accepts only one typed finding and returns expiring
+`SecureActionProposal` values; it does not call a provider, action callback,
+or host enforcer. The durable cursor is written before any proposal is returned.
+
+A rule author can express a narrow threshold such as:
+
+```nano
+strategy PublicSurfaceWatch {
+  agent Watchdog
+  every 5m {
+    if REASON_UNEXPECTED_EXPOSURE == 1
+    and CONFIDENCE >= 0.9 {
+      execute()
+    }
+  }
+}
+```
+
+The program does not name a host, URL, secret, destination, command, or action parameters. At admission time, the operator selects one fixed binding—such as an offline owned-surface fixture query—and the binding fixes the application ID, action type, data class, sensitivity, and destination. The operator must still authorize each proposal through the existing consent workflow.
+
+Still **OPEN**: automatic finding-to-program scheduling, program disable/version
+lifecycle, proposal projection in Third-Eye, replay fixtures, and a dedicated
+operator authoring flow. Nano remains host-governed: it cannot fetch data, read
+secrets, call a provider, or execute a response.
+
 ## Public-surface and physical references
 
 The first public-surface adapters are offline deterministic fixtures for
