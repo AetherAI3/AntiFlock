@@ -55,6 +55,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	includeAddresses := flags.Bool("include-addresses", false, "include private interface and mesh addresses")
 	includeSearchDomains := flags.Bool("include-search-domains", false, "include resolver search domains")
 	includeNonDefaultRoutes := flags.Bool("include-non-default-routes", false, "include routes beyond the active default routes")
+	includeFlowMetadata := flags.Bool("include-flow-metadata", false, "include current socket endpoint metadata; never captures packets or process data")
 	meshProvider := flags.String("mesh-provider", "none", "read-only mesh probe: none or tailscale")
 	meshDryRun := flags.Bool("mesh-dry-run", false, "show the mesh status command without executing it")
 	compact := flags.Bool("compact", false, "write compact JSON")
@@ -84,7 +85,8 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	collector, err := collectors.NewLinuxCollector(collectors.LinuxConfig{
 		NodeID: *nodeID, BootID: *bootID, RouteTablePath: *routeTable, ResolvConfPath: *resolvConf,
 		IncludeInterfaceAddresses: *includeAddresses, IncludeSearchDomains: *includeSearchDomains,
-		IncludeNonDefaultRoutes: *includeNonDefaultRoutes, Clock: func() time.Time { return observedAt },
+		IncludeNonDefaultRoutes: *includeNonDefaultRoutes, IncludeFlowMetadata: *includeFlowMetadata,
+		Clock: func() time.Time { return observedAt },
 	})
 	if err != nil {
 		return err
