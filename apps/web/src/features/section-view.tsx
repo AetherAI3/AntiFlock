@@ -640,7 +640,7 @@ function SettingsView() {
         <p className="setup-intro">Setup materials stay on the operator machine. This console receives only signed projections, never your node seed, client certificate, or provider key.</p>
         <div className="setup-card-grid">
           <article className={`setup-card ${data.nodes.length ? "setup-ready" : "setup-open"}`}>
-            <span className="setup-step">01</span><div><p>Enrolled agent</p><strong>{data.nodes.length ? "Projected" : "Waiting for first node"}</strong><small>Approve a node, keep its Ed25519 seed and mTLS material private, then run the agent’s one-cycle smoke test.</small></div><StateBadge value={data.nodes.length ? "READY" : "OPEN"} />
+            <span className="setup-step">01</span><div><p>Enrolled agent</p><strong>{data.nodes.length ? "Projected" : "Waiting for first node"}</strong><small>Run <code>antiflock-agent enroll</code>, approve it, then rerun the same command to save its matching certificate before the one-cycle smoke test.</small></div><StateBadge value={data.nodes.length ? "READY" : "OPEN"} />
           </article>
           <article className="setup-card setup-open">
             <span className="setup-step">02</span><div><p>Network Third-Eye</p><strong>Metadata-only flow monitor</strong><small>Opt in with <code>--include-flow-metadata</code>. It reads socket endpoints only—never packet or application payloads.</small></div><StateBadge value="OPT-IN" />
