@@ -265,6 +265,7 @@ func runEnroll(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	nodeID := flags.String("node-id", "", "stable requested AntiFlock node id")
 	displayName := flags.String("display-name", "", "human-readable endpoint name")
 	certificateFile := flags.String("certificate-file", "", "private PEM destination for the approved client certificate (defaults to state-dir/node.pem)")
+	caCertificate := flags.String("ca-cert", "", "Core CA PEM used to verify an enrollment Core with a private CA")
 	compact := flags.Bool("compact", false, "write compact JSON")
 	if err := flags.Parse(arguments); err != nil { return err }
 	if flags.NArg() != 0 { return errors.New("antiflock-agent enroll accepts flags only") }
@@ -273,7 +274,9 @@ func runEnroll(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	}
 	token, err := readPrivateSecret(*tokenFile)
 	if err != nil || token == "" { return errors.New("read private enrollment token file") }
-	result, err := agentenrollment.Submit(ctx, agentenrollment.Config{Endpoint: *coreURL, Token: token, StateDirectory: *stateDirectory, NodeID: *nodeID, DisplayName: *displayName})
+	httpClient, err := newAgentHTTPClient("", "", "", *caCertificate)
+	if err != nil { return err }
+	result, err := agentenrollment.Submit(ctx, agentenrollment.Config{Endpoint: *coreURL, Token: token, StateDirectory: *stateDirectory, NodeID: *nodeID, DisplayName: *displayName, HTTP: httpClient})
 	if err != nil { return err }
 	document := enrollmentOutput{SchemaVersion: "antiflock.agent-enrollment-result/v1", EnrollmentID: result.EnrollmentID, ProposedNodeID: result.ProposedNodeID, StateDirectory: result.StateDirectory}
 	switch result.Status {
