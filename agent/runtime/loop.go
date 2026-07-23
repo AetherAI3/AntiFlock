@@ -74,8 +74,15 @@ func (loop *Loop) RunOnce(ctx context.Context) error {
 	if loop == nil { return errors.New("agent loop is required") }
 	collection, err := loop.config.Collector.Collect(ctx)
 	if err != nil { return fmt.Errorf("collect agent metadata: %w", err) }
-	for _, observation := range collection.Observations() {
-		if _, err := loop.builder.BuildAndEnqueue(ctx, loop.config.Queue, observation); err != nil { return fmt.Errorf("persist agent observation: %w", err) }
+	observations := collection.Observations()
+	entries := make([]QueueEntry, 0, len(observations))
+	for _, observation := range observations {
+		event, priority, buildErr := loop.builder.Build(ctx, observation)
+		if buildErr != nil { return fmt.Errorf("build agent observation: %w", buildErr) }
+		entries = append(entries, QueueEntry{Event: event, Priority: priority})
+	}
+	if len(entries) != 0 {
+		if err := loop.config.Queue.EnqueueBatch(ctx, entries); err != nil { return fmt.Errorf("persist agent collection: %w", err) }
 	}
 	return loop.drain(ctx)
 }
