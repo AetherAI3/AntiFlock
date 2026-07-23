@@ -110,7 +110,7 @@ antiflock-agent --node-id YOUR_ENROLLED_NODE --mesh-provider tailscale --mesh-dr
 antiflock-agent --node-id YOUR_ENROLLED_NODE --mesh-provider tailscale
 ```
 
-It runs only `tailscale status --json`; it never invokes `up`, `down`, `set`, `serve`, or `funnel`. This currently prints a local observation document—it does **not** enroll the device, upload continuously, configure an exit node, or change traffic. See **OPEN** Tailscale ingestion below.
+It runs only `tailscale status --json`; it never invokes `up`, `down`, `set`, `serve`, or `funnel`. With an approved node identity, `--submit` sends the same read-only peer/path observations through the durable agent queue. It does not configure an exit node or change traffic. See the [enrolled-agent setup](docs/agent-watchdog-loop.md) for the exact certificate, key, and queue contract.
 
 ### BYOK today
 
@@ -171,11 +171,11 @@ These are visible project work items, not implied capabilities. They are tracked
 
 | Area | What exists now | OPEN before calling it production |
 | --- | --- | --- |
-| Tailscale / Headscale | Read-only status probes and model contracts | enrolled-agent delivery, identity association configuration, scheduled ingestion, real-network/roaming tests, and operator-visible failure handling |
-| Third-Eye | authenticated local dashboard with live Core projections | a documented install path for real agents, topology provenance UX, and production deployment/review |
-| Network traffic monitor | privacy-minimized route, DNS, and interface observations; no packets | opt-in flow-metadata collector with a documented schema, retention controls, process attribution limits, and real-network validation |
-| Nano watchdog | deterministic parser/evaluator, bounded finding frame, and consent-gated proposals | versioned rule storage, a runner/scheduler, signed program admission, replay fixtures, and dashboard/audit presentation |
-| BYOK providers | local Core credentials; read-only mesh probes; offline public-surface fixtures | provider-specific setup, secret storage/rotation, narrow scopes, revocation, audit, and integration tests |
+| Tailscale / Headscale | Tailscale's read-only status probe can run in the enrolled agent's durable loop; Headscale remains an adapter-only contract | Headscale CLI/runner, identity association, roaming/partition tests, and operator-visible status |
+| Third-Eye | authenticated local dashboard with live Core projections | enrolled-agent setup/status cards, topology provenance UX, and production deployment/review |
+| Network traffic monitor | opt-in Linux socket-table endpoint metadata (`flow.updated`); no packets, payloads, bytes, direction, or process data | retention controls, process attribution limits, non-Linux collectors, and real-network/privacy validation |
+| Nano watchdog | deterministic parser/evaluator, bounded finding frame, consent-gated proposals, and durable SQLite cursor | versioned/signed program admission, Core scheduler/API, replay fixtures, and dashboard/audit presentation |
+| BYOK providers | local Core credentials; mTLS agent identity; read-only mesh probes | provider-specific secret reference/rotation, narrow scopes, revocation, audit, and live provider API integration |
 | Enforcement | signed plans and rollback transaction model | reviewed privileged helper, real packet transport, kill-switch tests, and independent security/privacy review |
 | Public opening | Repository is still private at this audit; security/CI/community files are present. | Before changing visibility: enable private vulnerability reporting, name the security contact, confirm branch protections and billing, and rerun the full CI workflow. |
 
