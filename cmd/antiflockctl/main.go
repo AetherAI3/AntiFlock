@@ -26,10 +26,12 @@ func main() {
 
 func run(arguments []string, stdout, stderr io.Writer) int {
 	if len(arguments) == 0 {
-		fmt.Fprintln(stderr, "usage: antiflockctl health --url <core-base-url> [--timeout 3s]")
+		fmt.Fprintln(stderr, "usage: antiflockctl <health|watchdog> ...")
 		return 2
 	}
 	switch arguments[0] {
+	case "watchdog":
+		return runWatchdog(arguments[1:], stdout, stderr)
 	case "health":
 		flags := flag.NewFlagSet("antiflockctl health", flag.ContinueOnError)
 		flags.SetOutput(stderr)
