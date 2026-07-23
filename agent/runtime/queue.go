@@ -83,7 +83,8 @@ func (queue *Queue) Batch(ctx context.Context, maximum int) ([]*antiflockv1.Even
 	if queue == nil || maximum < 1 || maximum > 256 { return nil, errors.New("batch size must be between one and 256") }
 	if err := ctx.Err(); err != nil { return nil, err }
 	queue.mu.Lock(); defer queue.mu.Unlock()
-	values := make([]*antiflockv1.EventEnvelope, 0, min(maximum, len(queue.state.Events)))
+	capacity := len(queue.state.Events); if capacity > maximum { capacity = maximum }
+	values := make([]*antiflockv1.EventEnvelope, 0, capacity)
 	for _, stored := range queue.state.Events {
 		if len(values) == maximum { break }
 		wire, err := base64.RawStdEncoding.DecodeString(stored.Wire); if err != nil { return nil, errors.New("queued event encoding is invalid") }
@@ -118,7 +119,7 @@ func (queue *Queue) load() error {
 	path := filepath.Join(queue.directory, queueFileName)
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) { return nil }
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > maximumQueueBytes { return errors.New("agent queue file is not a bounded private regular file") }
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 || info.Size() > maximumQueueBytes { return errors.New("agent queue file is not a bounded private regular file") }
 	content, err := os.ReadFile(path); if err != nil { return errors.New("read agent queue") }
 	decoder := json.NewDecoder(strings.NewReader(string(content))); decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&queue.state); err != nil { return errors.New("decode agent queue") }
