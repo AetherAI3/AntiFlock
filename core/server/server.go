@@ -192,6 +192,7 @@ func (server *Server) routes() http.Handler {
 	mux.HandleFunc("GET /v1/watchdogs", server.handleListWatchdogs)
 	mux.HandleFunc("POST /v1/watchdogs", server.handleAdmitWatchdog)
 	mux.HandleFunc("POST /v1/watchdogs/{id}/run", server.handleRunWatchdog)
+	mux.HandleFunc("POST /v1/watchdogs/{id}/run-open-findings", server.handleRunWatchdogOpenFindings)
 	mux.HandleFunc("GET /v1/posture", server.handlePosture)
 	mux.HandleFunc("POST /v1/posture/report", server.handlePostureReport)
 	mux.HandleFunc("GET /v1/field/reports", server.handleEmptyList("reports"))
