@@ -96,10 +96,12 @@ Linux device ── read-only routes / DNS / interface state ──┐
 Tailscale CLI ── `tailscale status --json` (read-only) ───┼──> signed events / Third-Eye
 Headscale API ── read-only `GET /api/v1/node` BYOK probe ─────────────┘             │
                                                                             v
-Nano source + typed finding ── deterministic proposal ──> Secure Action gate ──> consent + audit
+Nano source + Core finding ── deterministic expiring proposal ──> operator submits to Secure Action gate ──> consent + audit
 ```
 
-The safe direction of travel is deliberately one-way: adapters observe, Nano proposes, and only the existing gate can authorize a bounded action. No adapter, Nano program, dashboard, or provider key can silently become a host-mutation capability.
+The safe direction of travel is deliberately one-way: adapters observe, Nano proposes, and only an operator-submitted request through the existing gate can authorize a bounded action. No adapter, Nano program, dashboard, or provider key can silently become a host-mutation capability.
+
+For continuous Nano evaluation, Core remains fail-closed: the operator must list already-admitted watchdog IDs and a bounded interval in its configuration. The scheduler feeds only current Core findings into those programs and can return only expiring proposals—never an action. See the [Nano watchdog guide](docs/nano-watchdog.md) for the small configuration block.
 
 ### Enroll an endpoint, then observe
 
@@ -118,6 +120,14 @@ antiflock-agent enroll \\
 
 Use `--ca-cert` only when Core uses a private CA; omit it for a publicly trusted certificate. The first result remains `pending-operator-approval`. An authorized operator must review and approve it. Then rerun the same command: Core returns the approved certificate only to the holder of the original private enrollment token, and the agent verifies it matches `node.seed` before saving private PEM at `state-dir/node.pem`. Only then can `--submit` use mTLS. This preserves a human enrollment decision while making endpoint-side setup repeatable.
 
+At any point, inspect local enrollment and durable-queue readiness without printing a seed, certificate, token, or queued telemetry:
+
+```bash
+antiflock-agent status --node-id node_laptop_01 --state-dir /var/lib/antiflock --queue-dir /var/lib/antiflock/queue
+```
+
+`identity: ready` means the private certificate verifies against the enrolled seed; `pending-operator-approval` is expected before the operator approves enrollment. See the [enrolled-agent setup](docs/agent-watchdog-loop.md) for the full output contract.
+
 ### Tailscale status preview
 
 On a Linux device with the official Tailscale client already installed and connected, the current agent can inspect local mesh state without changing it:
@@ -131,7 +141,7 @@ It runs only `tailscale status --json`; it never invokes `up`, `down`, `set`, `s
 
 ### BYOK today
 
-The local demo generates its own development credentials. Current Tailscale and Headscale probes are read-only and do not need a provider API key. If you add a provider integration, keep credentials in a local secret file or platform keystore, scope them to read-only access, and never put them in YAML, browser code, Git, or issue text. The agent accepts a separate `--headscale-ca-cert` for a private Headscale HTTPS certificate. Live provider execution is **OPEN**, not a hidden feature flag.
+The local demo generates its own development credentials. Current Tailscale and Headscale probes are read-only and do not need a provider API key. If you add a provider integration, keep credentials in a local secret file or platform keystore, scope them to read-only access, and never put them in YAML, browser code, Git, or issue text. The agent accepts a separate `--headscale-ca-cert` for a private Headscale HTTPS certificate. Provider mutation, credential rotation, and unattended lifecycle automation are **OPEN**—not hidden feature flags. The wired probes remain read-only.
 
 ## The evidence rule
 
@@ -188,10 +198,10 @@ These are visible project work items, not implied capabilities. They are tracked
 
 | Area | What exists now | OPEN before calling it production |
 | --- | --- | --- |
-| Tailscale / Headscale | Tailscale CLI and Headscale `GET /api/v1/node` can run through the enrolled agent queue; Headscale uses an explicit read-only BYOK file and identity map | roaming/partition tests, key rotation/revocation, and operator-visible status |
+| Tailscale / Headscale | Tailscale CLI and Headscale `GET /api/v1/node` can run through the enrolled agent queue; Headscale uses an explicit read-only BYOK file and identity map | roaming/partition tests, key rotation/revocation, and live Third-Eye setup/status polling |
 | Third-Eye | authenticated local dashboard with live Core projections and endpoint setup cards | topology provenance UX, live setup/status polling, and production deployment/review |
 | Network traffic monitor | opt-in Linux socket-table endpoint metadata (`flow.updated`); no packets, payloads, bytes, direction, or process data | retention controls, process attribution limits, non-Linux collectors, and real-network/privacy validation |
-| Nano watchdog | deterministic parser/evaluator, durable SQLite cursor, audited immutable program admission, and proposal-only Core API | automatic finding scheduling, disable/version lifecycle, replay fixtures, and dashboard/audit presentation |
+| Nano watchdog | deterministic parser/evaluator, durable SQLite cursor, audited immutable program admission, proposal-only Core API, and opt-in Core scheduler over current OPEN findings | program disable/version lifecycle, replay fixtures, and durable dashboard/audit presentation |
 | BYOK providers | local Core credentials; mTLS agent identity; Tailscale CLI and Headscale read-only live mesh probes | provider-specific secret reference/rotation, narrow scopes, revocation, audit, and integration coverage |
 | Enforcement | signed plans and rollback transaction model | reviewed privileged helper, real packet transport, kill-switch tests, and independent security/privacy review |
 | Public opening | Repository is still private at this audit; security/CI/community files are present. | Before changing visibility: enable private vulnerability reporting, name the security contact, confirm branch protections and billing, and rerun the full CI workflow. |

@@ -44,12 +44,24 @@ type queueState struct {
 	Events []queuedEvent `json:"events"`
 }
 
+// QueueStatus is safe local operator metadata. It contains neither event
+// payloads nor signing material and may be inspected while another process
+// owns the queue writer lock.
+type QueueStatus struct {
+	SchemaVersion string `json:"schemaVersion"`
+	NodeID        string `json:"nodeId"`
+	LastSequence  uint64 `json:"lastSequence"`
+	RetainedEvents int  `json:"retainedEvents"`
+	MaximumEvents int   `json:"maximumEvents"`
+}
+
 // Queue is a bounded, private on-disk write-ahead queue. It stores signed
 // protobuf envelopes verbatim; retries never re-sign or regenerate them.
 type Queue struct {
 	directory string
 	nodeID string
 	mu sync.Mutex
+	lock *queueLock
 	state queueState
 }
 
@@ -59,9 +71,30 @@ func OpenQueue(directory, nodeID string) (*Queue, error) {
 	absolute, err := filepath.Abs(directory); if err != nil { return nil, errors.New("resolve agent queue directory") }
 	resolved, err := filepath.EvalSymlinks(absolute); if err != nil || filepath.Clean(resolved) != filepath.Clean(absolute) { return nil, errors.New("agent queue directory must not traverse symlinks") }
 	if err := os.Chmod(absolute, 0o700); err != nil { return nil, errors.New("protect agent queue directory") }
-	queue := &Queue{directory: absolute, nodeID: nodeID, state: queueState{SchemaVersion: queueSchema, NodeID: nodeID}}
-	if err := queue.load(); err != nil { return nil, err }
+	lock, err := acquireQueueLock(absolute)
+	if err != nil { return nil, err }
+	queue := &Queue{directory: absolute, nodeID: nodeID, lock: lock, state: queueState{SchemaVersion: queueSchema, NodeID: nodeID}}
+	if err := queue.load(); err != nil { _ = lock.Close(); return nil, err }
 	return queue, nil
+}
+
+// InspectQueue reads a complete atomically-installed queue state without
+// acquiring its writer lock. It never creates, changes, or acknowledges data.
+// An active writer only exposes either the prior complete file or its complete
+// replacement, never a staged temporary file.
+func InspectQueue(directory, nodeID string) (QueueStatus, error) {
+	if strings.TrimSpace(directory) == "" || strings.TrimSpace(nodeID) == "" {
+		return QueueStatus{}, errors.New("agent queue directory and node id are required")
+	}
+	absolute, err := filepath.Abs(directory)
+	if err != nil { return QueueStatus{}, errors.New("resolve agent queue directory") }
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil || filepath.Clean(resolved) != filepath.Clean(absolute) { return QueueStatus{}, errors.New("agent queue directory must not traverse symlinks") }
+	info, err := os.Lstat(absolute)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 { return QueueStatus{}, errors.New("agent queue directory is not private and real") }
+	queue := &Queue{directory: absolute, nodeID: nodeID, state: queueState{SchemaVersion: queueSchema, NodeID: nodeID}}
+	if err := queue.load(); err != nil { return QueueStatus{}, err }
+	return QueueStatus{SchemaVersion: queue.state.SchemaVersion, NodeID: queue.state.NodeID, LastSequence: queue.state.LastSequence, RetainedEvents: len(queue.state.Events), MaximumEvents: maximumQueueEvents}, nil
 }
 
 func (queue *Queue) NextSequence(ctx context.Context) (uint64, error) {
@@ -70,7 +103,7 @@ func (queue *Queue) NextSequence(ctx context.Context) (uint64, error) {
 	queue.mu.Lock(); defer queue.mu.Unlock()
 	if queue.state.LastSequence == ^uint64(0) { return 0, errors.New("agent event sequence exhausted") }
 	queue.state.LastSequence++
-	if err := queue.save(); err != nil { return 0, err }
+	if _, err := queue.save(); err != nil { return 0, err }
 	return queue.state.LastSequence, nil
 }
 
@@ -95,7 +128,11 @@ func (queue *Queue) EnqueueBatch(ctx context.Context, entries []QueueEntry) erro
 	if len(entries) > maximumQueueEvents-len(queue.state.Events) { return errors.New("agent queue is full; telemetry is retained and collection must pause") }
 	originalLength := len(queue.state.Events)
 	queue.state.Events = append(queue.state.Events, encoded...)
-	if err := queue.save() { queue.state.Events = queue.state.Events[:originalLength]; return err }
+	installed, err := queue.save()
+	if err != nil {
+		if !installed { queue.state.Events = queue.state.Events[:originalLength] }
+		return err
+	}
 	return nil
 }
 
@@ -138,8 +175,9 @@ func (queue *Queue) Acknowledge(ctx context.Context, events []*antiflockv1.Event
 	}
 	if len(kept) == len(original) { return errors.New("acknowledgement did not match queued events") }
 	queue.state.Events = kept
-	if err := queue.save(); err != nil {
-		queue.state.Events = original
+	installed, err := queue.save()
+	if err != nil {
+		if !installed { queue.state.Events = original }
 		return err
 	}
 	return nil
@@ -158,14 +196,85 @@ func (queue *Queue) load() error {
 	return nil
 }
 
-func (queue *Queue) save() error {
-	content, err := json.Marshal(queue.state); if err != nil || len(content) > maximumQueueBytes { return errors.New("encode bounded agent queue") }
-	temporary, err := os.CreateTemp(queue.directory, ".queue-*.tmp"); if err != nil { return errors.New("stage agent queue") }
+// save reports whether the replacement queue file was installed. A post-rename
+// directory-sync error must not cause callers to roll back an in-memory state
+// that is already visible in the queue file.
+func (queue *Queue) save() (bool, error) {
+	content, err := json.Marshal(queue.state); if err != nil || len(content) > maximumQueueBytes { return false, errors.New("encode bounded agent queue") }
+	temporary, err := os.CreateTemp(queue.directory, ".queue-*.tmp"); if err != nil { return false, errors.New("stage agent queue") }
 	temporaryPath := temporary.Name(); defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil { temporary.Close(); return errors.New("protect staged agent queue") }
-	if _, err := temporary.Write(content); err != nil { temporary.Close(); return errors.New("write staged agent queue") }
-	if err := temporary.Sync(); err != nil { temporary.Close(); return errors.New("sync staged agent queue") }
-	if err := temporary.Close(); err != nil { return errors.New("close staged agent queue") }
-	if err := os.Rename(temporaryPath, filepath.Join(queue.directory, queueFileName)); err != nil { return fmt.Errorf("install agent queue: %w", err) }
-	return nil
+	if err := temporary.Chmod(0o600); err != nil { temporary.Close(); return false, errors.New("protect staged agent queue") }
+	if _, err := temporary.Write(content); err != nil { temporary.Close(); return false, errors.New("write staged agent queue") }
+	if err := temporary.Sync(); err != nil { temporary.Close(); return false, errors.New("sync staged agent queue") }
+	if err := temporary.Close(); err != nil { return false, errors.New("close staged agent queue") }
+	if err := os.Rename(temporaryPath, filepath.Join(queue.directory, queueFileName)); err != nil { return false, fmt.Errorf("install agent queue: %w", err) }
+	if err := syncQueueDirectory(queue.directory); err != nil { return true, err }
+	return true, nil
+}
+
+// Close releases the process-wide writer lock. A caller must not continue to
+// use the queue after Close; the agent defers it for orderly service shutdown.
+func (queue *Queue) Close() error {
+	if queue == nil { return nil }
+	queue.mu.Lock()
+	lock := queue.lock
+	queue.lock = nil
+	queue.mu.Unlock()
+	if lock == nil { return nil }
+	return lock.Close()
+}
+
+type queueLock struct {
+	file      *os.File
+	directory string
+}
+
+var activeQueueDirectories = struct {
+	sync.Mutex
+	values map[string]struct{}
+}{values: make(map[string]struct{})}
+
+func acquireQueueLock(directory string) (*queueLock, error) {
+	activeQueueDirectories.Lock()
+	if _, active := activeQueueDirectories.values[directory]; active {
+		activeQueueDirectories.Unlock()
+		return nil, errors.New("agent queue is already active in this process")
+	}
+	activeQueueDirectories.values[directory] = struct{}{}
+	activeQueueDirectories.Unlock()
+	releaseLease := true
+	defer func() {
+		if releaseLease {
+			activeQueueDirectories.Lock()
+			delete(activeQueueDirectories.values, directory)
+			activeQueueDirectories.Unlock()
+		}
+	}()
+	path := filepath.Join(directory, "queue.lock")
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+			return nil, errors.New("agent queue lock file is not a private regular file")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, errors.New("inspect agent queue lock file")
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil { return nil, errors.New("open agent queue lock file") }
+	if err := file.Chmod(0o600); err != nil { _ = file.Close(); return nil, errors.New("protect agent queue lock file") }
+	if err := lockQueueFile(file); err != nil { _ = file.Close(); return nil, err }
+	releaseLease = false
+	return &queueLock{file: file, directory: directory}, nil
+}
+
+func (lock *queueLock) Close() error {
+	if lock == nil || lock.file == nil { return nil }
+	file := lock.file
+	lock.file = nil
+	unlockErr := unlockQueueFile(file)
+	closeErr := file.Close()
+	activeQueueDirectories.Lock()
+	delete(activeQueueDirectories.values, lock.directory)
+	activeQueueDirectories.Unlock()
+	if unlockErr != nil { return unlockErr }
+	return closeErr
 }

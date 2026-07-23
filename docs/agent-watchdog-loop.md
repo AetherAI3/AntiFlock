@@ -19,10 +19,10 @@ typed finding -> admitted Nano program -> SQLite cursor -> expiring proposal -> 
 - `antiflock-agent enroll` creates one private Ed25519 seed and a retry-stable signed enrollment proof, then submits a pending request. It does not self-approve, fetch a certificate, or turn on telemetry.
 - `antiflock-agent --submit` collects at a fixed interval, signs each event with the enrolled Ed25519 key, writes it to a private bounded queue, and removes it only after Core gives a rejection-free acknowledgement.
 - Core accepts an active enrolled node through a verified mTLS client certificate; a bearer token remains only for a loopback/development path.
-- `--include-flow-metadata` reads `/proc/net/tcp`, `tcp6`, `udp`, and `udp6` only when opted in. It emits current endpoint/protocol metadata as `flow.updated`; it intentionally reports no payload, byte counter, start time, direction, egress interface, or process identity.
+- `--include-flow-metadata` reads `/proc/net/tcp`, `tcp6`, `udp`, and `udp6` only when opted in on Linux. It emits current endpoint/protocol metadata as `flow.updated`; it intentionally reports no payload, byte counter, start time, direction, egress interface, or process identity. Non-Linux package builds preserve the collector boundary and return `AF-COLLECTOR-FLOW-UNSUPPORTED`; the CLI itself refuses non-Linux collection.
 - `--mesh-provider tailscale --submit` runs only `tailscale status --json` and sends peer/path observations through the same queue. It never invokes a Tailscale mutating command.
 - `--mesh-provider headscale --submit` calls only Headscale’s `GET /api/v1/node` using a read-only API key from a private file. It reports only explicitly associated peers; it cannot create, move, tag, expire, rename, or delete a Headscale node.
-- Nano watchdog admission is a signed-audit Core record: source is compiled against the constrained profile, saved with its immutable digest/binding, and exposed at `POST /v1/watchdogs`. `POST /v1/watchdogs/{id}/run` accepts a typed finding and returns only expiring proposals; it cannot execute an action. Its SQLite cursor is atomically compare-and-swap advanced before a proposal is returned, so a restart or concurrent Core request cannot refire the same scheduled finding.
+- Nano watchdog admission is a signed-audit Core record: source is compiled against the constrained profile, saved with its immutable digest/binding, and exposed at `POST /v1/watchdogs`. `POST /v1/watchdogs/{id}/run` accepts a typed finding and returns only expiring proposals; it cannot execute an action. Core can also run an explicit allowlist of admitted programs over current OPEN findings at a bounded configured interval. Its SQLite cursor is atomically compare-and-swap advanced before a proposal is returned, so a restart or concurrent Core request cannot refire the same scheduled finding.
 
 ## Run an enrolled Linux agent
 
@@ -84,9 +84,27 @@ Without `--submit`, the same binary retains its inspect-only
 JSON mode. For a loopback development Core, a private `--agent-token-file` can be
 used instead of the client certificate; it is rejected for a remote HTTP endpoint.
 
+### 3. Inspect local agent readiness
+
+This local, read-only command checks only private file shape and queue metadata;
+it never prints the seed, certificate, token, or queued events. It works while
+the continuous agent owns the queue writer lock.
+
+```bash
+antiflock-agent status \\
+  --node-id node_laptop_01 \\
+  --state-dir /var/lib/antiflock \\
+  --queue-dir /var/lib/antiflock/queue
+```
+
+`identity: ready` means the private seed and matching certificate files are
+present with private permissions. The queue report shows the last allocated
+sequence and retained-event count. `pending-operator-approval` is expected
+between the first enrollment command and operator approval.
+
 ## Failure behavior
 
-- Core unavailable: signed events stay in the node-bound queue. `--once` returns an error for a supervisor; continuous `--submit` waits for its next interval and retries the exact signed batch.
+- Core unavailable: signed events stay in the node-bound queue. `--once` returns an error for a supervisor; continuous `--submit` waits for its next interval and retries the exact signed batch. On Linux, each queue replacement syncs both the staged file and containing directory after atomic rename; an error after installation never rolls the in-memory queue back.
 - Agent reboot: queued telemetry is drained one boot ID at a time, so Core never receives a mixed-boot batch.
 - Queue full: that collection cycle is not partially persisted and stops with an error. The agent does not discard older telemetry to make room.
 - A malformed/partial Core acknowledgement: no events are removed.
@@ -96,11 +114,11 @@ used instead of the client certificate; it is rejected for a remote HTTP endpoin
 
 | Area | Remaining work |
 | --- | --- |
-| Agent enrollment UX | Service manager packages and status endpoint. Endpoint key generation, retry-safe pending submission, and post-approval certificate retrieval are wired; approval remains deliberately operator-gated. |
-| Queue operations | Cross-process lock, retention/health metrics, and a tested recovery procedure for a full queue. |
+| Agent enrollment UX | Service manager packages and a remote Core/Third-Eye status endpoint. Endpoint key generation, retry-safe pending submission, post-approval certificate retrieval, and read-only local status are wired; approval remains deliberately operator-gated. |
+| Queue operations | Retention/health metrics and a tested recovery procedure for a full queue. One active process now holds a private advisory writer lock; a second process fails closed rather than risking queue corruption. |
 | Flow monitor | Process attribution, bytes/duration, retention controls, non-Linux collectors, and independent privacy review. |
 | Tailscale / Headscale | Roaming/partition tests and live setup/status polling. Both read-only probes are wired into the agent loop; Third-Eye has static setup cards. |
-| Nano | Automatic finding-to-program scheduling, disable/version lifecycle, proposal audit projection, and replay fixtures. Audited admission plus the deterministic proposal-only API are wired. |
+| Nano | Program disable/version lifecycle, durable proposal-audit projection, replay fixtures, and dedicated authoring UX. Audited admission, deterministic proposal-only API, and an explicit bounded Core scheduler are wired. |
 | BYOK providers | Key rotation/revocation, platform-keystore references, outbound egress controls, audit records, and integration tests. The Headscale key is read only from a local private file and never sent to Core/Nano. |
 
 No OPEN item can be enabled by a boolean. Each must gain its own least-privilege

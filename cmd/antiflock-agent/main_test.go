@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DBarr3/AntiFlock/agent/runtime"
 	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -70,4 +71,33 @@ func TestEnrollRetrievesMatchingCertificateOverPrivateCA(t *testing.T) {
 	content, err := os.ReadFile(output.CertificatePath); if err != nil { t.Fatal(err) }
 	block, _ := pem.Decode(content)
 	if block == nil || string(block.Bytes) != string(certificateDER) { t.Fatal("approved certificate was not installed") }
+}
+
+func TestStatusReportsPrivateIdentityAndQueueMetadata(t *testing.T) {
+	directory := t.TempDir()
+	stateDirectory := filepath.Join(directory, "state")
+	if err := os.Mkdir(stateDirectory, 0o700); err != nil { t.Fatal(err) }
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(stateDirectory, "node.seed"), privateKey.Seed(), 0o600); err != nil { t.Fatal(err) }
+	now := time.Now().UTC()
+	template := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "node-status"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, BasicConstraintsValid: true}
+	certificateDER, err := x509.CreateCertificate(rand.Reader, template, template, publicKey, privateKey)
+	if err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(stateDirectory, "node.pem"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER}), 0o600); err != nil { t.Fatal(err) }
+	queue, err := runtime.OpenQueue(filepath.Join(directory, "queue"), "node-status")
+	if err != nil { t.Fatal(err) }
+	defer queue.Close()
+	var stdout, stderr bytes.Buffer
+	if err := run(context.Background(), []string{"status", "--node-id", "node-status", "--state-dir", stateDirectory, "--queue-dir", filepath.Join(directory, "queue")}, &stdout, &stderr); err != nil { t.Fatal(err) }
+	if !strings.Contains(stdout.String(), `"identity": "ready"`) || !strings.Contains(stdout.String(), `"retainedEvents": 0`) { t.Fatalf("status = %s", stdout.String()) }
+}
+
+
+func TestStatusRejectsControlCharactersInNodeID(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := run(context.Background(), []string{"status", "--node-id", "node-status\nforged", "--queue-dir", t.TempDir()}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "canonical node-id") {
+		t.Fatalf("status control-character result = %v", err)
+	}
 }

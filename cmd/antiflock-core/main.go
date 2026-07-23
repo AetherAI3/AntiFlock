@@ -165,8 +165,9 @@ func serve(arguments []string) error {
 		Config: configuration, Database: database, Events: eventStore, Audit: auditService,
 		Enrollment: enrollmentService, DeploymentID: authority.Deployment.DeploymentID,
 		PolicyCompiler: policyCompiler, PostureEngine: postureEngine,
-		Findings: findingService, Scrambler: scramblerPlanner, NanoRegistry: nanoRegistry, Credentials: credentials,
-		AuthorizationKey: []byte(sdkToken), NodeClientCAs: clientCAs, Version: version,
+		Findings: findingService, Scrambler: scramblerPlanner, NanoRegistry: nanoRegistry,
+		NanoRunInterval: configuration.Nano.AutomaticRunInterval, NanoRunProgramIDs: configuration.Nano.AutomaticRunProgramIDs,
+		Credentials: credentials, AuthorizationKey: []byte(sdkToken), NodeClientCAs: clientCAs, Version: version,
 	})
 	if err != nil {
 		return err

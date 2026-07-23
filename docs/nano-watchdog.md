@@ -71,10 +71,46 @@ strategy PublicSurfaceWatch {
 
 The program does not name a host, URL, secret, destination, command, or action parameters. At admission time, the operator selects one fixed binding—such as an offline owned-surface fixture query—and the binding fixes the application ID, action type, data class, sensitivity, and destination. The operator must still authorize each proposal through the existing consent workflow.
 
-Still **OPEN**: automatic finding-to-program scheduling, program disable/version
-lifecycle, proposal projection in Third-Eye, replay fixtures, and a dedicated
-operator authoring flow. Nano remains host-governed: it cannot fetch data, read
-secrets, call a provider, or execute a response.
+Core can now run an admitted program over its own bounded set of current OPEN
+findings at `POST /v1/watchdogs/{id}/run-open-findings`. The request accepts no
+caller-supplied finding or signal; Core derives a sorted, capped typed context from
+its finding projection and skips stale findings. The equivalent operator command is
+`antiflockctl watchdog run-open-findings --program-id …`:
+
+```bash
+antiflockctl watchdog run-open-findings \\
+  --url https://core.example.test \\
+  --token-file /etc/antiflock/operator.token \\
+  --ca-cert /etc/antiflock/node-ca.pem \\
+  --program-id WATCHDOG_ID
+```
+
+It is an operator-invoked, proposal-only pass—not an action path.
+
+### Opt-in Core scheduler
+
+For a continuous pass, the Core operator must name the already-admitted program
+IDs explicitly in Core configuration. The scheduler is disabled when this block
+is absent. It never discovers programs automatically and it serializes passes,
+so a slow program cannot overlap itself.
+
+```yaml
+nano:
+  automaticRunInterval: 5m
+  automaticRunProgramIds:
+    - WATCHDOG_ID
+```
+
+The interval must be between one second and 24 hours, and the allowlist holds
+at most 32 IDs. Each scheduled pass receives only the same current, bounded
+OPEN finding projection as the operator endpoint. A pass has no authorization
+or execution capability; it can emit only expiring proposals through the
+existing consent gate.
+
+Still **OPEN**: program disable/version lifecycle, durable proposal audit
+projection in Third-Eye, replay fixtures, and a dedicated operator authoring
+flow. Nano remains host-governed: it cannot fetch data, read secrets, call a
+provider, or execute a response.
 
 ## Public-surface and physical references
 

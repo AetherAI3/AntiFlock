@@ -61,6 +61,8 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 			return runEnroll(ctx, arguments[1:], stdout, stderr)
 		case "observe":
 			arguments = arguments[1:]
+		case "status":
+			return runStatus(arguments[1:], stdout, stderr)
 		default:
 			return errors.New("unknown agent command; use enroll or observe")
 		}
@@ -140,6 +142,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		if err != nil { return err }
 		queue, err := runtime.OpenQueue(*queueDirectory, *nodeID)
 		if err != nil { return err }
+		defer queue.Close()
 		signer, err := runtime.LoadFileSigner(*nodeID, *nodeKeyFile, func() time.Time { return time.Now().UTC() })
 		if err != nil { return err }
 		source := runtime.Collector(collector)
@@ -248,6 +251,57 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	return nil
 }
 
+
+
+type agentStatusOutput struct {
+	SchemaVersion string              `json:"schemaVersion"`
+	NodeID        string              `json:"nodeId"`
+	Identity      string              `json:"identity"`
+	Queue         runtime.QueueStatus `json:"queue"`
+}
+
+// runStatus is intentionally local and read-only. It proves whether a private
+// enrolled identity and its durable queue are usable without exposing a seed,
+// token, certificate body, or queued telemetry.
+func runStatus(arguments []string, stdout, stderr io.Writer) error {
+	flags := flag.NewFlagSet("antiflock-agent status", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	nodeID := flags.String("node-id", "", "enrolled AntiFlock node id")
+	stateDirectory := flags.String("state-dir", "/var/lib/antiflock", "private enrolled-node state directory")
+	queueDirectory := flags.String("queue-dir", "", "private durable queue directory")
+	compact := flags.Bool("compact", false, "write compact JSON")
+	if err := flags.Parse(arguments); err != nil { return err }
+	if flags.NArg() != 0 || strings.TrimSpace(*nodeID) == "" || len(*nodeID) > 128 || strings.TrimSpace(*nodeID) != *nodeID || strings.ContainsAny(*nodeID, "\r\n\x00") || strings.TrimSpace(*queueDirectory) == "" {
+		return errors.New("status requires canonical node-id and queue-dir")
+	}
+	identity := localIdentityStatus(*stateDirectory)
+	queue, err := runtime.InspectQueue(*queueDirectory, *nodeID)
+	if err != nil { return err }
+	output := agentStatusOutput{SchemaVersion: "antiflock.agent-status/v1", NodeID: *nodeID, Identity: identity, Queue: queue}
+	encoder := json.NewEncoder(stdout)
+	encoder.SetEscapeHTML(false)
+	if !*compact { encoder.SetIndent("", "  ") }
+	return encoder.Encode(output)
+}
+
+func localIdentityStatus(directory string) string {
+	seed := validateRegularFile(filepath.Join(directory, "node.seed"), true) == nil
+	certificate := validateRegularFile(filepath.Join(directory, "node.pem"), true) == nil
+	pending := validateRegularFile(filepath.Join(directory, "enrollment.json"), true) == nil
+	switch {
+	case seed && certificate:
+		if _, err := runtime.LoadNodeCertificate(filepath.Join(directory, "node.pem"), filepath.Join(directory, "node.seed")); err == nil {
+			return "ready"
+		}
+		return "incomplete-or-unsafe"
+	case seed && pending:
+		return "pending-operator-approval"
+	case seed || certificate || pending:
+		return "incomplete-or-unsafe"
+	default:
+		return "not-enrolled"
+	}
+}
 
 type enrollmentOutput struct {
 	SchemaVersion     string `json:"schemaVersion"`

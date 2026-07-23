@@ -26,6 +26,10 @@ import (
 const (
 	defaultRouteTable = "/proc/net/route"
 	defaultResolvConf = "/etc/resolv.conf"
+	defaultTCPTable = "/proc/net/tcp"
+	defaultTCP6Table = "/proc/net/tcp6"
+	defaultUDPTable = "/proc/net/udp"
+	defaultUDP6Table = "/proc/net/udp6"
 	maximumSourceSize = 1 << 20
 )
 

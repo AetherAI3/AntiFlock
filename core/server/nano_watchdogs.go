@@ -1,9 +1,12 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strings"
 
+	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 	"github.com/DBarr3/AntiFlock/core/nano"
 	"github.com/DBarr3/AntiFlock/core/storage"
 )
@@ -65,6 +68,47 @@ func (server *Server) handleRunWatchdog(response http.ResponseWriter, request *h
 	})
 	if err != nil { server.writeDomainError(response, http.StatusBadRequest, err, ""); return }
 	writeJSON(response, http.StatusOK, result)
+}
+
+// handleRunWatchdogOpenFindings accepts no caller-supplied findings. It runs
+// only current OPEN Core findings through the admitted, proposal-only program.
+func (server *Server) handleRunWatchdogOpenFindings(response http.ResponseWriter, request *http.Request) {
+	if server.nano == nil { server.handleUnavailable(response, request); return }
+	// An empty body is permitted for direct operator requests. A present body
+	// must be the empty JSON object so it cannot smuggle a caller-selected
+	// finding or signal into this Core-owned execution path.
+	if request.ContentLength != 0 {
+		var body struct{}
+		if err := decodeJSON(response, request, &body, 1024); err != nil {
+			writeAPIError(response, http.StatusBadRequest, "INVALID_JSON", safeDecodeMessage(err), "", false)
+			return
+		}
+	}
+	result, err := server.runWatchdogOpenFindings(request.Context(), request.PathValue("id"))
+	if err != nil { server.writeDomainError(response, http.StatusBadRequest, err, ""); return }
+	writeJSON(response, http.StatusOK, result)
+}
+
+
+// runWatchdogOpenFindings is the shared Core-owned input boundary for the
+// operator route and the configured scheduler. Only live OPEN findings are
+// projected, so neither path can inject arbitrary Nano signals.
+func (server *Server) runWatchdogOpenFindings(ctx context.Context, programID string) (nano.OpenFindingRunResult, error) {
+	if server == nil || server.nano == nil || server.findings == nil {
+		return nano.OpenFindingRunResult{}, errors.New("Nano watchdog runner is unavailable")
+	}
+	openFindings := server.findings.List("", antiflockv1.FindingStatus_FINDING_STATUS_OPEN)
+	contexts := make([]nano.FindingContext, 0, len(openFindings))
+	for _, finding := range openFindings {
+		if finding == nil || finding.GetMetadata() == nil || finding.GetLastSeenAt() == nil {
+			continue
+		}
+		contexts = append(contexts, nano.FindingContext{
+			FindingID: finding.GetMetadata().GetId(), NodeID: finding.GetNodeId(), ReasonCode: finding.GetReasonCode(),
+			Confidence: float64(finding.GetClaim().GetConfidence()), ObservedUnix: finding.GetLastSeenAt().AsTime().UTC().Unix(),
+		})
+	}
+	return server.nano.RunOpenFindings(ctx, programID, contexts)
 }
 
 func projectWatchdog(record storage.NanoWatchdogProgramRecord) watchdogView {
