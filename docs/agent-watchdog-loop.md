@@ -56,7 +56,7 @@ antiflock-agent \
   --core-url https://core.example.test \
   --node-key-file /var/lib/antiflock/node.seed \
   --queue-dir /var/lib/antiflock/queue \
-  --client-cert /etc/antiflock/node.pem \
+  --client-cert /var/lib/antiflock/node.pem \
   --ca-cert /etc/antiflock/node-ca.pem \
   --include-flow-metadata \
   --mesh-provider tailscale
@@ -73,7 +73,7 @@ in a `0600` file and pass an explicit association map:
 ```bash
 antiflock-agent --node-id node_laptop_01 --deployment-id DEPLOYMENT_ID --submit --once \
   --core-url https://core.example.test --node-key-file /var/lib/antiflock/node.seed \
-  --queue-dir /var/lib/antiflock/queue --client-cert /etc/antiflock/node.pem \
+  --queue-dir /var/lib/antiflock/queue --client-cert /var/lib/antiflock/node.pem \
   --mesh-provider headscale \
   --headscale-url https://headscale.example.test --headscale-api-key-file /etc/antiflock/headscale.token \
   --headscale-associations-file /etc/antiflock/headscale-associations.json
