@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -14,6 +17,8 @@ import (
 
 	"github.com/DBarr3/AntiFlock/adapters/mesh/tailscale"
 	"github.com/DBarr3/AntiFlock/agent/collectors"
+	"github.com/DBarr3/AntiFlock/agent/ingest"
+	"github.com/DBarr3/AntiFlock/agent/runtime"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -59,6 +64,16 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	meshProvider := flags.String("mesh-provider", "none", "read-only mesh probe: none or tailscale")
 	meshDryRun := flags.Bool("mesh-dry-run", false, "show the mesh status command without executing it")
 	compact := flags.Bool("compact", false, "write compact JSON")
+	submit := flags.Bool("submit", false, "persist and submit signed telemetry to Core (default is inspect-only JSON)")
+	coreURL := flags.String("core-url", "", "Core HTTPS URL for --submit")
+	agentTokenFile := flags.String("agent-token-file", "", "optional private bearer-token file (loopback/demo only)")
+	nodeKeyFile := flags.String("node-key-file", "", "private Ed25519 seed created during enrollment")
+	queueDirectory := flags.String("queue-dir", "", "private durable queue directory")
+	interval := flags.Duration("interval", 30*time.Second, "continuous collection interval for --submit")
+	once := flags.Bool("once", false, "perform one durable collection/submission cycle and exit")
+	clientCertificate := flags.String("client-cert", "", "approved node client certificate PEM for mTLS")
+	clientKey := flags.String("client-key", "", "private key PEM for --client-cert")
+	caCertificate := flags.String("ca-cert", "", "Core node CA PEM used to verify an mTLS Core")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -90,6 +105,31 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	})
 	if err != nil {
 		return err
+	}
+	if *submit {
+		if strings.TrimSpace(*coreURL) == "" || strings.TrimSpace(*nodeKeyFile) == "" || strings.TrimSpace(*queueDirectory) == "" {
+			return errors.New("--submit requires core-url, node-key-file, and queue-dir")
+		}
+		token, err := readPrivateSecret(*agentTokenFile)
+		if err != nil { return err }
+		if token == "" && strings.TrimSpace(*clientCertificate) == "" {
+			return errors.New("--submit requires agent-token-file or an approved client-cert")
+		}
+		httpClient, err := newAgentHTTPClient(*clientCertificate, *clientKey, *caCertificate)
+		if err != nil { return err }
+		submitter, err := ingest.NewClient(ingest.Config{Endpoint: *coreURL, Token: token, HTTP: httpClient})
+		if err != nil { return err }
+		queue, err := runtime.OpenQueue(*queueDirectory)
+		if err != nil { return err }
+		signer, err := runtime.LoadFileSigner(*nodeID, *nodeKeyFile, func() time.Time { return time.Now().UTC() })
+		if err != nil { return err }
+		loop, err := runtime.NewLoop(runtime.LoopConfig{
+			DeploymentID: "local-config-required", NodeID: *nodeID, BootID: *bootID, Interval: *interval,
+			Collector: collector, Queue: queue, Signer: signer, Submitter: submitter,
+		})
+		if err != nil { return err }
+		if *once { return loop.RunOnce(ctx) }
+		return loop.Run(ctx)
 	}
 	collection, err := collector.Collect(ctx)
 	if err != nil {
@@ -150,6 +190,38 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return errors.New("write local observation output")
 	}
 	return nil
+}
+
+
+func readPrivateSecret(path string) (string, error) {
+	if strings.TrimSpace(path) == "" { return "", nil }
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+		return "", errors.New("agent token file must be a private regular file")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || len(content) > 16<<10 { return "", errors.New("read bounded agent token file") }
+	return strings.TrimSpace(string(content)), nil
+}
+
+func newAgentHTTPClient(certificatePath, keyPath, caPath string) (*http.Client, error) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableCompression = true
+	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS13}
+	if (certificatePath == "") != (keyPath == "") { return nil, errors.New("client-cert and client-key must be provided together") }
+	if certificatePath != "" {
+		certificate, err := tls.LoadX509KeyPair(certificatePath, keyPath)
+		if err != nil { return nil, errors.New("load node client certificate") }
+		transport.TLSClientConfig.Certificates = []tls.Certificate{certificate}
+	}
+	if caPath != "" {
+		content, err := os.ReadFile(caPath)
+		if err != nil || len(content) == 0 || len(content) > 1<<20 { return nil, errors.New("read bounded Core CA certificate") }
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(content) { return nil, errors.New("Core CA certificate does not contain PEM certificates") }
+		transport.TLSClientConfig.RootCAs = pool
+	}
+	return &http.Client{Timeout: 15 * time.Second, Transport: transport, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, nil
 }
 
 func marshalMessage(options protojson.MarshalOptions, message proto.Message) (json.RawMessage, error) {
