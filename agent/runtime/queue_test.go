@@ -49,3 +49,16 @@ func TestQueueBatchAdmissionDoesNotPersistPartialCycleWhenFull(t *testing.T) {
 	if err := queue.EnqueueBatch(context.Background(), entries); err == nil { t.Fatal("full queue accepted a partial collection cycle") }
 	if len(queue.state.Events) != maximumQueueEvents { t.Fatalf("queue size = %d, want %d", len(queue.state.Events), maximumQueueEvents) }
 }
+
+func TestQueueExcludesConcurrentWritersAndReleasesOnClose(t *testing.T) {
+	directory := t.TempDir()
+	first, err := OpenQueue(directory, "node-1")
+	if err != nil { t.Fatal(err) }
+	if _, err := OpenQueue(directory, "node-1"); err == nil {
+		t.Fatal("second queue writer acquired the active queue")
+	}
+	if err := first.Close(); err != nil { t.Fatal(err) }
+	second, err := OpenQueue(directory, "node-1")
+	if err != nil { t.Fatalf("queue did not release writer lock: %v", err) }
+	defer second.Close()
+}
