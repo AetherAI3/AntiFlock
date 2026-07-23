@@ -12,13 +12,7 @@ import (
 	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 )
 
-const (
-	defaultTCPTable = "/proc/net/tcp"
-	defaultTCP6Table = "/proc/net/tcp6"
-	defaultUDPTable = "/proc/net/udp"
-	defaultUDP6Table = "/proc/net/udp6"
-	maximumFlowRecords = 2048
-)
+const maximumFlowRecords = 2048
 
 // flowTable describes a kernel socket table. It deliberately has no packet,
 // byte-counter, inode, uid, or process-attribution fields.
