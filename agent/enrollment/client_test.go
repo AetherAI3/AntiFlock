@@ -3,8 +3,13 @@ package enrollment
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"io"
 	"net/http"
+	"math/big"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -37,7 +42,7 @@ func TestSubmitUsesPersistentIdentityAndLoopbackHTTP(t *testing.T) {
 		if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(mustRead(t, request), &input); err != nil { t.Errorf("decode request: %v", err); http.Error(writer, "bad request", http.StatusBadRequest); return }
 		requests <- &input
 		writer.Header().Set("Content-Type", "application/json")
-		output := &antiflockv1.EnrollNodeResponse{Enrollment: &antiflockv1.EnrollmentRequest{Id: "enrollment-1", ProposedNodeId: "agent-lab-1"}}
+		output := &antiflockv1.EnrollNodeResponse{Enrollment: &antiflockv1.EnrollmentRequest{Id: "enrollment-1", ProposedNodeId: "agent-lab-1", Status: antiflockv1.EnrollmentStatus_ENROLLMENT_STATUS_PENDING}}
 		encoded, err := (protojson.MarshalOptions{}).Marshal(output); if err != nil { t.Errorf("encode response: %v", err); return }; writer.WriteHeader(http.StatusAccepted); _, _ = writer.Write(encoded)
 	}))
 	defer server.Close()
@@ -57,4 +62,25 @@ func mustRead(t *testing.T, request *http.Request) []byte {
 	content, err := io.ReadAll(request.Body)
 	if err != nil { t.Fatal(err) }
 	return content
+}
+
+
+func TestSaveApprovedCertificateAcceptsOnlyMatchingPrivateIdentity(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "state")
+	privateKey, _, err := ensureIdentity(directory, "agent-lab-1")
+	if err != nil { t.Fatal(err) }
+	now := time.Now().UTC()
+	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "agent-lab-1"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, privateKey.Public(), privateKey)
+	if err != nil { t.Fatal(err) }
+	certificatePath := filepath.Join(directory, "node.pem")
+	if err := SaveApprovedCertificate(filepath.Join(directory, "node.seed"), certificatePath, der); err != nil { t.Fatal(err) }
+	info, err := os.Lstat(certificatePath); if err != nil || info.Mode().Perm() != privateFileMode { t.Fatalf("certificate file = %#v, err = %v", info, err) }
+	content, err := os.ReadFile(certificatePath); if err != nil { t.Fatal(err) }
+	block, _ := pem.Decode(content)
+	if block == nil || string(block.Bytes) != string(der) { t.Fatal("certificate was not written as expected PEM") }
+	if err := SaveApprovedCertificate(filepath.Join(directory, "node.seed"), certificatePath, der); err != nil { t.Fatalf("idempotent certificate save: %v", err) }
+	_, otherKey, err := ed25519.GenerateKey(rand.Reader); if err != nil { t.Fatal(err) }
+	otherDER, err := x509.CreateCertificate(rand.Reader, template, template, otherKey.Public(), otherKey); if err != nil { t.Fatal(err) }
+	if err := SaveApprovedCertificate(filepath.Join(directory, "node.seed"), certificatePath, otherDER); err == nil { t.Fatal("accepted a certificate for another identity") }
 }
