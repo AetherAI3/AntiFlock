@@ -18,6 +18,7 @@
 | Decision | Current safe default | Required before |
 | --- | --- | --- |
 | Public product and protocol name | `AntiFlock` remains an internal working title; no affiliation or legal clearance is claimed. | Public launch, domain/namespace promotion, or trademark use. |
+| Public repository controls | Repository is private at this audit; workflow and community-health files are present. | Public opening: enable private vulnerability reporting, name the security contact, confirm branch protections and GitHub billing, then rerun CI. |
 | Repository and generated-language namespaces | Protobuf package is the internal `antiflock.v1`; language-specific package options are intentionally absent. | Publishing generated SDKs. |
 | License and copyright attribution | Apache License 2.0 is included as the permissive open-source default. | First public distribution; project owner and counsel should ratify. |
 | Staffed private security and conduct contacts | Use repository-host private reporting and a non-conflicted maintainer. No response-time promise is made. | Accepting public users or contributions. |
