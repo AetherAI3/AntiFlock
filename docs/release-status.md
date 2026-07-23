@@ -13,7 +13,7 @@ production network protection or public-launch readiness.
 | Identity and enrollment | Durable deployment/operator identity, one-time enrollment, node lifecycle, scoped credentials | Local Core and reference agents; platform keystore enrollment remains external work |
 | Event and projection spine | Immutable idempotent events, SQLite projections, replay cursors, retention, signed hash-chained audit | Local relational store; no hosted replication claim |
 | Decision plane | Deterministic posture, findings, policy compilation, signed expiring plans, secure-action gate | Decisions use available evidence and remain fail-closed on missing or stale inputs |
-| Agent observation | Linux network/route/DNS collection plus read-only Tailscale and Headscale probes | Host observations are `DETECTED` unless an explicit verification method succeeds |
+| Agent observation | Linux network/route/DNS collection plus a read-only Tailscale CLI probe and a separate Headscale adapter | Host observations are `DETECTED` unless an explicit verification method succeeds |
 | Enforcement transaction | Validate, snapshot, apply, verify, commit or roll back; durable local transaction state | The executable agent does not enable production host mutation in this release |
 | Secure Action SDK | Request binding, callback isolation, hold/block/allow, durable single-use grant consumption, mandatory execution-start audit, evidence-provenance enforcement | Reference TypeScript SDK and Aether demonstration only; simulation callbacks require an explicit per-call test opt-in |
 | Android Guard | Pure Kotlin/JVM fail-closed state machine, platform ports, recording adapters, deterministic reference app | No APK, `VpnService`, real packet transport, or real-device validation |
