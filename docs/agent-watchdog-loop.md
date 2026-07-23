@@ -25,7 +25,7 @@ typed finding -> admitted Nano program -> SQLite cursor -> expiring proposal -> 
 Prerequisites:
 
 1. Core is reachable over HTTPS and has its node client CA configured.
-2. The node was approved through Core enrollment. Keep the matching Ed25519 seed, issued node client certificate, and its private-key PEM in files with mode `0600`.
+2. The node was approved through Core enrollment. Keep the matching Ed25519 seed and issued node client certificate in private files with mode `0600`. The agent uses that same seed for signing and mTLS; do not create a second key copy.
 3. Set the real deployment and node IDs used during enrollment. The agent does not synthesize either value.
 
 ```bash
@@ -39,7 +39,6 @@ antiflock-agent \
   --node-key-file /var/lib/antiflock/node.seed \
   --queue-dir /var/lib/antiflock/queue \
   --client-cert /etc/antiflock/node.pem \
-  --client-key /etc/antiflock/node-key.pem \
   --ca-cert /etc/antiflock/node-ca.pem \
   --include-flow-metadata \
   --mesh-provider tailscale
@@ -57,7 +56,7 @@ in a `0600` file and pass an explicit association map:
 antiflock-agent --node-id node_laptop_01 --deployment-id DEPLOYMENT_ID --submit --once \
   --core-url https://core.example.test --node-key-file /var/lib/antiflock/node.seed \
   --queue-dir /var/lib/antiflock/queue --client-cert /etc/antiflock/node.pem \
-  --client-key /etc/antiflock/node-key.pem --mesh-provider headscale \
+  --mesh-provider headscale \
   --headscale-url https://headscale.example.test --headscale-api-key-file /etc/antiflock/headscale.token \
   --headscale-associations-file /etc/antiflock/headscale-associations.json
 ```
