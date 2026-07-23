@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://github.com/user-attachments/assets/84ab4fbb-9f44-43e4-b781-6279d7300a8a" alt="AntiFl0ck" width="360" />
+<img src="assets/antiflock-mark.svg" alt="AntiFl0ck" width="360" />
 
 **Open-source, self-hosted digital counterintelligence.**
 
