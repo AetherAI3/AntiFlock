@@ -45,9 +45,15 @@ Core policies mark its currently admitted operations `consentRequired`, so a
 protected posture still returns `REQUIRE_CONSENT`; only the operator's existing
 one-time authorization route can produce one exact, expiring grant.
 
-## OPEN — watchdog runner and Nano authoring
+## Admitted watchdog runner
 
-The Nano integration is a **deterministic proposal primitive**, not a daemon. A complete watchdog runner is **OPEN**. It must accept only an admitted, versioned Nano program; compile it before use; build a typed numeric frame from a validated finding; persist the returned cursor atomically with its audit event; and send each resulting proposal through the existing Secure Action gate.
+Core now admits a source program at `POST /v1/watchdogs`. Admission compiles the
+source against the pinned Nano limits and watchdog profile, verifies the fixed
+binding, persists trimmed immutable source plus canonical digest in SQLite, and
+commits a signed audit entry in the same transaction. `POST
+/v1/watchdogs/{id}/run` accepts only one typed finding and returns expiring
+`SecureActionProposal` values; it does not call a provider, action callback,
+or host enforcer. The durable cursor is written before any proposal is returned.
 
 A rule author can express a narrow threshold such as:
 
@@ -65,7 +71,10 @@ strategy PublicSurfaceWatch {
 
 The program does not name a host, URL, secret, destination, command, or action parameters. At admission time, the operator selects one fixed binding—such as an offline owned-surface fixture query—and the binding fixes the application ID, action type, data class, sensitivity, and destination. The operator must still authorize each proposal through the existing consent workflow.
 
-Before a runner is connected, it needs: source and compiled-IR digests, a pinned Nano compatibility version, signature/ownership verification, a durable per-program cursor, instruction/output limits, replay tests, stale-input handling, revocation, and a Third-Eye/audit view. Nano remains host-governed: it cannot fetch data, read secrets, call a provider, or execute a response.
+Still **OPEN**: automatic finding-to-program scheduling, program disable/version
+lifecycle, proposal projection in Third-Eye, replay fixtures, and a dedicated
+operator authoring flow. Nano remains host-governed: it cannot fetch data, read
+secrets, call a provider, or execute a response.
 
 ## Public-surface and physical references
 
