@@ -71,3 +71,17 @@ func TestEnrollRetrievesMatchingCertificateOverPrivateCA(t *testing.T) {
 	block, _ := pem.Decode(content)
 	if block == nil || string(block.Bytes) != string(certificateDER) { t.Fatal("approved certificate was not installed") }
 }
+
+func TestStatusReportsPrivateIdentityAndQueueMetadata(t *testing.T) {
+	directory := t.TempDir()
+	stateDirectory := filepath.Join(directory, "state")
+	if err := os.Mkdir(stateDirectory, 0o700); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(stateDirectory, "node.seed"), make([]byte, 32), 0o600); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(stateDirectory, "node.pem"), []byte("certificate"), 0o600); err != nil { t.Fatal(err) }
+	queue, err := runtime.OpenQueue(filepath.Join(directory, "queue"), "node-status")
+	if err != nil { t.Fatal(err) }
+	defer queue.Close()
+	var stdout, stderr bytes.Buffer
+	if err := run(context.Background(), []string{"status", "--node-id", "node-status", "--state-dir", stateDirectory, "--queue-dir", filepath.Join(directory, "queue")}, &stdout, &stderr); err != nil { t.Fatal(err) }
+	if !strings.Contains(stdout.String(), `"identity": "ready"`) || !strings.Contains(stdout.String(), `"retainedEvents": 0`) { t.Fatalf("status = %s", stdout.String()) }
+}
