@@ -12,7 +12,7 @@ import (
 // runners must supply durable storage before handling real findings.
 type CursorStore interface {
 	Load(context.Context, programDigest, nodeID string) (Cursor, error)
-	Save(context.Context, programDigest, nodeID string, cursor Cursor) error
+	CompareAndSwap(context.Context, programDigest, nodeID string, previous, next Cursor) (bool, error)
 }
 
 type RunnerConfig struct {
@@ -98,9 +98,9 @@ func (runner *Runner) RunFinding(ctx context.Context, finding FindingContext) (R
 	if err != nil {
 		return RunResult{}, err
 	}
-	if err := runner.store.Save(ctx, runner.programDigest, runner.nodeID, next); err != nil {
-		return RunResult{}, fmt.Errorf("persist watchdog schedule cursor: %w", err)
-	}
+	advanced, err := runner.store.CompareAndSwap(ctx, runner.programDigest, runner.nodeID, cursor, next)
+	if err != nil { return RunResult{}, fmt.Errorf("persist watchdog schedule cursor: %w", err) }
+	if !advanced { return RunResult{}, errors.New("watchdog schedule cursor changed concurrently; retry finding") }
 	return RunResult{ProgramDigest: runner.programDigest, InputDigest: inputDigest, Evaluation: evaluation, Proposals: append([]SecureActionProposal(nil), proposals...)}, nil
 }
 
@@ -126,15 +126,14 @@ func (store *MemoryCursorStore) Load(ctx context.Context, programDigest, nodeID 
 	return store.cursors[programDigest+"\x00"+nodeID], nil
 }
 
-func (store *MemoryCursorStore) Save(ctx context.Context, programDigest, nodeID string, cursor Cursor) error {
-	if store == nil {
-		return errors.New("cursor store is required")
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+func (store *MemoryCursorStore) CompareAndSwap(ctx context.Context, programDigest, nodeID string, previous, next Cursor) (bool, error) {
+	if store == nil { return false, errors.New("cursor store is required") }
+	if err := ctx.Err(); err != nil { return false, err }
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.cursors[programDigest+"\x00"+nodeID] = cursor
-	return nil
+	key := programDigest + "\x00" + nodeID
+	current := store.cursors[key]
+	if current != previous { return false, nil }
+	store.cursors[key] = next
+	return true, nil
 }
