@@ -29,7 +29,7 @@ func (store *StorageCursorStore) Load(ctx context.Context, programDigest, nodeID
 	return Cursor{Initialized: record.Initialized, NextDueUnix: record.NextDueUnix}, nil
 }
 
-func (store *StorageCursorStore) Save(ctx context.Context, programDigest, nodeID string, cursor Cursor) error {
-	if store == nil { return errors.New("nano cursor store is required") }
-	return store.database.SaveNanoCursor(ctx, programDigest, nodeID, storage.NanoCursorRecord{Initialized: cursor.Initialized, NextDueUnix: cursor.NextDueUnix}, store.clock().UTC())
+func (store *StorageCursorStore) CompareAndSwap(ctx context.Context, programDigest, nodeID string, previous, next Cursor) (bool, error) {
+	if store == nil { return false, errors.New("nano cursor store is required") }
+	return store.database.CompareAndSwapNanoCursor(ctx, programDigest, nodeID, storage.NanoCursorRecord{Initialized: previous.Initialized, NextDueUnix: previous.NextDueUnix}, storage.NanoCursorRecord{Initialized: next.Initialized, NextDueUnix: next.NextDueUnix}, store.clock().UTC())
 }
