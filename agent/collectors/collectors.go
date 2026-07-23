@@ -396,7 +396,7 @@ func (collection *Collection) Observations() []Observation {
 		return nil
 	}
 	observedAt := collection.Snapshot.ObservedAt.AsTime().UTC()
-	result := make([]Observation, 0, len(collection.Snapshot.Interfaces)+len(collection.Snapshot.Routes)+len(collection.Snapshot.Flows)+1)
+	result := make([]Observation, 0, len(collection.Snapshot.Interfaces)+len(collection.Snapshot.Routes)+len(collection.Snapshot.Flows)+len(collection.Snapshot.MeshPeers)+len(collection.Snapshot.MeshPaths)+1)
 	appendObservation := func(kind string, payload proto.Message) {
 		result = append(result, Observation{
 			Kind: kind, ObservedAt: observedAt, Classification: model.EvidenceDetected,
@@ -414,6 +414,12 @@ func (collection *Collection) Observations() []Observation {
 	}
 	for _, item := range collection.Snapshot.Flows {
 		appendObservation("flow.updated", proto.Clone(item))
+	}
+	for _, item := range collection.Snapshot.MeshPeers {
+		appendObservation("mesh.peer_changed", proto.Clone(item))
+	}
+	for _, item := range collection.Snapshot.MeshPaths {
+		appendObservation("mesh.path_changed", proto.Clone(item))
 	}
 	return result
 }
