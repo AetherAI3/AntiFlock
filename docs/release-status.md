@@ -1,6 +1,6 @@
 # Reference vertical-slice release status
 
-Status date: 2026-07-22
+Status date: 2026-07-23
 
 The repository implements the locked, local, simulation-backed protected-action
 vertical slice. This is an engineering completion boundary, not a claim of
@@ -10,7 +10,7 @@ production network protection or public-launch readiness.
 
 | Capability | Current state | Evidence boundary |
 | --- | --- | --- |
-| Identity and enrollment | Durable deployment/operator identity, one-time enrollment, node lifecycle, scoped credentials | Local Core and reference agents; platform keystore enrollment remains external work |
+| Identity and enrollment | Durable deployment/operator identity, operator-scoped one-time enrollment, node lifecycle, scoped credentials, and an agent-side retry-safe key/proof bootstrap command | Operator approval and certificate retrieval remain a manual handoff; platform-keystore enrollment remains external work |
 | Event and projection spine | Immutable idempotent events, SQLite projections, replay cursors, retention, signed hash-chained audit | Local relational store; no hosted replication claim |
 | Decision plane | Deterministic posture, findings, policy compilation, signed expiring plans, secure-action gate | Decisions use available evidence and remain fail-closed on missing or stale inputs |
 | Agent observation | Enrolled mTLS agent, signed durable queue, continuous Linux network/route/DNS collection, opt-in socket metadata, Tailscale read-only CLI probe, and Headscale BYOK read | Host observations are `DETECTED`; no packet/application payload, provider mutation, or process attribution is claimed |
