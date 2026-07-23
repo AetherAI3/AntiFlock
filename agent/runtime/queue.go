@@ -33,6 +33,7 @@ type queuedEvent struct {
 
 type queueState struct {
 	SchemaVersion string `json:"schemaVersion"`
+	NodeID string `json:"nodeId"`
 	LastSequence uint64 `json:"lastSequence"`
 	Events []queuedEvent `json:"events"`
 }
@@ -41,17 +42,18 @@ type queueState struct {
 // protobuf envelopes verbatim; retries never re-sign or regenerate them.
 type Queue struct {
 	directory string
+	nodeID string
 	mu sync.Mutex
 	state queueState
 }
 
-func OpenQueue(directory string) (*Queue, error) {
-	if strings.TrimSpace(directory) == "" { return nil, errors.New("agent queue directory is required") }
+func OpenQueue(directory, nodeID string) (*Queue, error) {
+	if strings.TrimSpace(directory) == "" || strings.TrimSpace(nodeID) == "" { return nil, errors.New("agent queue directory and node id are required") }
 	if err := os.MkdirAll(directory, 0o700); err != nil { return nil, errors.New("create agent queue directory") }
 	absolute, err := filepath.Abs(directory); if err != nil { return nil, errors.New("resolve agent queue directory") }
 	resolved, err := filepath.EvalSymlinks(absolute); if err != nil || filepath.Clean(resolved) != filepath.Clean(absolute) { return nil, errors.New("agent queue directory must not traverse symlinks") }
 	if err := os.Chmod(absolute, 0o700); err != nil { return nil, errors.New("protect agent queue directory") }
-	queue := &Queue{directory: absolute, state: queueState{SchemaVersion: queueSchema}}
+	queue := &Queue{directory: absolute, nodeID: nodeID, state: queueState{SchemaVersion: queueSchema, NodeID: nodeID}}
 	if err := queue.load(); err != nil { return nil, err }
 	return queue, nil
 }
@@ -85,11 +87,14 @@ func (queue *Queue) Batch(ctx context.Context, maximum int) ([]*antiflockv1.Even
 	queue.mu.Lock(); defer queue.mu.Unlock()
 	capacity := len(queue.state.Events); if capacity > maximum { capacity = maximum }
 	values := make([]*antiflockv1.EventEnvelope, 0, capacity)
+	bootID := ""
 	for _, stored := range queue.state.Events {
 		if len(values) == maximum { break }
 		wire, err := base64.RawStdEncoding.DecodeString(stored.Wire); if err != nil { return nil, errors.New("queued event encoding is invalid") }
 		var event antiflockv1.EventEnvelope
-		if err := proto.Unmarshal(wire, &event); err != nil || event.GetId() == "" || event.GetSequence() == 0 { return nil, errors.New("queued event is invalid") }
+		if err := proto.Unmarshal(wire, &event); err != nil || event.GetId() == "" || event.GetSequence() == 0 || event.GetNodeId() != queue.nodeID || event.GetBootId() == "" { return nil, errors.New("queued event is invalid") }
+		if bootID == "" { bootID = event.GetBootId() }
+		if event.GetBootId() != bootID { continue }
 		values = append(values, &event)
 	}
 	sort.Slice(values, func(left, right int) bool { return values[left].GetSequence() < values[right].GetSequence() })
@@ -129,7 +134,7 @@ func (queue *Queue) load() error {
 	decoder := json.NewDecoder(strings.NewReader(string(content))); decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&queue.state); err != nil { return errors.New("decode agent queue") }
 	var extra any; if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) { return errors.New("agent queue contains trailing data") }
-	if queue.state.SchemaVersion != queueSchema || len(queue.state.Events) > maximumQueueEvents { return errors.New("agent queue schema is invalid") }
+	if queue.state.SchemaVersion != queueSchema || queue.state.NodeID != queue.nodeID || len(queue.state.Events) > maximumQueueEvents { return errors.New("agent queue schema is invalid") }
 	return nil
 }
 
