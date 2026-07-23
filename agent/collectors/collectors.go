@@ -63,6 +63,11 @@ type LinuxConfig struct {
 	IncludeInterfaceAddresses bool
 	IncludeSearchDomains      bool
 	IncludeNonDefaultRoutes   bool
+	IncludeFlowMetadata       bool
+	TCPTablePath              string
+	TCP6TablePath             string
+	UDPTablePath              string
+	UDP6TablePath             string
 	Clock                     func() time.Time
 	Files                     FileReader
 	Interfaces                InterfaceSource
@@ -94,6 +99,10 @@ func NewLinuxCollector(config LinuxConfig) (*LinuxCollector, error) {
 	if config.ResolvConfPath == "" {
 		config.ResolvConfPath = defaultResolvConf
 	}
+	if config.TCPTablePath == "" { config.TCPTablePath = defaultTCPTable }
+	if config.TCP6TablePath == "" { config.TCP6TablePath = defaultTCP6Table }
+	if config.UDPTablePath == "" { config.UDPTablePath = defaultUDPTable }
+	if config.UDP6TablePath == "" { config.UDP6TablePath = defaultUDP6Table }
 	if config.Clock == nil {
 		config.Clock = func() time.Time { return time.Now().UTC() }
 	}
@@ -147,6 +156,13 @@ func (collector *LinuxCollector) Collect(ctx context.Context) (*Collection, erro
 	} else if result.Snapshot.Dns, err = parseDNS(dnsBytes, observedAt, collector.config.IncludeSearchDomains); err != nil {
 		result.Snapshot.Dns = nil
 		result.HealthReasonCodes = append(result.HealthReasonCodes, "AF-COLLECTOR-DNS-INVALID")
+	}
+
+	if collector.config.IncludeFlowMetadata {
+		result.Snapshot.Flows, result.HealthReasonCodes = collector.collectFlows(observedAt), result.HealthReasonCodes
+		flows, reasons := collector.collectFlows(observedAt)
+		result.Snapshot.Flows = flows
+		result.HealthReasonCodes = append(result.HealthReasonCodes, reasons...)
 	}
 
 	sort.Strings(result.HealthReasonCodes)
@@ -381,7 +397,7 @@ func (collection *Collection) Observations() []Observation {
 		return nil
 	}
 	observedAt := collection.Snapshot.ObservedAt.AsTime().UTC()
-	result := make([]Observation, 0, len(collection.Snapshot.Interfaces)+len(collection.Snapshot.Routes)+1)
+	result := make([]Observation, 0, len(collection.Snapshot.Interfaces)+len(collection.Snapshot.Routes)+len(collection.Snapshot.Flows)+1)
 	appendObservation := func(kind string, payload proto.Message) {
 		result = append(result, Observation{
 			Kind: kind, ObservedAt: observedAt, Classification: model.EvidenceDetected,
@@ -396,6 +412,9 @@ func (collection *Collection) Observations() []Observation {
 	}
 	if collection.Snapshot.Dns != nil {
 		appendObservation("network.dns_changed", proto.Clone(collection.Snapshot.Dns))
+	}
+	for _, item := range collection.Snapshot.Flows {
+		appendObservation("flow.updated", proto.Clone(item))
 	}
 	return result
 }
