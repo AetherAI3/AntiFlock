@@ -33,7 +33,8 @@ type Client struct {
 }
 
 // NewClient only permits plain HTTP to a loopback Core. A remotely reachable
-// Core requires HTTPS; signing and enrollment remain outside this transport.
+// Core requires HTTPS. HTTPS callers may authenticate with an approved node
+// client certificate instead of a bearer token.
 func NewClient(config Config) (*Client, error) {
 	endpoint, err := url.Parse(strings.TrimSpace(config.Endpoint))
 	if err != nil || endpoint.Scheme == "" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
@@ -46,7 +47,10 @@ func NewClient(config Config) (*Client, error) {
 		return nil, errors.New("agent ingest requires https outside loopback")
 	}
 	token := strings.TrimSpace(config.Token)
-	if len(token) < 32 {
+	if endpoint.Scheme == "http" && len(token) < 32 {
+		return nil, errors.New("loopback HTTP agent ingest requires a token of at least 32 bytes")
+	}
+	if token != "" && len(token) < 32 {
 		return nil, errors.New("agent ingest token must contain at least 32 bytes")
 	}
 	if config.HTTP == nil {
@@ -81,7 +85,9 @@ func (client *Client) Submit(ctx context.Context, input *antiflockv1.SubmitEvent
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("Accept-Encoding", "identity")
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Authorization", "Bearer "+client.token)
+	if client.token != "" {
+		request.Header.Set("Authorization", "Bearer "+client.token)
+	}
 	response, err := client.http.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
