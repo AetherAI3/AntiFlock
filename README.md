@@ -118,6 +118,14 @@ antiflock-agent enroll \\
 
 Use `--ca-cert` only when Core uses a private CA; omit it for a publicly trusted certificate. The first result remains `pending-operator-approval`. An authorized operator must review and approve it. Then rerun the same command: Core returns the approved certificate only to the holder of the original private enrollment token, and the agent verifies it matches `node.seed` before saving private PEM at `state-dir/node.pem`. Only then can `--submit` use mTLS. This preserves a human enrollment decision while making endpoint-side setup repeatable.
 
+At any point, inspect local enrollment and durable-queue readiness without printing a seed, certificate, token, or queued telemetry:
+
+```bash
+antiflock-agent status --node-id node_laptop_01 --state-dir /var/lib/antiflock --queue-dir /var/lib/antiflock/queue
+```
+
+`identity: ready` means the private certificate verifies against the enrolled seed; `pending-operator-approval` is expected before the operator approves enrollment. See the [enrolled-agent setup](docs/agent-watchdog-loop.md) for the full output contract.
+
 ### Tailscale status preview
 
 On a Linux device with the official Tailscale client already installed and connected, the current agent can inspect local mesh state without changing it:
@@ -188,7 +196,7 @@ These are visible project work items, not implied capabilities. They are tracked
 
 | Area | What exists now | OPEN before calling it production |
 | --- | --- | --- |
-| Tailscale / Headscale | Tailscale CLI and Headscale `GET /api/v1/node` can run through the enrolled agent queue; Headscale uses an explicit read-only BYOK file and identity map | roaming/partition tests, key rotation/revocation, and operator-visible status |
+| Tailscale / Headscale | Tailscale CLI and Headscale `GET /api/v1/node` can run through the enrolled agent queue; Headscale uses an explicit read-only BYOK file and identity map | roaming/partition tests, key rotation/revocation, and live Third-Eye setup/status polling |
 | Third-Eye | authenticated local dashboard with live Core projections and endpoint setup cards | topology provenance UX, live setup/status polling, and production deployment/review |
 | Network traffic monitor | opt-in Linux socket-table endpoint metadata (`flow.updated`); no packets, payloads, bytes, direction, or process data | retention controls, process attribution limits, non-Linux collectors, and real-network/privacy validation |
 | Nano watchdog | deterministic parser/evaluator, durable SQLite cursor, audited immutable program admission, and proposal-only Core API | automatic finding scheduling, disable/version lifecycle, replay fixtures, and dashboard/audit presentation |
