@@ -77,7 +77,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	interval := flags.Duration("interval", 30*time.Second, "continuous collection interval for --submit")
 	once := flags.Bool("once", false, "perform one durable collection/submission cycle and exit")
 	clientCertificate := flags.String("client-cert", "", "approved node client certificate PEM for mTLS")
-	clientKey := flags.String("client-key", "", "private key PEM for --client-cert")
+	clientKey := flags.String("client-key", "", "optional PEM key; normally the enrolled node-key-file is used for mTLS")
 	caCertificate := flags.String("ca-cert", "", "Core node CA PEM used to verify an mTLS Core")
 	if err := flags.Parse(arguments); err != nil {
 		return err
@@ -120,7 +120,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		if token == "" && strings.TrimSpace(*clientCertificate) == "" {
 			return errors.New("--submit requires agent-token-file or an approved client-cert")
 		}
-		httpClient, err := newAgentHTTPClient(*clientCertificate, *clientKey, *caCertificate)
+		httpClient, err := newAgentHTTPClient(*clientCertificate, *clientKey, *nodeKeyFile, *caCertificate)
 		if err != nil { return err }
 		submitter, err := ingest.NewClient(ingest.Config{Endpoint: *coreURL, Token: token, HTTP: httpClient})
 		if err != nil { return err }
@@ -262,15 +262,21 @@ func readAssociations(path string) (map[string]string, error) {
 	return values, nil
 }
 
-func newAgentHTTPClient(certificatePath, keyPath, caPath string) (*http.Client, error) {
+func newAgentHTTPClient(certificatePath, keyPath, nodeSeedPath, caPath string) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DisableCompression = true
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS13}
-	if (certificatePath == "") != (keyPath == "") { return nil, errors.New("client-cert and client-key must be provided together") }
+	if certificatePath == "" && keyPath != "" { return nil, errors.New("client-key requires client-cert") }
 	if certificatePath != "" {
-		if err := validateRegularFile(certificatePath, false); err != nil { return nil, errors.New("node client certificate file is invalid") }
-		if err := validateRegularFile(keyPath, true); err != nil { return nil, errors.New("node client key file must be private and regular") }
-		certificate, err := tls.LoadX509KeyPair(certificatePath, keyPath)
+		var certificate tls.Certificate
+		var err error
+		if keyPath != "" {
+			if err := validateRegularFile(certificatePath, false); err != nil { return nil, errors.New("node client certificate file is invalid") }
+			if err := validateRegularFile(keyPath, true); err != nil { return nil, errors.New("node client key file must be private and regular") }
+			certificate, err = tls.LoadX509KeyPair(certificatePath, keyPath)
+		} else {
+			certificate, err = runtime.LoadNodeCertificate(certificatePath, nodeSeedPath)
+		}
 		if err != nil { return nil, errors.New("load node client certificate") }
 		transport.TLSClientConfig.Certificates = []tls.Certificate{certificate}
 	}
