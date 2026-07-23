@@ -49,3 +49,18 @@ func batch() *antiflockv1.SubmitEventBatchRequest {
 		BatchId: "batch-1", NodeId: "node-1", Events: []*antiflockv1.EventEnvelope{{Id: "event-1", NodeId: "node-1", BootId: "boot-1"}},
 	}}
 }
+
+func TestClientAllowsCertificateOnlyHTTPSIngest(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "" {
+			t.Fatal("certificate-only ingest unexpectedly sent a bearer token")
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(response, "{\"ack\":{\"batchId\":\"batch-1\",\"highestContiguousSequence\":\"1\",\"rejected\":[]}}")
+	}))
+	defer server.Close()
+	client, err := ingest.NewClient(ingest.Config{Endpoint: server.URL, HTTP: server.Client()})
+	if err != nil { t.Fatal(err) }
+	if _, err := client.Submit(context.Background(), batch()); err != nil { t.Fatal(err) }
+}
