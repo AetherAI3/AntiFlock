@@ -22,6 +22,8 @@ func TestRegistryAdmitsImmutableProgramAndRunsFinding(t *testing.T) {
 	registry, err := nano.NewRegistry(database, auditService, func() time.Time { return now }); if err != nil { t.Fatal(err) }
 	record, err := registry.Admit(ctx, nano.AdmissionRequest{NodeID: "node-test", Source: probeWatch, BindingID: nano.BindingScramblerSimulation, OperationID: "admit-probe-watch", ActorID: "operator-test"})
 	if err != nil || record.ProgramDigest == "" { t.Fatalf("record=%#v err=%v", record, err) }
+	replay, err := registry.Admit(ctx, nano.AdmissionRequest{NodeID: "node-test", Source: probeWatch, BindingID: nano.BindingScramblerSimulation, OperationID: "admit-probe-watch", ActorID: "operator-test"})
+	if err != nil || replay.ID != record.ID { t.Fatalf("replay=%#v err=%v", replay, err) }
 	result, err := registry.RunFinding(ctx, record.ID, nano.FindingContext{FindingID: "finding-404", NodeID: "node-test", ReasonCode: "404 probing", Confidence: .91, ObservedUnix: 100})
 	if err != nil || len(result.Proposals) != 1 { t.Fatalf("result=%#v err=%v", result, err) }
 	programs, err := registry.List(ctx, "node-test")
