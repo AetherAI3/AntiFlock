@@ -10,7 +10,6 @@ import (
 	"time"
 
 	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -98,8 +97,4 @@ func parseProcEndpoint(value string) (*antiflockv1.FlowEndpoint, error) {
 	return &antiflockv1.FlowEndpoint{Address: ip.String(), Port: uint32(port)}, nil
 }
 
-// flowObservationTime documents that a kernel socket table is a current
-// snapshot. It is intentionally not written into FlowObservation.started_at
-// because the kernel table cannot prove the connection start time.
-func flowObservationTime(value time.Time) *timestamppb.Timestamp { return timestamppb.New(value.UTC()) }
 
