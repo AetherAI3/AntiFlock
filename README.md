@@ -131,7 +131,7 @@ It runs only `tailscale status --json`; it never invokes `up`, `down`, `set`, `s
 
 ### BYOK today
 
-The local demo generates its own development credentials. Current Tailscale and Headscale probes are read-only and do not need a provider API key. If you add a provider integration, keep credentials in a local secret file or platform keystore, scope them to read-only access, and never put them in YAML, browser code, Git, or issue text. Live provider execution is **OPEN**, not a hidden feature flag.
+The local demo generates its own development credentials. Current Tailscale and Headscale probes are read-only and do not need a provider API key. If you add a provider integration, keep credentials in a local secret file or platform keystore, scope them to read-only access, and never put them in YAML, browser code, Git, or issue text. The agent accepts a separate `--headscale-ca-cert` for a private Headscale HTTPS certificate. Live provider execution is **OPEN**, not a hidden feature flag.
 
 ## The evidence rule
 
