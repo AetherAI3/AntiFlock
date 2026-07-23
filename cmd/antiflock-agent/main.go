@@ -268,11 +268,14 @@ func newAgentHTTPClient(certificatePath, keyPath, caPath string) (*http.Client, 
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS13}
 	if (certificatePath == "") != (keyPath == "") { return nil, errors.New("client-cert and client-key must be provided together") }
 	if certificatePath != "" {
+		if err := validateRegularFile(certificatePath, false); err != nil { return nil, errors.New("node client certificate file is invalid") }
+		if err := validateRegularFile(keyPath, true); err != nil { return nil, errors.New("node client key file must be private and regular") }
 		certificate, err := tls.LoadX509KeyPair(certificatePath, keyPath)
 		if err != nil { return nil, errors.New("load node client certificate") }
 		transport.TLSClientConfig.Certificates = []tls.Certificate{certificate}
 	}
 	if caPath != "" {
+		if err := validateRegularFile(caPath, false); err != nil { return nil, errors.New("Core CA certificate file is invalid") }
 		content, err := os.ReadFile(caPath)
 		if err != nil || len(content) == 0 || len(content) > 1<<20 { return nil, errors.New("read bounded Core CA certificate") }
 		pool := x509.NewCertPool()
@@ -280,6 +283,16 @@ func newAgentHTTPClient(certificatePath, keyPath, caPath string) (*http.Client, 
 		transport.TLSClientConfig.RootCAs = pool
 	}
 	return &http.Client{Timeout: 15 * time.Second, Transport: transport, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, nil
+}
+
+
+func validateRegularFile(path string, private bool) error {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 1<<20 {
+		return errors.New("file is not a bounded regular file")
+	}
+	if private && info.Mode().Perm() != 0o600 { return errors.New("file is not private") }
+	return nil
 }
 
 func marshalMessage(options protojson.MarshalOptions, message proto.Message) (json.RawMessage, error) {
