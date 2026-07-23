@@ -66,6 +66,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	compact := flags.Bool("compact", false, "write compact JSON")
 	submit := flags.Bool("submit", false, "persist and submit signed telemetry to Core (default is inspect-only JSON)")
 	coreURL := flags.String("core-url", "", "Core HTTPS URL for --submit")
+	deploymentID := flags.String("deployment-id", "", "AntiFlock deployment id that enrolled this node")
 	agentTokenFile := flags.String("agent-token-file", "", "optional private bearer-token file (loopback/demo only)")
 	nodeKeyFile := flags.String("node-key-file", "", "private Ed25519 seed created during enrollment")
 	queueDirectory := flags.String("queue-dir", "", "private durable queue directory")
@@ -107,8 +108,8 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	if *submit {
-		if strings.TrimSpace(*coreURL) == "" || strings.TrimSpace(*nodeKeyFile) == "" || strings.TrimSpace(*queueDirectory) == "" {
-			return errors.New("--submit requires core-url, node-key-file, and queue-dir")
+		if strings.TrimSpace(*coreURL) == "" || strings.TrimSpace(*deploymentID) == "" || strings.TrimSpace(*nodeKeyFile) == "" || strings.TrimSpace(*queueDirectory) == "" {
+			return errors.New("--submit requires core-url, deployment-id, node-key-file, and queue-dir")
 		}
 		token, err := readPrivateSecret(*agentTokenFile)
 		if err != nil { return err }
@@ -124,7 +125,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		signer, err := runtime.LoadFileSigner(*nodeID, *nodeKeyFile, func() time.Time { return time.Now().UTC() })
 		if err != nil { return err }
 		loop, err := runtime.NewLoop(runtime.LoopConfig{
-			DeploymentID: "local-config-required", NodeID: *nodeID, BootID: *bootID, Interval: *interval,
+			DeploymentID: *deploymentID, NodeID: *nodeID, BootID: *bootID, Interval: *interval,
 			Collector: collector, Queue: queue, Signer: signer, Submitter: submitter,
 		})
 		if err != nil { return err }
