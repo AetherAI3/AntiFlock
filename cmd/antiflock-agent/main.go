@@ -102,7 +102,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		NodeID: *nodeID, BootID: *bootID, RouteTablePath: *routeTable, ResolvConfPath: *resolvConf,
 		IncludeInterfaceAddresses: *includeAddresses, IncludeSearchDomains: *includeSearchDomains,
 		IncludeNonDefaultRoutes: *includeNonDefaultRoutes, IncludeFlowMetadata: *includeFlowMetadata,
-		Clock: func() time.Time { return observedAt },
+		Clock: func() time.Time { return time.Now().UTC() },
 	})
 	if err != nil {
 		return err
