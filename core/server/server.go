@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -39,6 +40,8 @@ type Options struct {
 	Findings         *findings.Service
 	Scrambler        *scrambler.Planner
 	NanoRegistry     *nano.Registry
+	NanoRunInterval  time.Duration
+	NanoRunProgramIDs []string
 	DeploymentID     string
 	Credentials      []Credential
 	AuthorizationKey []byte
@@ -61,6 +64,8 @@ type Server struct {
 	findings      *findings.Service
 	scrambler     *scrambler.Planner
 	nano          *nano.Registry
+	nanoRunInterval time.Duration
+	nanoRunProgramIDs []string
 	authenticator *tokenAuthenticator
 	actions       *actionGate
 	deploymentID  string
@@ -130,7 +135,11 @@ func (server *Server) Serve(ctx context.Context) error {
 		return errors.New("core server context is required")
 	}
 	serveCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	watchdogDone := server.startNanoWatchdogScheduler(serveCtx)
+	defer func() {
+		cancel()
+		<-watchdogDone
+	}()
 	httpServer := &http.Server{
 		Addr: server.config.Server.Listen, Handler: server.Handler(),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second,
