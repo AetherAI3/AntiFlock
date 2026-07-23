@@ -85,12 +85,32 @@ antiflockctl watchdog run-open-findings \\
   --program-id WATCHDOG_ID
 ```
 
-It is an operator-invoked, proposal-only pass—not a background scheduler or an action path.
+It is an operator-invoked, proposal-only pass—not an action path.
 
-Still **OPEN**: unattended finding-to-program scheduling, program disable/version
-lifecycle, proposal audit projection in Third-Eye, replay fixtures, and a dedicated
-operator authoring flow. Nano remains host-governed: it cannot fetch data, read
-secrets, call a provider, or execute a response.
+### Opt-in Core scheduler
+
+For a continuous pass, the Core operator must name the already-admitted program
+IDs explicitly in Core configuration. The scheduler is disabled when this block
+is absent. It never discovers programs automatically and it serializes passes,
+so a slow program cannot overlap itself.
+
+```yaml
+nano:
+  automaticRunInterval: 5m
+  automaticRunProgramIds:
+    - WATCHDOG_ID
+```
+
+The interval must be between one second and 24 hours, and the allowlist holds
+at most 32 IDs. Each scheduled pass receives only the same current, bounded
+OPEN finding projection as the operator endpoint. A pass has no authorization
+or execution capability; it can emit only expiring proposals through the
+existing consent gate.
+
+Still **OPEN**: program disable/version lifecycle, durable proposal audit
+projection in Third-Eye, replay fixtures, and a dedicated operator authoring
+flow. Nano remains host-governed: it cannot fetch data, read secrets, call a
+provider, or execute a response.
 
 ## Public-surface and physical references
 
