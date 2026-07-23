@@ -7,8 +7,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -44,7 +46,7 @@ type Config struct {
 	Clock func() time.Time
 }
 
-type Result struct { EnrollmentID string; ProposedNodeID string; StateDirectory string }
+type Result struct { EnrollmentID string; ProposedNodeID string; StateDirectory string; Status antiflockv1.EnrollmentStatus; CertificateChainDER []byte }
 type state struct { SchemaVersion string `json:"schemaVersion"`; NodeID string `json:"nodeId"`; RequestID string `json:"requestId"` }
 
 // Submit preserves one Ed25519 seed and request identifier per state directory,
@@ -73,7 +75,37 @@ func Submit(ctx context.Context, config Config) (Result, error) {
 	if readErr != nil || response.StatusCode != http.StatusAccepted { return Result{}, errors.New("Core did not accept enrollment request") }
 	var output antiflockv1.EnrollNodeResponse
 	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(content, &output); err != nil || output.GetEnrollment() == nil || output.GetEnrollment().GetId() == "" { return Result{}, errors.New("decode Core enrollment response") }
-	return Result{EnrollmentID: output.GetEnrollment().GetId(), ProposedNodeID: output.GetEnrollment().GetProposedNodeId(), StateDirectory: config.StateDirectory}, nil
+	certificateDER := append([]byte(nil), output.GetNodeCertificateChainDer()...)
+	if output.GetEnrollment().GetStatus() == antiflockv1.EnrollmentStatus_ENROLLMENT_STATUS_APPROVED {
+		if len(certificateDER) == 0 || !certificateMatches(privateKey, certificateDER) { return Result{}, errors.New("Core approval did not return the enrolled node certificate") }
+	} else if len(certificateDER) != 0 { return Result{}, errors.New("Core returned a certificate before enrollment approval") }
+	return Result{EnrollmentID: output.GetEnrollment().GetId(), ProposedNodeID: output.GetEnrollment().GetProposedNodeId(), StateDirectory: config.StateDirectory, Status: output.GetEnrollment().GetStatus(), CertificateChainDER: certificateDER}, nil
+}
+
+
+// SaveApprovedCertificate persists the Core-issued certificate only when it
+// matches the enrolled seed. Existing certificate material is never replaced.
+func SaveApprovedCertificate(seedPath, certificatePath string, certificateDER []byte) error {
+	privateKey, err := loadSeed(seedPath); if err != nil { return err }
+	if !certificateMatches(privateKey, certificateDER) { return errors.New("approved certificate does not match enrolled seed") }
+	if strings.TrimSpace(certificatePath) == "" { return errors.New("approved certificate path is required") }
+	parent := filepath.Dir(certificatePath)
+	info, err := os.Lstat(parent)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 { return errors.New("approved certificate directory must exist and not be a symlink") }
+	content := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER})
+	if existing, err := os.Lstat(certificatePath); err == nil {
+		if !existing.Mode().IsRegular() || existing.Mode()&os.ModeSymlink != 0 || existing.Mode().Perm() != privateFileMode || existing.Size() == 0 || existing.Size() > 1<<20 { return errors.New("approved certificate file is not private and regular") }
+		previous, err := os.ReadFile(certificatePath); if err != nil || !bytes.Equal(previous, content) { return errors.New("approved certificate already exists with different contents") }
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) { return errors.New("inspect approved certificate file") }
+	return writePrivateNew(certificatePath, content)
+}
+
+func certificateMatches(privateKey ed25519.PrivateKey, certificateDER []byte) bool {
+	leaf, err := x509.ParseCertificate(certificateDER)
+	if err != nil { return false }
+	publicKey, ok := leaf.PublicKey.(ed25519.PublicKey)
+	return ok && publicKey.Equal(privateKey.Public())
 }
 
 func capabilityManifest(now time.Time) *antiflockv1.CapabilityManifest {
