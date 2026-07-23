@@ -71,6 +71,45 @@ strategy PublicSurfaceWatch {
 
 The program does not name a host, URL, secret, destination, command, or action parameters. At admission time, the operator selects one fixed binding—such as an offline owned-surface fixture query—and the binding fixes the application ID, action type, data class, sensitivity, and destination. The operator must still authorize each proposal through the existing consent workflow.
 
+## Operator commands
+
+`antiflockctl` submits the narrow API contract without putting the operator
+bearer token in a shell argument. Keep the operator token in a local `0600`
+file, and use `--ca-cert` only for a private Core CA.
+
+```bash
+antiflockctl watchdog admit \
+  --url https://core.example.test \
+  --token-file /etc/antiflock/operator.token \
+  --ca-cert /etc/antiflock/node-ca.pem \
+  --node-id node_laptop_01 \
+  --source-file ./probe-watch.nano \
+  --binding-id scrambler-simulation-v1 \
+  --operation-id watchdog-admit-laptop-01-v1
+```
+
+The admitted binding must be one of the fixed profile bindings, such as
+`scrambler-simulation-v1`, `fixture-shodan-query-v1`,
+`fixture-broker-query-v1`, `fixture-paste-query-v1`, or
+`countermeasure-plan-v1`; source cannot create a binding.
+
+To evaluate one explicitly typed finding against the admitted program:
+
+```bash
+antiflockctl watchdog run \
+  --url https://core.example.test \
+  --token-file /etc/antiflock/operator.token \
+  --program-id WATCHDOG_ID \
+  --finding-id finding_unexpected_exposure_01 \
+  --node-id node_laptop_01 \
+  --reason-code UNEXPECTED_EXPOSURE \
+  --confidence 0.95 \
+  --observed-unix 1760000000
+```
+
+The command returns proposals only. It never calls a provider or executes an
+action; the existing consent gate remains the only authorization path.
+
 Still **OPEN**: automatic finding-to-program scheduling, program disable/version
 lifecycle, proposal projection in Third-Eye, replay fixtures, and a dedicated
 operator authoring flow. Nano remains host-governed: it cannot fetch data, read
