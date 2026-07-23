@@ -50,7 +50,11 @@ func LoadNodeCertificate(certificatePath, seedPath string) (tls.Certificate, err
 		rest = remaining
 	}
 	if len(values) == 0 { return tls.Certificate{}, errors.New("node certificate file contains no certificate") }
-	return tls.Certificate{Certificate: values, PrivateKey: privateKey, Leaf: nil}, nil
+	leaf, err := x509.ParseCertificate(values[0])
+	if err != nil { return tls.Certificate{}, errors.New("node certificate is invalid") }
+	certificateKey, ok := leaf.PublicKey.(ed25519.PublicKey)
+	if !ok || !certificateKey.Equal(privateKey.Public()) { return tls.Certificate{}, errors.New("node certificate does not match enrolled seed") }
+	return tls.Certificate{Certificate: values, PrivateKey: privateKey, Leaf: leaf}, nil
 }
 
 func loadNodePrivateKey(path string) (ed25519.PrivateKey, error) {
