@@ -65,7 +65,9 @@ antiflock-agent \
 
 Omit the flow flag to avoid endpoint metadata. Omit the mesh flag to avoid the
 provider probe. To use Headscale instead of Tailscale, save the read-only API key
-in a `0600` file and pass an explicit association map. For a private Headscale certificate, pass its CA PEM with `--headscale-ca-cert`:
+in a `0600` file and pass an explicit association map. The agent rereads that
+file before every collection cycle, so atomically replacing it rotates the key
+without restarting the continuous agent. For a private Headscale certificate, pass its CA PEM with `--headscale-ca-cert`:
 
 ```json
 { "headscale-provider-id": "node_laptop_01" }
@@ -119,7 +121,7 @@ between the first enrollment command and operator approval.
 | Flow monitor | Process attribution, bytes/duration, retention controls, non-Linux collectors, and independent privacy review. |
 | Tailscale / Headscale | Roaming/partition tests and live setup/status polling. Both read-only probes are wired into the agent loop; Third-Eye has static setup cards. |
 | Nano | Program disable/version lifecycle, durable proposal-audit projection, replay fixtures, and dedicated authoring UX. Audited admission, deterministic proposal-only API, and an explicit bounded Core scheduler are wired. |
-| BYOK providers | Key rotation/revocation, platform-keystore references, outbound egress controls, audit records, and integration tests. The Headscale key is read only from a local private file and never sent to Core/Nano. |
+| BYOK providers | Credential revocation, platform-keystore references, outbound egress controls, audit records, and integration tests. The Headscale key is reread from a local private file on every cycle and never sent to Core/Nano. |
 
 No OPEN item can be enabled by a boolean. Each must gain its own least-privilege
 contract, tests, and security/privacy review before it affects a real system.
