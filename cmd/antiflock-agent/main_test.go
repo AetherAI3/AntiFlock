@@ -19,9 +19,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DBarr3/AntiFlock/agent/collectors"
 	"github.com/DBarr3/AntiFlock/agent/runtime"
 	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestAgentExecutableExposesReadOnlyCollectionOnly(t *testing.T) {
@@ -99,5 +101,48 @@ func TestStatusRejectsControlCharactersInNodeID(t *testing.T) {
 	err := run(context.Background(), []string{"status", "--node-id", "node-status\nforged", "--queue-dir", t.TempDir()}, &stdout, &stderr)
 	if err == nil || !strings.Contains(err.Error(), "canonical node-id") {
 		t.Fatalf("status control-character result = %v", err)
+	}
+}
+
+
+func TestHeadscaleCollectorReloadsPrivateKeyBetweenCycles(t *testing.T) {
+	directory := t.TempDir()
+	keyPath := filepath.Join(directory, "headscale.token")
+	if err := os.WriteFile(keyPath, []byte("first-read-only-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var authorizations []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/api/v1/node" {
+			http.NotFound(writer, request)
+			return
+		}
+		authorizations = append(authorizations, request.Header.Get("Authorization"))
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"nodes":[]}`))
+	}))
+	defer server.Close()
+
+	now := time.Now().UTC()
+	base := runtime.CollectorFunc(func(context.Context) (*collectors.Collection, error) {
+		return &collectors.Collection{Snapshot: &antiflockv1.ObservationSnapshot{
+			NodeId: "node-headscale", BootId: "boot-headscale", ObservedAt: timestamppb.New(now),
+		}}, nil
+	})
+	source, err := newHeadscaleCollector(base, headscaleCollectorConfig{BaseURL: server.URL, APIKeyFile: keyPath, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Collect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keyPath, []byte("second-read-only-key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Collect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(authorizations, ","), "Bearer first-read-only-key,Bearer second-read-only-key"; got != want {
+		t.Fatalf("Headscale authorization rotation = %q, want %q", got, want)
 	}
 }
