@@ -96,10 +96,10 @@ Linux device ── read-only routes / DNS / interface state ──┐
 Tailscale CLI ── `tailscale status --json` (read-only) ───┼──> signed events / Third-Eye
 Headscale API ── read-only `GET /api/v1/node` BYOK probe ─────────────┘             │
                                                                             v
-Nano source + typed finding ── deterministic proposal ──> Secure Action gate ──> consent + audit
+Nano source + Core finding ── deterministic expiring proposal ──> operator submits to Secure Action gate ──> consent + audit
 ```
 
-The safe direction of travel is deliberately one-way: adapters observe, Nano proposes, and only the existing gate can authorize a bounded action. No adapter, Nano program, dashboard, or provider key can silently become a host-mutation capability.
+The safe direction of travel is deliberately one-way: adapters observe, Nano proposes, and only an operator-submitted request through the existing gate can authorize a bounded action. No adapter, Nano program, dashboard, or provider key can silently become a host-mutation capability.
 
 ### Enroll an endpoint, then observe
 
