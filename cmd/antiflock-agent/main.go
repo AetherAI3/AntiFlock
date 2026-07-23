@@ -124,7 +124,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		if err != nil { return err }
 		submitter, err := ingest.NewClient(ingest.Config{Endpoint: *coreURL, Token: token, HTTP: httpClient})
 		if err != nil { return err }
-		queue, err := runtime.OpenQueue(*queueDirectory)
+		queue, err := runtime.OpenQueue(*queueDirectory, *nodeID)
 		if err != nil { return err }
 		signer, err := runtime.LoadFileSigner(*nodeID, *nodeKeyFile, func() time.Time { return time.Now().UTC() })
 		if err != nil { return err }
