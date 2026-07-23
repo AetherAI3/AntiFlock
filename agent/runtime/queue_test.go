@@ -62,3 +62,16 @@ func TestQueueExcludesConcurrentWritersAndReleasesOnClose(t *testing.T) {
 	if err != nil { t.Fatalf("queue did not release writer lock: %v", err) }
 	defer second.Close()
 }
+
+func TestInspectQueueReadsOnlySafeMetadataWhileWriterIsActive(t *testing.T) {
+	queue, err := OpenQueue(t.TempDir(), "node-1")
+	if err != nil { t.Fatal(err) }
+	defer queue.Close()
+	sequence, err := queue.NextSequence(context.Background())
+	if err != nil { t.Fatal(err) }
+	if err := queue.Enqueue(context.Background(), &antiflockv1.EventEnvelope{Id: "event-status", NodeId: "node-1", BootId: "boot-1", Sequence: sequence}, collectors.QueuePriorityObservation); err != nil { t.Fatal(err) }
+	status, err := InspectQueue(queue.directory, "node-1")
+	if err != nil || status.NodeID != "node-1" || status.LastSequence != sequence || status.RetainedEvents != 1 || status.MaximumEvents != maximumQueueEvents {
+		t.Fatalf("queue status=%#v err=%v", status, err)
+	}
+}
