@@ -88,7 +88,7 @@ used instead of the client certificate; it is rejected for a remote HTTP endpoin
 
 - Core unavailable: signed events stay in the node-bound queue. `--once` returns an error for a supervisor; continuous `--submit` waits for its next interval and retries the exact signed batch.
 - Agent reboot: queued telemetry is drained one boot ID at a time, so Core never receives a mixed-boot batch.
-- Queue full: collection stops with an error. The agent does not discard older telemetry to make room.
+- Queue full: that collection cycle is not partially persisted and stops with an error. The agent does not discard older telemetry to make room.
 - A malformed/partial Core acknowledgement: no events are removed.
 - A suspended or revoked node: Core rejects its mTLS identity before event processing.
 
