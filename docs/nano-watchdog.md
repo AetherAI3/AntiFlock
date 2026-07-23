@@ -75,8 +75,17 @@ Core can now run an admitted program over its own bounded set of current OPEN
 findings at `POST /v1/watchdogs/{id}/run-open-findings`. The request accepts no
 caller-supplied finding or signal; Core derives a sorted, capped typed context from
 its finding projection and skips stale findings. The equivalent operator command is
-`antiflockctl watchdog run-open-findings --program-id …`. This is an
-operator-invoked, proposal-only pass—not a background scheduler or an action path.
+`antiflockctl watchdog run-open-findings --program-id …`:
+
+```bash
+antiflockctl watchdog run-open-findings \\
+  --url https://core.example.test \\
+  --token-file /etc/antiflock/operator.token \\
+  --ca-cert /etc/antiflock/node-ca.pem \\
+  --program-id WATCHDOG_ID
+```
+
+It is an operator-invoked, proposal-only pass—not a background scheduler or an action path.
 
 Still **OPEN**: unattended finding-to-program scheduling, program disable/version
 lifecycle, proposal audit projection in Third-Eye, replay fixtures, and a dedicated
