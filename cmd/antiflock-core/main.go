@@ -23,6 +23,7 @@ import (
 	"github.com/DBarr3/AntiFlock/core/events"
 	"github.com/DBarr3/AntiFlock/core/findings"
 	"github.com/DBarr3/AntiFlock/core/identity"
+	"github.com/DBarr3/AntiFlock/core/nano"
 	"github.com/DBarr3/AntiFlock/core/policy"
 	"github.com/DBarr3/AntiFlock/core/posture"
 	"github.com/DBarr3/AntiFlock/core/scrambler"
@@ -139,6 +140,10 @@ func serve(arguments []string) error {
 	if err != nil {
 		return fmt.Errorf("initialize Scrambler planner: %w", err)
 	}
+	nanoRegistry, err := nano.NewRegistry(database, auditService, nil)
+	if err != nil {
+		return fmt.Errorf("initialize Nano watchdog registry: %w", err)
+	}
 	clientCAs := x509.NewCertPool()
 	clientCAs.AddCert(authority.CACert)
 	host, _, _ := net.SplitHostPort(configuration.Server.Listen)
@@ -160,7 +165,7 @@ func serve(arguments []string) error {
 		Config: configuration, Database: database, Events: eventStore, Audit: auditService,
 		Enrollment: enrollmentService, DeploymentID: authority.Deployment.DeploymentID,
 		PolicyCompiler: policyCompiler, PostureEngine: postureEngine,
-		Findings: findingService, Scrambler: scramblerPlanner, Credentials: credentials,
+		Findings: findingService, Scrambler: scramblerPlanner, NanoRegistry: nanoRegistry, Credentials: credentials,
 		AuthorizationKey: []byte(sdkToken), NodeClientCAs: clientCAs, Version: version,
 	})
 	if err != nil {
