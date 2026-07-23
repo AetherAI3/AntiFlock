@@ -53,6 +53,7 @@ func (collector *LinuxCollector) collectFlows(observedAt time.Time) ([]*antifloc
 
 func parseProcSocketTable(content []byte, protocol antiflockv1.TransportProtocol, label string, observedAt time.Time, limit int) ([]*antiflockv1.FlowObservation, error) {
 	if limit < 0 { return nil, errors.New("flow record limit is invalid") }
+	if limit == 0 { return nil, nil }
 	lines := strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n")
 	if len(lines) == 0 || !strings.Contains(lines[0], "local_address") { return nil, errors.New("socket table header is missing") }
 	result := make([]*antiflockv1.FlowObservation, 0)
@@ -64,7 +65,8 @@ func parseProcSocketTable(content []byte, protocol antiflockv1.TransportProtocol
 		if fields[3] == "0A" { continue }
 		local, err := parseProcEndpoint(fields[1]); if err != nil { return nil, err }
 		remote, err := parseProcEndpoint(fields[2]); if err != nil { return nil, err }
-		if remote.Address == "" || remote.Port == 0 || net.ParseIP(remote.Address).IsUnspecified() { continue }
+		remoteIP := net.ParseIP(remote.Address)
+		if remote.Address == "" || remote.Port == 0 || remoteIP == nil || remoteIP.IsUnspecified() { continue }
 		flow := &antiflockv1.FlowObservation{
 			FlowId: stableID("flow", label, local.Address, strconv.FormatUint(uint64(local.Port), 10), remote.Address, strconv.FormatUint(uint64(remote.Port), 10)),
 			Local: local, Remote: remote, Protocol: protocol, Direction: antiflockv1.FlowDirection_FLOW_DIRECTION_UNKNOWN,
