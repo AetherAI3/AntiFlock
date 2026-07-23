@@ -163,22 +163,15 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 			})
 		case "headscale":
 			if *meshDryRun { return errors.New("--mesh-dry-run is only available for tailscale") }
-			apiKey, err := readPrivateSecret(*headscaleAPIKeyFile)
-			if err != nil || apiKey == "" || strings.TrimSpace(*headscaleURL) == "" { return errors.New("headscale submission requires headscale-url and headscale-api-key-file") }
 			associations, err := readAssociations(*headscaleAssociationsFile)
 			if err != nil { return err }
 			headscaleHTTP, err := newAgentHTTPClient("", "", "", *headscaleCACertificate)
 			if err != nil { return err }
-			client, err := headscale.NewClient(headscale.Config{BaseURL: *headscaleURL, APIKey: apiKey, HTTPClient: headscaleHTTP, ProviderAssociations: associations, IncludeAddresses: *includeAddresses})
-			if err != nil { return err }
-			source = runtime.CollectorFunc(func(runContext context.Context) (*collectors.Collection, error) {
-				collection, err := collector.Collect(runContext)
-				if err != nil { return nil, err }
-				mesh, err := client.ListNodes(runContext, collection.Snapshot.ObservedAt.AsTime().UTC())
-				if err != nil { return nil, err }
-				collection.Snapshot.MeshPeers = mesh.Peers
-				return collection, nil
+			source, err = newHeadscaleCollector(runtime.Collector(collector), headscaleCollectorConfig{
+				BaseURL: *headscaleURL, APIKeyFile: *headscaleAPIKeyFile, HTTPClient: headscaleHTTP,
+				ProviderAssociations: associations, IncludeAddresses: *includeAddresses,
 			})
+			if err != nil { return err }
 		default:
 			return errors.New("mesh-provider must be none, tailscale, or headscale")
 		}
@@ -360,6 +353,57 @@ func runEnroll(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	if !*compact { encoder.SetIndent("", "  ") }
 	if err := encoder.Encode(document); err != nil { return errors.New("write enrollment output") }
 	return nil
+}
+
+
+type headscaleCollectorConfig struct {
+	BaseURL              string
+	APIKeyFile            string
+	HTTPClient           headscale.HTTPDoer
+	ProviderAssociations map[string]string
+	IncludeAddresses     bool
+}
+
+// newHeadscaleCollector creates no cached credential. Every collection cycle
+// rereads the private API-key file before issuing Headscale's sole GET request,
+// allowing atomic local key rotation without restarting the continuous agent.
+func newHeadscaleCollector(source runtime.Collector, config headscaleCollectorConfig) (runtime.Collector, error) {
+	if source == nil || strings.TrimSpace(config.BaseURL) == "" || strings.TrimSpace(config.APIKeyFile) == "" {
+		return nil, errors.New("headscale submission requires headscale-url and headscale-api-key-file")
+	}
+	if apiKey, err := readPrivateSecret(config.APIKeyFile); err != nil || apiKey == "" {
+		return nil, errors.New("headscale API-key file must be private and non-empty")
+	}
+	associations := make(map[string]string, len(config.ProviderAssociations))
+	for providerID, nodeID := range config.ProviderAssociations {
+		associations[providerID] = nodeID
+	}
+	return runtime.CollectorFunc(func(ctx context.Context) (*collectors.Collection, error) {
+		apiKey, err := readPrivateSecret(config.APIKeyFile)
+		if err != nil || apiKey == "" {
+			return nil, errors.New("read private Headscale API-key file")
+		}
+		client, err := headscale.NewClient(headscale.Config{
+			BaseURL: config.BaseURL, APIKey: apiKey, HTTPClient: config.HTTPClient,
+			ProviderAssociations: associations, IncludeAddresses: config.IncludeAddresses,
+		})
+		if err != nil {
+			return nil, err
+		}
+		collection, err := source.Collect(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if collection == nil || collection.Snapshot == nil || collection.Snapshot.ObservedAt == nil {
+			return nil, errors.New("headscale source collection is incomplete")
+		}
+		mesh, err := client.ListNodes(ctx, collection.Snapshot.ObservedAt.AsTime().UTC())
+		if err != nil {
+			return nil, err
+		}
+		collection.Snapshot.MeshPeers = mesh.Peers
+		return collection, nil
+	}), nil
 }
 
 func readPrivateSecret(path string) (string, error) {
