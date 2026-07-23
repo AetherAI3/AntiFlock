@@ -441,8 +441,8 @@ type SequenceSource interface {
 	NextSequence(context.Context) (uint64, error)
 }
 
-// QueuePriority lets a bounded offline queue retain security-state events
-// before ordinary observation metadata under pressure.
+// QueuePriority records the event class for future queue policy and operator
+// diagnostics. The current durable queue never evicts retained telemetry.
 type QueuePriority uint8
 
 const (
