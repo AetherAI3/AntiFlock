@@ -19,7 +19,7 @@ func TestStorageCursorStoreSurvivesReopen(t *testing.T) {
 	enrollNanoCursorNode(t, database, now)
 	store, err := nano.NewStorageCursorStore(database, func() time.Time { return now }); if err != nil { t.Fatal(err) }
 	digest := "sha256:012345678901234567890123456789012345678901234567890123456789abcd"
-	if err := store.Save(ctx, digest, "node-test", nano.Cursor{Initialized: true, NextDueUnix: 42}); err != nil { t.Fatal(err) }
+	advanced, err := store.CompareAndSwap(ctx, digest, "node-test", nano.Cursor{}, nano.Cursor{Initialized: true, NextDueUnix: 42}); if err != nil || !advanced { t.Fatalf("cursor advance=%v err=%v", advanced, err) }
 	if err := database.Close(); err != nil { t.Fatal(err) }
 	database, err = storage.Open(ctx, path); if err != nil { t.Fatal(err) }; defer database.Close()
 	store, err = nano.NewStorageCursorStore(database, func() time.Time { return now }); if err != nil { t.Fatal(err) }
