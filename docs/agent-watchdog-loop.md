@@ -97,7 +97,7 @@ used instead of the client certificate; it is rejected for a remote HTTP endpoin
 | Area | Remaining work |
 | --- | --- |
 | Agent enrollment UX | Service manager packages and status endpoint. Endpoint key generation, retry-safe pending submission, and post-approval certificate retrieval are wired; approval remains deliberately operator-gated. |
-| Queue operations | Cross-process lock, retention/health metrics, and a tested recovery procedure for a full queue. |
+| Queue operations | Retention/health metrics and a tested recovery procedure for a full queue. One active process now holds a private advisory writer lock; a second process fails closed rather than risking queue corruption. |
 | Flow monitor | Process attribution, bytes/duration, retention controls, non-Linux collectors, and independent privacy review. |
 | Tailscale / Headscale | Roaming/partition tests and live setup/status polling. Both read-only probes are wired into the agent loop; Third-Eye has static setup cards. |
 | Nano | Automatic finding-to-program scheduling, disable/version lifecycle, proposal audit projection, and replay fixtures. Audited admission plus the deterministic proposal-only API are wired. |
