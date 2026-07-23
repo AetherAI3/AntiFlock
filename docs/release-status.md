@@ -43,10 +43,9 @@ coffee-shop gates. The SDK gate includes a live Core/SQLite restart test that
 proves hold-to-allow re-evaluation, exactly-once callback execution, durable
 lifecycle audit, idempotent replay, and changed-content conflict rejection.
 
-## Explicitly not complete
+## OPEN — production gates
 
-The following are intentionally outside this reference-release boundary and
-must not be inferred from a green verification run:
+The following are intentionally outside this reference-release boundary. They are **OPEN**, and must not be inferred from a green verification run:
 
 - production VPN or packet transport;
 - a validated Android always-on/lockdown kill switch;
@@ -60,5 +59,5 @@ must not be inferred from a green verification run:
 - public use of the `AntiFlock` working name;
 - external penetration testing, privacy review, legal review, or release signing.
 
-These are separate release gates because falsely claiming them would weaken the
-project's safety and evidence contracts.
+These are separate **OPEN** gates because falsely claiming them would weaken the
+project's safety and evidence contracts. The integration-level acceptance criteria are in [open decisions](open-questions.md).
