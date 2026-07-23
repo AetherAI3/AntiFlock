@@ -36,11 +36,13 @@ type Runner struct {
 	clock func() time.Time
 }
 
+// RunResult is the stable, proposal-only watchdog response. It never signals
+// authorization or execution; a separate operator-approved action flow remains required.
 type RunResult struct {
-	ProgramDigest string
-	InputDigest string
-	Evaluation EvaluationResult
-	Proposals []SecureActionProposal
+	ProgramDigest string                 `json:"programDigest"`
+	InputDigest   string                 `json:"inputDigest"`
+	Evaluation    EvaluationResult       `json:"evaluation"`
+	Proposals     []SecureActionProposal `json:"proposals"`
 }
 
 func NewRunner(config RunnerConfig) (*Runner, error) {
