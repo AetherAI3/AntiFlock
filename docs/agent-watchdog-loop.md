@@ -36,11 +36,12 @@ antiflock-agent enroll \\
   --core-url https://core.example.test \\
   --enrollment-token-file /etc/antiflock/enrollment.token \\
   --state-dir /var/lib/antiflock \\
+  --ca-cert /etc/antiflock/node-ca.pem \\
   --node-id node_laptop_01 \\
   --display-name "Laptop 01"
 ```
 
-The first command returns a `pending-operator-approval` document. Retrying it reuses the same seed and request ID. An authorized Core operator must approve the request. Then rerun this exact command with the original private token file: Core returns the approved certificate on the authenticated replay, and the agent verifies it matches `/var/lib/antiflock/node.seed` before saving it privately at `/var/lib/antiflock/node.pem`. It never needs a second private key copy or a manual certificate transfer.
+Use `--ca-cert` only when the Core certificate is anchored in a private CA. The first command returns a `pending-operator-approval` document. Retrying it reuses the same seed and request ID. An authorized Core operator must approve the request. Then rerun this exact command with the original private token file: Core returns the approved certificate on the authenticated replay, and the agent verifies it matches `/var/lib/antiflock/node.seed` before saving it privately at `/var/lib/antiflock/node.pem`. It never needs a second private key copy or a manual certificate transfer.
 
 ### 2. Submit read-only observations
 
