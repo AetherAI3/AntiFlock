@@ -35,17 +35,18 @@ func NewRegistry(database *storage.DB, auditService *audit.Service, clock func()
 }
 
 func (registry *Registry) Admit(ctx context.Context, request AdmissionRequest) (storage.NanoWatchdogProgramRecord, error) {
-	if registry == nil || !opaque(request.NodeID) || !opaque(request.OperationID) || !opaque(request.ActorID) || strings.TrimSpace(request.Source) != request.Source {
+	if registry == nil || !opaque(request.NodeID) || !opaque(request.OperationID) || !opaque(request.ActorID) || strings.TrimSpace(request.Source) == "" {
 		return storage.NanoWatchdogProgramRecord{}, errors.New("Nano watchdog admission request is invalid")
 	}
-	program, err := Compile(request.Source, DefaultLimits)
+	source := strings.TrimSpace(request.Source)
+	program, err := Compile(source, DefaultLimits)
 	if err != nil { return storage.NanoWatchdogProgramRecord{}, fmt.Errorf("compile Nano watchdog source: %w", err) }
 	if err := AdmitWatchdog(program); err != nil { return storage.NanoWatchdogProgramRecord{}, err }
 	if _, err := BindingDigest(request.BindingID); err != nil { return storage.NanoWatchdogProgramRecord{}, err }
 	digest, err := program.Digest(); if err != nil { return storage.NanoWatchdogProgramRecord{}, err }
 	now := registry.clock().UTC()
 	record := storage.NanoWatchdogProgramRecord{
-		ID: id.New("watchdog"), NodeID: request.NodeID, Name: program.Name, Source: request.Source, ProgramDigest: digest,
+		ID: id.New("watchdog"), NodeID: request.NodeID, Name: program.Name, Source: source, ProgramDigest: digest,
 		BindingID: string(request.BindingID), Status: storage.NanoWatchdogAdmitted, OperationID: request.OperationID, CreatedAt: now, UpdatedAt: now,
 	}
 	_, err = registry.audit.AppendWithMutation(ctx, audit.AppendRequest{
