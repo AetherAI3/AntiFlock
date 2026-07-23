@@ -71,8 +71,15 @@ strategy PublicSurfaceWatch {
 
 The program does not name a host, URL, secret, destination, command, or action parameters. At admission time, the operator selects one fixed binding—such as an offline owned-surface fixture query—and the binding fixes the application ID, action type, data class, sensitivity, and destination. The operator must still authorize each proposal through the existing consent workflow.
 
-Still **OPEN**: automatic finding-to-program scheduling, program disable/version
-lifecycle, proposal projection in Third-Eye, replay fixtures, and a dedicated
+Core can now run an admitted program over its own bounded set of current OPEN
+findings at `POST /v1/watchdogs/{id}/run-open-findings`. The request accepts no
+caller-supplied finding or signal; Core derives a sorted, capped typed context from
+its finding projection and skips stale findings. The equivalent operator command is
+`antiflockctl watchdog run-open-findings --program-id …`. This is an
+operator-invoked, proposal-only pass—not a background scheduler or an action path.
+
+Still **OPEN**: unattended finding-to-program scheduling, program disable/version
+lifecycle, proposal audit projection in Third-Eye, replay fixtures, and a dedicated
 operator authoring flow. Nano remains host-governed: it cannot fetch data, read
 secrets, call a provider, or execute a response.
 
