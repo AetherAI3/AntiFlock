@@ -20,6 +20,7 @@ type Config struct {
 	Protection ProtectionConfig `yaml:"protection"`
 	Telemetry  TelemetryConfig  `yaml:"telemetry"`
 	Scrambler  ScramblerConfig  `yaml:"scrambler"`
+	Nano       NanoConfig       `yaml:"nano"`
 }
 
 type ServerConfig struct {
@@ -72,6 +73,14 @@ type TelemetryConfig struct {
 type ScramblerConfig struct {
 	ExecutionEnabled  bool `yaml:"executionEnabled"`
 	SimulationEnabled bool `yaml:"simulationEnabled"`
+}
+
+// NanoConfig enables an explicit, proposal-only Core scheduler for particular
+// already-admitted watchdog program IDs. It is disabled unless both fields are
+// deliberately set by an operator.
+type NanoConfig struct {
+	AutomaticRunInterval   time.Duration `yaml:"automaticRunInterval"`
+	AutomaticRunProgramIDs []string      `yaml:"automaticRunProgramIds"`
 }
 
 func Default() Config {
@@ -246,6 +255,9 @@ func (config Config) Validate() error {
 	if config.Scrambler.ExecutionEnabled {
 		return errors.New("scrambler execution is deferred; simulation is the only supported mode")
 	}
+	if err := config.Nano.Validate(); err != nil {
+		return fmt.Errorf("nano: %w", err)
+	}
 	return nil
 }
 
@@ -319,4 +331,31 @@ func isInternalIP(ip net.IP) bool {
 	}
 	cgnat := &net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.CIDRMask(10, 32)}
 	return cgnat.Contains(ip)
+}
+
+
+func (config NanoConfig) Validate() error {
+	if config.AutomaticRunInterval == 0 {
+		if len(config.AutomaticRunProgramIDs) != 0 {
+			return errors.New("automaticRunProgramIds requires automaticRunInterval")
+		}
+		return nil
+	}
+	if config.AutomaticRunInterval < time.Second || config.AutomaticRunInterval > 24*time.Hour {
+		return errors.New("automaticRunInterval must be between one second and 24 hours")
+	}
+	if len(config.AutomaticRunProgramIDs) == 0 || len(config.AutomaticRunProgramIDs) > 32 {
+		return errors.New("automaticRunProgramIds must contain between one and 32 admitted program ids")
+	}
+	seen := make(map[string]struct{}, len(config.AutomaticRunProgramIDs))
+	for _, programID := range config.AutomaticRunProgramIDs {
+		if strings.TrimSpace(programID) != programID || programID == "" || len(programID) > 256 || strings.ContainsAny(programID, "\r\n\x00") {
+			return errors.New("automaticRunProgramIds contains an invalid program id")
+		}
+		if _, exists := seen[programID]; exists {
+			return errors.New("automaticRunProgramIds contains duplicate program ids")
+		}
+		seen[programID] = struct{}{}
+	}
+	return nil
 }
