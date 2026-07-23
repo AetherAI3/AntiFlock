@@ -9,13 +9,13 @@ import (
 )
 
 func TestQueuePersistsSignedWireUntilAcknowledged(t *testing.T) {
-	queue, err := OpenQueue(t.TempDir())
+	queue, err := OpenQueue(t.TempDir(), "node-1")
 	if err != nil { t.Fatal(err) }
 	sequence, err := queue.NextSequence(context.Background())
 	if err != nil { t.Fatal(err) }
 	event := &antiflockv1.EventEnvelope{Id: "event-1", NodeId: "node-1", BootId: "boot-1", Sequence: sequence}
 	if err := queue.Enqueue(context.Background(), event, collectors.QueuePriorityObservation); err != nil { t.Fatal(err) }
-	queue, err = OpenQueue(queue.directory)
+	queue, err = OpenQueue(queue.directory, "node-1")
 	if err != nil { t.Fatal(err) }
 	batch, err := queue.Batch(context.Background(), 1)
 	if err != nil || len(batch) != 1 || batch[0].GetId() != event.GetId() { t.Fatalf("batch=%#v err=%v", batch, err) }
