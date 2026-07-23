@@ -17,6 +17,7 @@ func TestConfiguredNanoWatchdogPassAdvancesCursorWithoutExecutingAction(t *testi
 		t.Fatal(err)
 	}
 	runtime.server.nano = registry
+	runtime.server.nanoRunInterval = time.Second
 	_, err = runtime.server.findings.ApplySnapshot(&antiflockv1.ProtectionSnapshot{
 		DeploymentId: runtime.deploymentID, NodeId: "node-test", PolicyId: "policy-test", EvaluatedAt: timestamppb.New(runtime.now),
 		Reasons: []*antiflockv1.PostureReason{{RuleId: "rule-test", ReasonCode: "404 probing", ContributedState: antiflockv1.ProtectionState_PROTECTION_STATE_DEGRADED, Claim: &antiflockv1.EvidenceClaim{Confidence: .91}}},
