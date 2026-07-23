@@ -69,7 +69,7 @@ type tokenAuthenticator struct {
 
 func newTokenAuthenticator(credentials []Credential, clock func() time.Time) (*tokenAuthenticator, error) {
 	if len(credentials) == 0 {
-		return nil, errors.New("at least one API credential is required")
+		return &tokenAuthenticator{clock: clock}, nil
 	}
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
