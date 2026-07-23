@@ -228,6 +228,9 @@ func (server *Server) authenticate(next http.Handler) http.Handler {
 		}
 		value, ok := server.authenticator.authenticate(request)
 		if !ok {
+			value, ok = server.enrolledNodePrincipal(request)
+		}
+		if !ok {
 			response.Header().Set("WWW-Authenticate", `Bearer realm="antiflock-core"`)
 			writeAPIError(response, http.StatusUnauthorized, "UNAUTHENTICATED", "Authentication is required.", "", false)
 			return
@@ -250,6 +253,30 @@ func (server *Server) authenticate(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(response, withPrincipal(request, value))
 	})
+}
+
+
+func (server *Server) enrolledNodePrincipal(request *http.Request) (principal, bool) {
+	// Dynamic agent identity is accepted only from a chain verified by the
+	// configured node CA. The certificate name is then bound to an active
+	// enrollment record; a valid but suspended or revoked node is rejected.
+	if request.TLS == nil || len(request.TLS.VerifiedChains) == 0 || len(request.TLS.VerifiedChains[0]) == 0 {
+		return principal{}, false
+	}
+	leaf := request.TLS.VerifiedChains[0][0]
+	nodeID := strings.TrimSpace(leaf.Subject.CommonName)
+	if nodeID == "" || !slices.Contains(leaf.Subject.Organization, server.deploymentID) ||
+		!slices.Contains(leaf.ExtKeyUsage, x509.ExtKeyUsageClientAuth) {
+		return principal{}, false
+	}
+	node, err := server.database.GetNode(request.Context(), nodeID)
+	if err != nil || node.Status != model.NodeActive {
+		return principal{}, false
+	}
+	return principal{
+		ID: "node:" + nodeID, NodeID: nodeID, RequireMTLS: true,
+		Scopes: map[string]bool{ScopeAgentIngest: true},
+	}, true
 }
 
 func requiredScope(request *http.Request) string {
