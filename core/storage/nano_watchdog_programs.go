@@ -63,6 +63,14 @@ func (database *DB) GetNanoWatchdogProgram(ctx context.Context, id string) (Nano
 		FROM nano_watchdog_programs WHERE id = ?`, id))
 }
 
+
+func (database *DB) GetNanoWatchdogProgramByOperation(ctx context.Context, operationID string) (NanoWatchdogProgramRecord, error) {
+	if !boundedNanoCursorID(operationID, 128) { return NanoWatchdogProgramRecord{}, ErrNodeNotFound }
+	return scanNanoWatchdogProgram(database.db.QueryRowContext(ctx, `
+		SELECT id, node_id, name, source, program_digest, binding_id, status, operation_id, created_at, updated_at
+		FROM nano_watchdog_programs WHERE operation_id = ?`, operationID))
+}
+
 func (database *DB) ListNanoWatchdogPrograms(ctx context.Context, nodeID string) ([]NanoWatchdogProgramRecord, error) {
 	if !boundedNanoCursorID(nodeID, 128) { return nil, errors.New("watchdog node id is invalid") }
 	rows, err := database.db.QueryContext(ctx, `
