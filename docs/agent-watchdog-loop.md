@@ -22,7 +22,7 @@ typed finding -> admitted Nano program -> SQLite cursor -> expiring proposal -> 
 - `--include-flow-metadata` reads `/proc/net/tcp`, `tcp6`, `udp`, and `udp6` only when opted in on Linux. It emits current endpoint/protocol metadata as `flow.updated`; it intentionally reports no payload, byte counter, start time, direction, egress interface, or process identity. Non-Linux package builds preserve the collector boundary and return `AF-COLLECTOR-FLOW-UNSUPPORTED`; the CLI itself refuses non-Linux collection.
 - `--mesh-provider tailscale --submit` runs only `tailscale status --json` and sends peer/path observations through the same queue. It never invokes a Tailscale mutating command.
 - `--mesh-provider headscale --submit` calls only Headscale’s `GET /api/v1/node` using a read-only API key from a private file. It reports only explicitly associated peers; it cannot create, move, tag, expire, rename, or delete a Headscale node.
-- Nano watchdog admission is a signed-audit Core record: source is compiled against the constrained profile, saved with its immutable digest/binding, and exposed at `POST /v1/watchdogs`. `POST /v1/watchdogs/{id}/run` accepts a typed finding and returns only expiring proposals; it cannot execute an action. Its SQLite cursor is atomically compare-and-swap advanced before a proposal is returned, so a restart or concurrent Core request cannot refire the same scheduled finding.
+- Nano watchdog admission is a signed-audit Core record: source is compiled against the constrained profile, saved with its immutable digest/binding, and exposed at `POST /v1/watchdogs`. `POST /v1/watchdogs/{id}/run` accepts a typed finding and returns only expiring proposals; it cannot execute an action. Core can also run an explicit allowlist of admitted programs over current OPEN findings at a bounded configured interval. Its SQLite cursor is atomically compare-and-swap advanced before a proposal is returned, so a restart or concurrent Core request cannot refire the same scheduled finding.
 
 ## Run an enrolled Linux agent
 
@@ -114,11 +114,11 @@ between the first enrollment command and operator approval.
 
 | Area | Remaining work |
 | --- | --- |
-| Agent enrollment UX | Service manager packages and status endpoint. Endpoint key generation, retry-safe pending submission, and post-approval certificate retrieval are wired; approval remains deliberately operator-gated. |
+| Agent enrollment UX | Service manager packages and a remote Core/Third-Eye status endpoint. Endpoint key generation, retry-safe pending submission, post-approval certificate retrieval, and read-only local status are wired; approval remains deliberately operator-gated. |
 | Queue operations | Retention/health metrics and a tested recovery procedure for a full queue. One active process now holds a private advisory writer lock; a second process fails closed rather than risking queue corruption. |
 | Flow monitor | Process attribution, bytes/duration, retention controls, non-Linux collectors, and independent privacy review. |
 | Tailscale / Headscale | Roaming/partition tests and live setup/status polling. Both read-only probes are wired into the agent loop; Third-Eye has static setup cards. |
-| Nano | Automatic finding-to-program scheduling, disable/version lifecycle, proposal audit projection, and replay fixtures. Audited admission plus the deterministic proposal-only API are wired. |
+| Nano | Program disable/version lifecycle, durable proposal-audit projection, replay fixtures, and dedicated authoring UX. Audited admission, deterministic proposal-only API, and an explicit bounded Core scheduler are wired. |
 | BYOK providers | Key rotation/revocation, platform-keystore references, outbound egress controls, audit records, and integration tests. The Headscale key is read only from a local private file and never sent to Core/Nano. |
 
 No OPEN item can be enabled by a boolean. Each must gain its own least-privilege
