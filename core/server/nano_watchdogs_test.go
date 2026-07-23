@@ -33,8 +33,12 @@ func TestWatchdogAdmissionAndRunAPI(t *testing.T) {
 		"findingId": "finding-404", "nodeId": "node-test", "reasonCode": "404 probing", "confidence": .91, "observedUnix": runtime.now.Unix(),
 	}, true)
 	if run.Code != http.StatusOK { t.Fatalf("run = %d %s", run.Code, run.Body.String()) }
-	result := decodeObject(t, run); proposals, ok := result["Proposals"].([]any); if !ok || len(proposals) != 1 {
-		// Go's JSON encoder preserves the public field name in RunResult.
-		proposals, ok = result["proposals"].([]any); if !ok || len(proposals) != 1 { t.Fatalf("run result = %#v", result) }
+	result := decodeObject(t, run)
+	proposals, ok := result["proposals"].([]any)
+	if !ok || len(proposals) != 1 {
+		t.Fatalf("run result = %#v", result)
+	}
+	if _, leaked := result["Proposals"]; leaked {
+		t.Fatalf("watchdog response leaked Go field casing: %#v", result)
 	}
 }
