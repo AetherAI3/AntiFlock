@@ -14,6 +14,11 @@ import (
 // Collector is the narrow, read-only observation source consumed by Loop.
 type Collector interface { Collect(context.Context) (*collectors.Collection, error) }
 
+// CollectorFunc adapts a verified read-only collection function to the loop.
+type CollectorFunc func(context.Context) (*collectors.Collection, error)
+
+func (function CollectorFunc) Collect(ctx context.Context) (*collectors.Collection, error) { return function(ctx) }
+
 // Submitter is satisfied by ingest.Client. It receives only already-signed
 // envelopes that have first crossed the durable Queue boundary.
 type Submitter interface { Submit(context.Context, *antiflockv1.SubmitEventBatchRequest) (*antiflockv1.EventBatchAck, error) }
