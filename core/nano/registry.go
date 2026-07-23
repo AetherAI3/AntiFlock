@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -70,16 +71,80 @@ func (registry *Registry) List(ctx context.Context, nodeID string) ([]storage.Na
 	return registry.database.ListNanoWatchdogPrograms(ctx, nodeID)
 }
 
+const maximumCoreFindingBatch = 128
+
+// FindingRunResult binds a proposal-only result to the Core finding that
+// supplied the host-owned input. It contains neither raw evidence nor a
+// caller-selected signal.
+type FindingRunResult struct {
+	FindingID string    `json:"findingId"`
+	Result    RunResult `json:"result"`
+}
+
+// OpenFindingRunResult is a bounded, deterministic Core-owned watchdog pass.
+// It is operator-invoked and proposal-only; it neither authorizes nor executes
+// a proposed action.
+type OpenFindingRunResult struct {
+	ProgramID      string             `json:"programId"`
+	NodeID         string             `json:"nodeId"`
+	EvaluatedCount int                `json:"evaluatedCount"`
+	SkippedStale   int                `json:"skippedStale"`
+	Results        []FindingRunResult `json:"results"`
+}
+
 func (registry *Registry) RunFinding(ctx context.Context, programID string, finding FindingContext) (RunResult, error) {
-	if registry == nil || !opaque(programID) { return RunResult{}, errors.New("Nano watchdog run request is invalid") }
-	record, err := registry.database.GetNanoWatchdogProgram(ctx, programID)
+	runner, record, err := registry.runnerForProgram(ctx, programID)
 	if err != nil { return RunResult{}, err }
-	if record.Status != storage.NanoWatchdogAdmitted || record.NodeID != finding.NodeID { return RunResult{}, errors.New("Nano watchdog program is not admitted for this node") }
-	program, err := Compile(record.Source, DefaultLimits)
-	if err != nil { return RunResult{}, fmt.Errorf("compile admitted Nano source: %w", err) }
-	digest, err := program.Digest(); if err != nil || digest != record.ProgramDigest { return RunResult{}, errors.New("admitted Nano program digest mismatch") }
-	store, err := NewStorageCursorStore(registry.database, registry.clock); if err != nil { return RunResult{}, err }
-	runner, err := NewRunner(RunnerConfig{Program: program, BindingID: BindingID(record.BindingID), NodeID: record.NodeID, ProposalTTL: 15*time.Minute, Store: store, Clock: registry.clock})
-	if err != nil { return RunResult{}, err }
+	if record.NodeID != finding.NodeID { return RunResult{}, errors.New("Nano watchdog program is not admitted for this node") }
 	return runner.RunFinding(ctx, finding)
+}
+
+// RunOpenFindings evaluates an admitted program against already-created Core
+// findings. Callers cannot inject a signal: the server builds FindingContext
+// values from the current OPEN finding projection. Inputs are sorted and capped
+// before cursor advancement so one request has deterministic work bounds.
+func (registry *Registry) RunOpenFindings(ctx context.Context, programID string, findings []FindingContext) (OpenFindingRunResult, error) {
+	runner, record, err := registry.runnerForProgram(ctx, programID)
+	if err != nil { return OpenFindingRunResult{}, err }
+	candidates := make([]FindingContext, 0, len(findings))
+	for _, finding := range findings {
+		if finding.NodeID == record.NodeID { candidates = append(candidates, finding) }
+	}
+	sort.Slice(candidates, func(left, right int) bool {
+		if candidates[left].ObservedUnix == candidates[right].ObservedUnix { return candidates[left].FindingID < candidates[right].FindingID }
+		return candidates[left].ObservedUnix < candidates[right].ObservedUnix
+	})
+	if len(candidates) > maximumCoreFindingBatch { return OpenFindingRunResult{}, errors.New("too many open findings for one watchdog pass") }
+	result := OpenFindingRunResult{ProgramID: programID, NodeID: record.NodeID, Results: make([]FindingRunResult, 0, len(candidates))}
+	now := registry.clock().UTC()
+	ready := make([]FindingContext, 0, len(candidates))
+	for _, finding := range candidates {
+		if finding.ObservedUnix <= 0 || !now.Before(time.Unix(finding.ObservedUnix, 0).UTC().Add(runner.proposalTTL)) {
+			result.SkippedStale++
+			continue
+		}
+		if _, _, err := FrameForFinding(finding); err != nil { return OpenFindingRunResult{}, err }
+		ready = append(ready, finding)
+	}
+	for _, finding := range ready {
+		run, err := runner.RunFinding(ctx, finding)
+		if err != nil { return OpenFindingRunResult{}, err }
+		result.EvaluatedCount++
+		result.Results = append(result.Results, FindingRunResult{FindingID: finding.FindingID, Result: run})
+	}
+	return result, nil
+}
+
+func (registry *Registry) runnerForProgram(ctx context.Context, programID string) (*Runner, storage.NanoWatchdogProgramRecord, error) {
+	if registry == nil || !opaque(programID) { return nil, storage.NanoWatchdogProgramRecord{}, errors.New("Nano watchdog run request is invalid") }
+	record, err := registry.database.GetNanoWatchdogProgram(ctx, programID)
+	if err != nil { return nil, storage.NanoWatchdogProgramRecord{}, err }
+	if record.Status != storage.NanoWatchdogAdmitted { return nil, storage.NanoWatchdogProgramRecord{}, errors.New("Nano watchdog program is not admitted") }
+	program, err := Compile(record.Source, DefaultLimits)
+	if err != nil { return nil, storage.NanoWatchdogProgramRecord{}, fmt.Errorf("compile admitted Nano source: %w", err) }
+	digest, err := program.Digest(); if err != nil || digest != record.ProgramDigest { return nil, storage.NanoWatchdogProgramRecord{}, errors.New("admitted Nano program digest mismatch") }
+	store, err := NewStorageCursorStore(registry.database, registry.clock); if err != nil { return nil, storage.NanoWatchdogProgramRecord{}, err }
+	runner, err := NewRunner(RunnerConfig{Program: program, BindingID: BindingID(record.BindingID), NodeID: record.NodeID, ProposalTTL: 15*time.Minute, Store: store, Clock: registry.clock})
+	if err != nil { return nil, storage.NanoWatchdogProgramRecord{}, err }
+	return runner, record, nil
 }
