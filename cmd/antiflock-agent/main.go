@@ -140,6 +140,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		if err != nil { return err }
 		queue, err := runtime.OpenQueue(*queueDirectory, *nodeID)
 		if err != nil { return err }
+		defer queue.Close()
 		signer, err := runtime.LoadFileSigner(*nodeID, *nodeKeyFile, func() time.Time { return time.Now().UTC() })
 		if err != nil { return err }
 		source := runtime.Collector(collector)
