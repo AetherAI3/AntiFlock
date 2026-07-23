@@ -649,7 +649,7 @@ function SettingsView() {
             <span className="setup-step">03</span><div><p>Mesh provider</p><strong>Tailscale or Headscale</strong><small>Tailscale uses read-only local status. Headscale uses a private read-only key file and explicit identity associations.</small></div><StateBadge value="BYOK" />
           </article>
           <article className="setup-card setup-open">
-            <span className="setup-step">04</span><div><p>Nano watchdog</p><strong>Proposal-only boundary</strong><small>Cursor persistence is active. Signed program admission, scheduling, and proposal audit presentation remain OPEN.</small></div><StateBadge value="OPEN" />
+            <span className="setup-step">04</span><div><p>Nano watchdog</p><strong>Audited proposal-only boundary</strong><small>Core can admit immutable Nano source and return expiring proposals. Automatic schedules and a proposal audit view remain OPEN.</small></div><StateBadge value="OPEN" />
           </article>
         </div>
         <p className="setup-note">Detailed operator commands and file-permission requirements are in the enrolled-agent guide. No setup card can change a provider or host configuration.</p>
