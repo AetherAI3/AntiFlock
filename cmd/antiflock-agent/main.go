@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/DBarr3/AntiFlock/adapters/mesh/tailscale"
 	"github.com/DBarr3/AntiFlock/agent/collectors"
 	agentenrollment "github.com/DBarr3/AntiFlock/agent/enrollment"
+	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 	"github.com/DBarr3/AntiFlock/agent/ingest"
 	"github.com/DBarr3/AntiFlock/agent/runtime"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -250,6 +252,7 @@ type enrollmentOutput struct {
 	EnrollmentID      string `json:"enrollmentId"`
 	ProposedNodeID    string `json:"proposedNodeId"`
 	StateDirectory    string `json:"stateDirectory"`
+	CertificatePath    string `json:"certificatePath,omitempty"`
 	NextAction        string `json:"nextAction"`
 }
 
@@ -261,6 +264,7 @@ func runEnroll(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	stateDirectory := flags.String("state-dir", "/var/lib/antiflock", "private directory for the enrolled node identity")
 	nodeID := flags.String("node-id", "", "stable requested AntiFlock node id")
 	displayName := flags.String("display-name", "", "human-readable endpoint name")
+	certificateFile := flags.String("certificate-file", "", "private PEM destination for the approved client certificate (defaults to state-dir/node.pem)")
 	compact := flags.Bool("compact", false, "write compact JSON")
 	if err := flags.Parse(arguments); err != nil { return err }
 	if flags.NArg() != 0 { return errors.New("antiflock-agent enroll accepts flags only") }
@@ -271,7 +275,26 @@ func runEnroll(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	if err != nil || token == "" { return errors.New("read private enrollment token file") }
 	result, err := agentenrollment.Submit(ctx, agentenrollment.Config{Endpoint: *coreURL, Token: token, StateDirectory: *stateDirectory, NodeID: *nodeID, DisplayName: *displayName})
 	if err != nil { return err }
-	document := enrollmentOutput{SchemaVersion: "antiflock.agent-enrollment-result/v1", Status: "pending-operator-approval", EnrollmentID: result.EnrollmentID, ProposedNodeID: result.ProposedNodeID, StateDirectory: result.StateDirectory, NextAction: "An operator must approve this enrollment and provide the approved node certificate before telemetry submission."}
+	document := enrollmentOutput{SchemaVersion: "antiflock.agent-enrollment-result/v1", EnrollmentID: result.EnrollmentID, ProposedNodeID: result.ProposedNodeID, StateDirectory: result.StateDirectory}
+	switch result.Status {
+	case antiflockv1.EnrollmentStatus_ENROLLMENT_STATUS_APPROVED:
+		certificatePath := *certificateFile
+		if strings.TrimSpace(certificatePath) == "" { certificatePath = filepath.Join(*stateDirectory, "node.pem") }
+		if err := agentenrollment.SaveApprovedCertificate(filepath.Join(*stateDirectory, "node.seed"), certificatePath, result.CertificateChainDER); err != nil { return err }
+		document.Status, document.CertificatePath = "approved-ready-to-submit", certificatePath
+		document.NextAction = "Run antiflock-agent --submit with state-dir/node.seed and this client certificate."
+	case antiflockv1.EnrollmentStatus_ENROLLMENT_STATUS_PENDING:
+		document.Status = "pending-operator-approval"
+		document.NextAction = "An operator must approve this enrollment; rerun this same command to retrieve the approved certificate."
+	case antiflockv1.EnrollmentStatus_ENROLLMENT_STATUS_DENIED:
+		document.Status = "denied"
+		document.NextAction = "Enrollment was denied. Request a new operator-scoped enrollment token before retrying."
+	case antiflockv1.EnrollmentStatus_ENROLLMENT_STATUS_EXPIRED:
+		document.Status = "expired"
+		document.NextAction = "Enrollment expired. Request a new operator-scoped enrollment token before retrying."
+	default:
+		return errors.New("Core returned an unsupported enrollment status")
+	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetEscapeHTML(false)
 	if !*compact { encoder.SetIndent("", "  ") }
