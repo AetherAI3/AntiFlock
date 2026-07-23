@@ -171,7 +171,7 @@ These are visible project work items, not implied capabilities. They are tracked
 
 | Area | What exists now | OPEN before calling it production |
 | --- | --- | --- |
-| Tailscale / Headscale | Tailscale's read-only status probe can run in the enrolled agent's durable loop; Headscale remains an adapter-only contract | Headscale CLI/runner, identity association, roaming/partition tests, and operator-visible status |
+| Tailscale / Headscale | Tailscale CLI and Headscale `GET /api/v1/node` can run through the enrolled agent queue; Headscale uses an explicit read-only BYOK file and identity map | roaming/partition tests, key rotation/revocation, and operator-visible status |
 | Third-Eye | authenticated local dashboard with live Core projections | enrolled-agent setup/status cards, topology provenance UX, and production deployment/review |
 | Network traffic monitor | opt-in Linux socket-table endpoint metadata (`flow.updated`); no packets, payloads, bytes, direction, or process data | retention controls, process attribution limits, non-Linux collectors, and real-network/privacy validation |
 | Nano watchdog | deterministic parser/evaluator, bounded finding frame, consent-gated proposals, and durable SQLite cursor | versioned/signed program admission, Core scheduler/API, replay fixtures, and dashboard/audit presentation |
