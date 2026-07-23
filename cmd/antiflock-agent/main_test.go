@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DBarr3/AntiFlock/agent/runtime"
 	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 )
