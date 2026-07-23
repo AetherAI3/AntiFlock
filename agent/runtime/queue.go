@@ -31,6 +31,12 @@ type queuedEvent struct {
 	Wire string `json:"wire"`
 }
 
+// QueueEntry is one already-signed envelope prepared for atomic queue admission.
+type QueueEntry struct {
+	Event *antiflockv1.EventEnvelope
+	Priority collectors.QueuePriority
+}
+
 type queueState struct {
 	SchemaVersion string `json:"schemaVersion"`
 	NodeID string `json:"nodeId"`
@@ -69,13 +75,27 @@ func (queue *Queue) NextSequence(ctx context.Context) (uint64, error) {
 }
 
 func (queue *Queue) Enqueue(ctx context.Context, event *antiflockv1.EventEnvelope, priority collectors.QueuePriority) error {
-	if queue == nil || event == nil || event.GetId() == "" || event.GetSequence() == 0 { return errors.New("queue requires a signed identified event") }
+	return queue.EnqueueBatch(ctx, []QueueEntry{{Event: event, Priority: priority}})
+}
+
+// EnqueueBatch persists a complete collection cycle in one queue state update.
+// It never leaves a partial cycle behind when capacity or disk persistence fails.
+func (queue *Queue) EnqueueBatch(ctx context.Context, entries []QueueEntry) error {
+	if queue == nil || len(entries) == 0 { return errors.New("queue requires signed events") }
 	if err := ctx.Err(); err != nil { return err }
-	wire, err := proto.MarshalOptions{Deterministic: true}.Marshal(event); if err != nil { return errors.New("encode queued event") }
+	encoded := make([]queuedEvent, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Event == nil || entry.Event.GetId() == "" || entry.Event.GetSequence() == 0 || entry.Event.GetNodeId() != queue.nodeID {
+			return errors.New("queue requires signed node-scoped events")
+		}
+		wire, err := proto.MarshalOptions{Deterministic: true}.Marshal(entry.Event); if err != nil { return errors.New("encode queued event") }
+		encoded = append(encoded, queuedEvent{Priority: entry.Priority, Wire: base64.RawStdEncoding.EncodeToString(wire)})
+	}
 	queue.mu.Lock(); defer queue.mu.Unlock()
-	if len(queue.state.Events) >= maximumQueueEvents { return errors.New("agent queue is full; telemetry is retained and collection must pause") }
-	queue.state.Events = append(queue.state.Events, queuedEvent{Priority: priority, Wire: base64.RawStdEncoding.EncodeToString(wire)})
-	if err := queue.save(); err != nil { queue.state.Events = queue.state.Events[:len(queue.state.Events)-1]; return err }
+	if len(entries) > maximumQueueEvents-len(queue.state.Events) { return errors.New("agent queue is full; telemetry is retained and collection must pause") }
+	originalLength := len(queue.state.Events)
+	queue.state.Events = append(queue.state.Events, encoded...)
+	if err := queue.save() { queue.state.Events = queue.state.Events[:originalLength]; return err }
 	return nil
 }
 
