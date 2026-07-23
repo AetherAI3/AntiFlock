@@ -58,6 +58,8 @@ func TestWatchdogRunOpenFindingsUsesCoreProjectionOnly(t *testing.T) {
 	admit := runtime.request(t, http.MethodPost, "/v1/watchdogs", map[string]any{"nodeId": "node-test", "source": serverProbeWatch, "bindingId": "scrambler-simulation-v1", "operationId": "watchdog-admit-core-findings"}, true)
 	if admit.Code != http.StatusCreated { t.Fatalf("admit = %d %s", admit.Code, admit.Body.String()) }
 	programID, _ := decodeObject(t, admit)["id"].(string)
+	forged := runtime.request(t, http.MethodPost, "/v1/watchdogs/"+programID+"/run-open-findings", map[string]any{"findingId": "caller-selected"}, true)
+	if forged.Code != http.StatusBadRequest { t.Fatalf("forged Core finding run = %d %s", forged.Code, forged.Body.String()) }
 	run := runtime.request(t, http.MethodPost, "/v1/watchdogs/"+programID+"/run-open-findings", nil, true)
 	if run.Code != http.StatusOK { t.Fatalf("core finding run = %d %s", run.Code, run.Body.String()) }
 	result := decodeObject(t, run)
