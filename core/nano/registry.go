@@ -53,6 +53,14 @@ func (registry *Registry) Admit(ctx context.Context, request AdmissionRequest) (
 		ActorType: "operator", ActorID: request.ActorID, Action: "nano.watchdog.admit", ResourceType: "nano_watchdog", ResourceID: record.ID, Outcome: "admitted",
 		Details: map[string]string{"nodeId": record.NodeID, "programDigest": record.ProgramDigest, "bindingId": record.BindingID, "operationId": record.OperationID},
 	}, registry.database.CreateNanoWatchdogProgramMutation(record))
+	if errors.Is(err, storage.ErrOperationConflict) {
+		existing, lookupErr := registry.database.GetNanoWatchdogProgramByOperation(ctx, request.OperationID)
+		if lookupErr != nil { return storage.NanoWatchdogProgramRecord{}, lookupErr }
+		if existing.NodeID == record.NodeID && existing.ProgramDigest == record.ProgramDigest && existing.BindingID == record.BindingID && existing.Source == record.Source {
+			return existing, nil
+		}
+		return storage.NanoWatchdogProgramRecord{}, errors.New("Nano watchdog operation id is already bound to different source")
+	}
 	if err != nil { return storage.NanoWatchdogProgramRecord{}, err }
 	return record, nil
 }
