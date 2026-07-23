@@ -101,6 +101,8 @@ Nano source + Core finding ── deterministic expiring proposal ──> operat
 
 The safe direction of travel is deliberately one-way: adapters observe, Nano proposes, and only an operator-submitted request through the existing gate can authorize a bounded action. No adapter, Nano program, dashboard, or provider key can silently become a host-mutation capability.
 
+For continuous Nano evaluation, Core remains fail-closed: the operator must list already-admitted watchdog IDs and a bounded interval in its configuration. The scheduler feeds only current Core findings into those programs and can return only expiring proposals—never an action. See the [Nano watchdog guide](docs/nano-watchdog.md) for the small configuration block.
+
 ### Enroll an endpoint, then observe
 
 The agent now has a small deterministic bootstrap command. An operator creates a short-lived enrollment token, saves it in a local `0600` file, then the endpoint proves ownership of a new Ed25519 key. The key and request ID stay private in the selected state directory, so retrying after an outage does not mint a second identity.
@@ -199,7 +201,7 @@ These are visible project work items, not implied capabilities. They are tracked
 | Tailscale / Headscale | Tailscale CLI and Headscale `GET /api/v1/node` can run through the enrolled agent queue; Headscale uses an explicit read-only BYOK file and identity map | roaming/partition tests, key rotation/revocation, and live Third-Eye setup/status polling |
 | Third-Eye | authenticated local dashboard with live Core projections and endpoint setup cards | topology provenance UX, live setup/status polling, and production deployment/review |
 | Network traffic monitor | opt-in Linux socket-table endpoint metadata (`flow.updated`); no packets, payloads, bytes, direction, or process data | retention controls, process attribution limits, non-Linux collectors, and real-network/privacy validation |
-| Nano watchdog | deterministic parser/evaluator, durable SQLite cursor, audited immutable program admission, and proposal-only Core API | automatic finding scheduling, disable/version lifecycle, replay fixtures, and dashboard/audit presentation |
+| Nano watchdog | deterministic parser/evaluator, durable SQLite cursor, audited immutable program admission, proposal-only Core API, and opt-in Core scheduler over current OPEN findings | program disable/version lifecycle, replay fixtures, and durable dashboard/audit presentation |
 | BYOK providers | local Core credentials; mTLS agent identity; Tailscale CLI and Headscale read-only live mesh probes | provider-specific secret reference/rotation, narrow scopes, revocation, audit, and integration coverage |
 | Enforcement | signed plans and rollback transaction model | reviewed privileged helper, real packet transport, kill-switch tests, and independent security/privacy review |
 | Public opening | Repository is still private at this audit; security/CI/community files are present. | Before changing visibility: enable private vulnerability reporting, name the security contact, confirm branch protections and billing, and rerun the full CI workflow. |
