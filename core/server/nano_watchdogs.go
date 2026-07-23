@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -82,18 +84,31 @@ func (server *Server) handleRunWatchdogOpenFindings(response http.ResponseWriter
 			return
 		}
 	}
-	findings := server.findings.List("", antiflockv1.FindingStatus_FINDING_STATUS_OPEN)
-	contexts := make([]nano.FindingContext, 0, len(findings))
-	for _, finding := range findings {
-		if finding == nil || finding.GetMetadata() == nil || finding.GetLastSeenAt() == nil { continue }
+	result, err := server.runWatchdogOpenFindings(request.Context(), request.PathValue("id"))
+	if err != nil { server.writeDomainError(response, http.StatusBadRequest, err, ""); return }
+	writeJSON(response, http.StatusOK, result)
+}
+
+
+// runWatchdogOpenFindings is the shared Core-owned input boundary for the
+// operator route and the configured scheduler. Only live OPEN findings are
+// projected, so neither path can inject arbitrary Nano signals.
+func (server *Server) runWatchdogOpenFindings(ctx context.Context, programID string) (nano.OpenFindingRunResult, error) {
+	if server == nil || server.nano == nil || server.findings == nil {
+		return nano.OpenFindingRunResult{}, errors.New("Nano watchdog runner is unavailable")
+	}
+	openFindings := server.findings.List("", antiflockv1.FindingStatus_FINDING_STATUS_OPEN)
+	contexts := make([]nano.FindingContext, 0, len(openFindings))
+	for _, finding := range openFindings {
+		if finding == nil || finding.GetMetadata() == nil || finding.GetLastSeenAt() == nil {
+			continue
+		}
 		contexts = append(contexts, nano.FindingContext{
 			FindingID: finding.GetMetadata().GetId(), NodeID: finding.GetNodeId(), ReasonCode: finding.GetReasonCode(),
 			Confidence: float64(finding.GetClaim().GetConfidence()), ObservedUnix: finding.GetLastSeenAt().AsTime().UTC().Unix(),
 		})
 	}
-	result, err := server.nano.RunOpenFindings(request.Context(), request.PathValue("id"), contexts)
-	if err != nil { server.writeDomainError(response, http.StatusBadRequest, err, ""); return }
-	writeJSON(response, http.StatusOK, result)
+	return server.nano.RunOpenFindings(ctx, programID, contexts)
 }
 
 func projectWatchdog(record storage.NanoWatchdogProgramRecord) watchdogView {
