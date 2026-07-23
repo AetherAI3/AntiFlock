@@ -115,7 +115,7 @@ antiflock-agent enroll \\
   --display-name "Laptop 01"
 ```
 
-The result remains `pending-operator-approval`. An authorized operator must review and approve it, then place the issued client certificate alongside the generated `node.seed`; only then can `--submit` use mTLS. This preserves a human enrollment decision while making endpoint-side setup repeatable.
+The first result remains `pending-operator-approval`. An authorized operator must review and approve it. Then rerun the same command: Core returns the approved certificate only to the holder of the original private enrollment token, and the agent verifies it matches `node.seed` before saving private PEM at `state-dir/node.pem`. Only then can `--submit` use mTLS. This preserves a human enrollment decision while making endpoint-side setup repeatable.
 
 ### Tailscale status preview
 
