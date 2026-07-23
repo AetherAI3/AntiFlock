@@ -105,18 +105,36 @@ func (runner *Runner) RunFinding(ctx context.Context, finding FindingContext) (R
 }
 
 // MemoryCursorStore is for deterministic tests and demos. It is not durable.
-type MemoryCursorStore struct { mu sync.Mutex; cursors map[string]Cursor }
-func NewMemoryCursorStore() *MemoryCursorStore { return &MemoryCursorStore{cursors: make(map[string]Cursor)} }
+type MemoryCursorStore struct {
+	mu      sync.Mutex
+	cursors map[string]Cursor
+}
+
+func NewMemoryCursorStore() *MemoryCursorStore {
+	return &MemoryCursorStore{cursors: make(map[string]Cursor)}
+}
+
 func (store *MemoryCursorStore) Load(ctx context.Context, programDigest, nodeID string) (Cursor, error) {
-	if store == nil { return Cursor{}, errors.New("cursor store is required") }
-	if err := ctx.Err(); err != nil { return Cursor{}, err }
-	store.mu.Lock(); defer store.mu.Unlock()
+	if store == nil {
+		return Cursor{}, errors.New("cursor store is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return Cursor{}, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
 	return store.cursors[programDigest+"\x00"+nodeID], nil
 }
+
 func (store *MemoryCursorStore) Save(ctx context.Context, programDigest, nodeID string, cursor Cursor) error {
-	if store == nil { return errors.New("cursor store is required") }
-	if err := ctx.Err(); err != nil { return err }
-	store.mu.Lock(); defer store.mu.Unlock()
+	if store == nil {
+		return errors.New("cursor store is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
 	store.cursors[programDigest+"\x00"+nodeID] = cursor
 	return nil
 }
