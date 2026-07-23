@@ -3,7 +3,6 @@ package collectors
 import (
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"net"
 	"sort"
 	"strconv"
@@ -102,4 +101,3 @@ func parseProcEndpoint(value string) (*antiflockv1.FlowEndpoint, error) {
 // because the kernel table cannot prove the connection start time.
 func flowObservationTime(value time.Time) *timestamppb.Timestamp { return timestamppb.New(value.UTC()) }
 
-var _ = fmt.Sprintf
