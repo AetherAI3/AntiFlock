@@ -111,11 +111,12 @@ antiflock-agent enroll \\
   --core-url https://core.example.test \\
   --enrollment-token-file /etc/antiflock/enrollment.token \\
   --state-dir /var/lib/antiflock \\
+  --ca-cert /etc/antiflock/node-ca.pem \\
   --node-id node_laptop_01 \\
   --display-name "Laptop 01"
 ```
 
-The first result remains `pending-operator-approval`. An authorized operator must review and approve it. Then rerun the same command: Core returns the approved certificate only to the holder of the original private enrollment token, and the agent verifies it matches `node.seed` before saving private PEM at `state-dir/node.pem`. Only then can `--submit` use mTLS. This preserves a human enrollment decision while making endpoint-side setup repeatable.
+Use `--ca-cert` only when Core uses a private CA; omit it for a publicly trusted certificate. The first result remains `pending-operator-approval`. An authorized operator must review and approve it. Then rerun the same command: Core returns the approved certificate only to the holder of the original private enrollment token, and the agent verifies it matches `node.seed` before saving private PEM at `state-dir/node.pem`. Only then can `--submit` use mTLS. This preserves a human enrollment decision while making endpoint-side setup repeatable.
 
 ### Tailscale status preview
 
