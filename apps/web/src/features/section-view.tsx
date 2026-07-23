@@ -619,7 +619,7 @@ function ScramblerView() {
 }
 
 function SettingsView() {
-  const { apiBase, demoFallback, updateConnectionSettings, streamStatus, mode, lastRefresh, failedEndpoints } = useDashboard();
+  const { data, apiBase, demoFallback, updateConnectionSettings, streamStatus, mode, lastRefresh, failedEndpoints } = useDashboard();
   const [nextFallback, setNextFallback] = useState(demoFallback);
   return (
     <div className="view-stack settings-view">
@@ -635,6 +635,25 @@ function SettingsView() {
         </Panel>
         <Panel labelledBy="connection-status-title"><PanelHeader title="Connection status" eyebrow="Current browser session" id="connection-status-title" /><dl className="key-value-list roomy"><KeyValue label="Data mode" value={<StateBadge value={mode.toUpperCase()} />} /><KeyValue label="Event stream" value={streamStatus} /><KeyValue label="Base URL" value={apiBase || "Same origin"} mono /><KeyValue label="Last refresh" value={lastRefresh ? formatTimestamp(lastRefresh) : "No successful live refresh"} /><KeyValue label="Missing projections" value={failedEndpoints.length ? failedEndpoints.join(", ") : "None reported"} /></dl></Panel>
       </div>
+      <Panel className="agent-setup-panel" labelledBy="agent-setup-title">
+        <PanelHeader title="Bring an endpoint online" eyebrow="Third-Eye setup" id="agent-setup-title" action={<span className="mono annotation">{data.nodes.length} enrolled</span>} />
+        <p className="setup-intro">Setup materials stay on the operator machine. This console receives only signed projections, never your node seed, client certificate, or provider key.</p>
+        <div className="setup-card-grid">
+          <article className={`setup-card ${data.nodes.length ? "setup-ready" : "setup-open"}`}>
+            <span className="setup-step">01</span><div><p>Enrolled agent</p><strong>{data.nodes.length ? "Projected" : "Waiting for first node"}</strong><small>Approve a node, keep its Ed25519 seed and mTLS material private, then run the agent’s one-cycle smoke test.</small></div><StateBadge value={data.nodes.length ? "READY" : "OPEN"} />
+          </article>
+          <article className="setup-card setup-open">
+            <span className="setup-step">02</span><div><p>Network Third-Eye</p><strong>Metadata-only flow monitor</strong><small>Opt in with <code>--include-flow-metadata</code>. It reads socket endpoints only—never packet or application payloads.</small></div><StateBadge value="OPT-IN" />
+          </article>
+          <article className="setup-card setup-open">
+            <span className="setup-step">03</span><div><p>Mesh provider</p><strong>Tailscale or Headscale</strong><small>Tailscale uses read-only local status. Headscale uses a private read-only key file and explicit identity associations.</small></div><StateBadge value="BYOK" />
+          </article>
+          <article className="setup-card setup-open">
+            <span className="setup-step">04</span><div><p>Nano watchdog</p><strong>Proposal-only boundary</strong><small>Cursor persistence is active. Signed program admission, scheduling, and proposal audit presentation remain OPEN.</small></div><StateBadge value="OPEN" />
+          </article>
+        </div>
+        <p className="setup-note">Detailed operator commands and file-permission requirements are in the enrolled-agent guide. No setup card can change a provider or host configuration.</p>
+      </Panel>
       <div className="two-column-grid">
         <Panel labelledBy="data-min-title"><PanelHeader title="Data minimization" eyebrow="Locked defaults" id="data-min-title" /><ul className="policy-check-list"><li><CheckState state="pass" /><span><strong>Packet payload collection disabled</strong><small>Flow metadata only in the standard installation.</small></span></li><li><CheckState state="pass" /><span><strong>Exact field location stays local</strong><small>Regional packs are matched on the endpoint.</small></span></li><li><CheckState state="pass" /><span><strong>Operator ownership required</strong><small>Footprint assets are not investigated before verification.</small></span></li></ul></Panel>
         <Panel labelledBy="evidence-semantics-title"><PanelHeader title="Evidence semantics" eyebrow="Words have fixed meanings" id="evidence-semantics-title" /><div className="evidence-key">{(["Detected", "Verified", "Reported", "Inferred", "Suspected", "Unknown"] as const).map((value) => <div key={value}><EvidenceBadge value={value} /><p>{{ Detected: "Observed directly by an authorized endpoint or gateway.", Verified: "Confirmed by trusted review or multiple reliable sources.", Reported: "Supplied by a public source or community report.", Inferred: "Calculated from observable conditions.", Suspected: "Possible active event; evidence is not conclusive.", Unknown: "AntiFlock lacks sufficient visibility." }[value]}</p></div>)}</div></Panel>
