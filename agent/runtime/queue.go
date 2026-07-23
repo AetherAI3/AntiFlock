@@ -73,7 +73,7 @@ func (queue *Queue) NextSequence(ctx context.Context) (uint64, error) {
 	queue.mu.Lock(); defer queue.mu.Unlock()
 	if queue.state.LastSequence == ^uint64(0) { return 0, errors.New("agent event sequence exhausted") }
 	queue.state.LastSequence++
-	if err := queue.save(); err != nil { return 0, err }
+	if _, err := queue.save(); err != nil { return 0, err }
 	return queue.state.LastSequence, nil
 }
 
@@ -98,7 +98,11 @@ func (queue *Queue) EnqueueBatch(ctx context.Context, entries []QueueEntry) erro
 	if len(entries) > maximumQueueEvents-len(queue.state.Events) { return errors.New("agent queue is full; telemetry is retained and collection must pause") }
 	originalLength := len(queue.state.Events)
 	queue.state.Events = append(queue.state.Events, encoded...)
-	if err := queue.save() { queue.state.Events = queue.state.Events[:originalLength]; return err }
+	installed, err := queue.save()
+	if err != nil {
+		if !installed { queue.state.Events = queue.state.Events[:originalLength] }
+		return err
+	}
 	return nil
 }
 
@@ -141,8 +145,9 @@ func (queue *Queue) Acknowledge(ctx context.Context, events []*antiflockv1.Event
 	}
 	if len(kept) == len(original) { return errors.New("acknowledgement did not match queued events") }
 	queue.state.Events = kept
-	if err := queue.save(); err != nil {
-		queue.state.Events = original
+	installed, err := queue.save()
+	if err != nil {
+		if !installed { queue.state.Events = original }
 		return err
 	}
 	return nil
@@ -161,16 +166,20 @@ func (queue *Queue) load() error {
 	return nil
 }
 
-func (queue *Queue) save() error {
-	content, err := json.Marshal(queue.state); if err != nil || len(content) > maximumQueueBytes { return errors.New("encode bounded agent queue") }
-	temporary, err := os.CreateTemp(queue.directory, ".queue-*.tmp"); if err != nil { return errors.New("stage agent queue") }
+// save reports whether the replacement queue file was installed. A post-rename
+// directory-sync error must not cause callers to roll back an in-memory state
+// that is already visible in the queue file.
+func (queue *Queue) save() (bool, error) {
+	content, err := json.Marshal(queue.state); if err != nil || len(content) > maximumQueueBytes { return false, errors.New("encode bounded agent queue") }
+	temporary, err := os.CreateTemp(queue.directory, ".queue-*.tmp"); if err != nil { return false, errors.New("stage agent queue") }
 	temporaryPath := temporary.Name(); defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil { temporary.Close(); return errors.New("protect staged agent queue") }
-	if _, err := temporary.Write(content); err != nil { temporary.Close(); return errors.New("write staged agent queue") }
-	if err := temporary.Sync(); err != nil { temporary.Close(); return errors.New("sync staged agent queue") }
-	if err := temporary.Close(); err != nil { return errors.New("close staged agent queue") }
-	if err := os.Rename(temporaryPath, filepath.Join(queue.directory, queueFileName)); err != nil { return fmt.Errorf("install agent queue: %w", err) }
-	return nil
+	if err := temporary.Chmod(0o600); err != nil { temporary.Close(); return false, errors.New("protect staged agent queue") }
+	if _, err := temporary.Write(content); err != nil { temporary.Close(); return false, errors.New("write staged agent queue") }
+	if err := temporary.Sync(); err != nil { temporary.Close(); return false, errors.New("sync staged agent queue") }
+	if err := temporary.Close(); err != nil { return false, errors.New("close staged agent queue") }
+	if err := os.Rename(temporaryPath, filepath.Join(queue.directory, queueFileName)); err != nil { return false, fmt.Errorf("install agent queue: %w", err) }
+	if err := syncQueueDirectory(queue.directory); err != nil { return true, err }
+	return true, nil
 }
 
 // Close releases the process-wide writer lock. A caller must not continue to
