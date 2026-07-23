@@ -185,9 +185,32 @@ func (queue *Queue) Close() error {
 	return lock.Close()
 }
 
-type queueLock struct { file *os.File }
+type queueLock struct {
+	file      *os.File
+	directory string
+}
+
+var activeQueueDirectories = struct {
+	sync.Mutex
+	values map[string]struct{}
+}{values: make(map[string]struct{})}
 
 func acquireQueueLock(directory string) (*queueLock, error) {
+	activeQueueDirectories.Lock()
+	if _, active := activeQueueDirectories.values[directory]; active {
+		activeQueueDirectories.Unlock()
+		return nil, errors.New("agent queue is already active in this process")
+	}
+	activeQueueDirectories.values[directory] = struct{}{}
+	activeQueueDirectories.Unlock()
+	releaseLease := true
+	defer func() {
+		if releaseLease {
+			activeQueueDirectories.Lock()
+			delete(activeQueueDirectories.values, directory)
+			activeQueueDirectories.Unlock()
+		}
+	}()
 	path := filepath.Join(directory, "queue.lock")
 	if info, err := os.Lstat(path); err == nil {
 		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
@@ -200,7 +223,8 @@ func acquireQueueLock(directory string) (*queueLock, error) {
 	if err != nil { return nil, errors.New("open agent queue lock file") }
 	if err := file.Chmod(0o600); err != nil { _ = file.Close(); return nil, errors.New("protect agent queue lock file") }
 	if err := lockQueueFile(file); err != nil { _ = file.Close(); return nil, err }
-	return &queueLock{file: file}, nil
+	releaseLease = false
+	return &queueLock{file: file, directory: directory}, nil
 }
 
 func (lock *queueLock) Close() error {
@@ -209,6 +233,9 @@ func (lock *queueLock) Close() error {
 	lock.file = nil
 	unlockErr := unlockQueueFile(file)
 	closeErr := file.Close()
+	activeQueueDirectories.Lock()
+	delete(activeQueueDirectories.values, lock.directory)
+	activeQueueDirectories.Unlock()
 	if unlockErr != nil { return unlockErr }
 	return closeErr
 }
