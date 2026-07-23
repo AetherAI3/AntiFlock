@@ -44,6 +44,17 @@ type queueState struct {
 	Events []queuedEvent `json:"events"`
 }
 
+// QueueStatus is safe local operator metadata. It contains neither event
+// payloads nor signing material and may be inspected while another process
+// owns the queue writer lock.
+type QueueStatus struct {
+	SchemaVersion string `json:"schemaVersion"`
+	NodeID        string `json:"nodeId"`
+	LastSequence  uint64 `json:"lastSequence"`
+	RetainedEvents int  `json:"retainedEvents"`
+	MaximumEvents int   `json:"maximumEvents"`
+}
+
 // Queue is a bounded, private on-disk write-ahead queue. It stores signed
 // protobuf envelopes verbatim; retries never re-sign or regenerate them.
 type Queue struct {
@@ -65,6 +76,25 @@ func OpenQueue(directory, nodeID string) (*Queue, error) {
 	queue := &Queue{directory: absolute, nodeID: nodeID, lock: lock, state: queueState{SchemaVersion: queueSchema, NodeID: nodeID}}
 	if err := queue.load(); err != nil { _ = lock.Close(); return nil, err }
 	return queue, nil
+}
+
+// InspectQueue reads a complete atomically-installed queue state without
+// acquiring its writer lock. It never creates, changes, or acknowledges data.
+// An active writer only exposes either the prior complete file or its complete
+// replacement, never a staged temporary file.
+func InspectQueue(directory, nodeID string) (QueueStatus, error) {
+	if strings.TrimSpace(directory) == "" || strings.TrimSpace(nodeID) == "" {
+		return QueueStatus{}, errors.New("agent queue directory and node id are required")
+	}
+	absolute, err := filepath.Abs(directory)
+	if err != nil { return QueueStatus{}, errors.New("resolve agent queue directory") }
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil || filepath.Clean(resolved) != filepath.Clean(absolute) { return QueueStatus{}, errors.New("agent queue directory must not traverse symlinks") }
+	info, err := os.Lstat(absolute)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 { return QueueStatus{}, errors.New("agent queue directory is not private and real") }
+	queue := &Queue{directory: absolute, nodeID: nodeID, state: queueState{SchemaVersion: queueSchema, NodeID: nodeID}}
+	if err := queue.load(); err != nil { return QueueStatus{}, err }
+	return QueueStatus{SchemaVersion: queue.state.SchemaVersion, NodeID: queue.state.NodeID, LastSequence: queue.state.LastSequence, RetainedEvents: len(queue.state.Events), MaximumEvents: maximumQueueEvents}, nil
 }
 
 func (queue *Queue) NextSequence(ctx context.Context) (uint64, error) {
