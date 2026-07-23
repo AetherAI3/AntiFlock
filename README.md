@@ -94,12 +94,28 @@ keeps working even if Core goes offline.
 ```text
 Linux device ── read-only routes / DNS / interface state ──┐
 Tailscale CLI ── `tailscale status --json` (read-only) ───┼──> signed events / Third-Eye
-Headscale adapter ── read-only client (**OPEN:** no CLI/runner) ──────┘             │
+Headscale API ── read-only `GET /api/v1/node` BYOK probe ─────────────┘             │
                                                                             v
 Nano source + typed finding ── deterministic proposal ──> Secure Action gate ──> consent + audit
 ```
 
 The safe direction of travel is deliberately one-way: adapters observe, Nano proposes, and only the existing gate can authorize a bounded action. No adapter, Nano program, dashboard, or provider key can silently become a host-mutation capability.
+
+### Enroll an endpoint, then observe
+
+The agent now has a small deterministic bootstrap command. An operator creates a short-lived enrollment token, saves it in a local `0600` file, then the endpoint proves ownership of a new Ed25519 key. The key and request ID stay private in the selected state directory, so retrying after an outage does not mint a second identity.
+
+```bash
+chmod 600 /etc/antiflock/enrollment.token
+antiflock-agent enroll \\
+  --core-url https://core.example.test \\
+  --enrollment-token-file /etc/antiflock/enrollment.token \\
+  --state-dir /var/lib/antiflock \\
+  --node-id node_laptop_01 \\
+  --display-name "Laptop 01"
+```
+
+The result remains `pending-operator-approval`. An authorized operator must review and approve it, then place the issued client certificate alongside the generated `node.seed`; only then can `--submit` use mTLS. This preserves a human enrollment decision while making endpoint-side setup repeatable.
 
 ### Tailscale status preview
 
@@ -172,10 +188,10 @@ These are visible project work items, not implied capabilities. They are tracked
 | Area | What exists now | OPEN before calling it production |
 | --- | --- | --- |
 | Tailscale / Headscale | Tailscale CLI and Headscale `GET /api/v1/node` can run through the enrolled agent queue; Headscale uses an explicit read-only BYOK file and identity map | roaming/partition tests, key rotation/revocation, and operator-visible status |
-| Third-Eye | authenticated local dashboard with live Core projections | enrolled-agent setup/status cards, topology provenance UX, and production deployment/review |
+| Third-Eye | authenticated local dashboard with live Core projections and endpoint setup cards | topology provenance UX, live setup/status polling, and production deployment/review |
 | Network traffic monitor | opt-in Linux socket-table endpoint metadata (`flow.updated`); no packets, payloads, bytes, direction, or process data | retention controls, process attribution limits, non-Linux collectors, and real-network/privacy validation |
 | Nano watchdog | deterministic parser/evaluator, durable SQLite cursor, audited immutable program admission, and proposal-only Core API | automatic finding scheduling, disable/version lifecycle, replay fixtures, and dashboard/audit presentation |
-| BYOK providers | local Core credentials; mTLS agent identity; read-only mesh probes | provider-specific secret reference/rotation, narrow scopes, revocation, audit, and live provider API integration |
+| BYOK providers | local Core credentials; mTLS agent identity; Tailscale CLI and Headscale read-only live mesh probes | provider-specific secret reference/rotation, narrow scopes, revocation, audit, and integration coverage |
 | Enforcement | signed plans and rollback transaction model | reviewed privileged helper, real packet transport, kill-switch tests, and independent security/privacy review |
 | Public opening | Repository is still private at this audit; security/CI/community files are present. | Before changing visibility: enable private vulnerability reporting, name the security contact, confirm branch protections and billing, and rerun the full CI workflow. |
 
