@@ -75,7 +75,7 @@ func (server *Server) handleRunWatchdogOpenFindings(response http.ResponseWriter
 	// An empty body is permitted for direct operator requests. A present body
 	// must be the empty JSON object so it cannot smuggle a caller-selected
 	// finding or signal into this Core-owned execution path.
-	if request.ContentLength > 0 {
+	if request.ContentLength != 0 {
 		var body struct{}
 		if err := decodeJSON(response, request, &body, 1024); err != nil {
 			writeAPIError(response, http.StatusBadRequest, "INVALID_JSON", safeDecodeMessage(err), "", false)
