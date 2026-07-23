@@ -159,7 +159,6 @@ func (collector *LinuxCollector) Collect(ctx context.Context) (*Collection, erro
 	}
 
 	if collector.config.IncludeFlowMetadata {
-		result.Snapshot.Flows, result.HealthReasonCodes = collector.collectFlows(observedAt), result.HealthReasonCodes
 		flows, reasons := collector.collectFlows(observedAt)
 		result.Snapshot.Flows = flows
 		result.HealthReasonCodes = append(result.HealthReasonCodes, reasons...)
