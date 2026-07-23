@@ -50,6 +50,7 @@ type Queue struct {
 	directory string
 	nodeID string
 	mu sync.Mutex
+	lock *queueLock
 	state queueState
 }
 
@@ -59,8 +60,10 @@ func OpenQueue(directory, nodeID string) (*Queue, error) {
 	absolute, err := filepath.Abs(directory); if err != nil { return nil, errors.New("resolve agent queue directory") }
 	resolved, err := filepath.EvalSymlinks(absolute); if err != nil || filepath.Clean(resolved) != filepath.Clean(absolute) { return nil, errors.New("agent queue directory must not traverse symlinks") }
 	if err := os.Chmod(absolute, 0o700); err != nil { return nil, errors.New("protect agent queue directory") }
-	queue := &Queue{directory: absolute, nodeID: nodeID, state: queueState{SchemaVersion: queueSchema, NodeID: nodeID}}
-	if err := queue.load(); err != nil { return nil, err }
+	lock, err := acquireQueueLock(absolute)
+	if err != nil { return nil, err }
+	queue := &Queue{directory: absolute, nodeID: nodeID, lock: lock, state: queueState{SchemaVersion: queueSchema, NodeID: nodeID}}
+	if err := queue.load(); err != nil { _ = lock.Close(); return nil, err }
 	return queue, nil
 }
 
@@ -168,4 +171,44 @@ func (queue *Queue) save() error {
 	if err := temporary.Close(); err != nil { return errors.New("close staged agent queue") }
 	if err := os.Rename(temporaryPath, filepath.Join(queue.directory, queueFileName)); err != nil { return fmt.Errorf("install agent queue: %w", err) }
 	return nil
+}
+
+// Close releases the process-wide writer lock. A caller must not continue to
+// use the queue after Close; the agent defers it for orderly service shutdown.
+func (queue *Queue) Close() error {
+	if queue == nil { return nil }
+	queue.mu.Lock()
+	lock := queue.lock
+	queue.lock = nil
+	queue.mu.Unlock()
+	if lock == nil { return nil }
+	return lock.Close()
+}
+
+type queueLock struct { file *os.File }
+
+func acquireQueueLock(directory string) (*queueLock, error) {
+	path := filepath.Join(directory, "queue.lock")
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+			return nil, errors.New("agent queue lock file is not a private regular file")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, errors.New("inspect agent queue lock file")
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil { return nil, errors.New("open agent queue lock file") }
+	if err := file.Chmod(0o600); err != nil { _ = file.Close(); return nil, errors.New("protect agent queue lock file") }
+	if err := lockQueueFile(file); err != nil { _ = file.Close(); return nil, err }
+	return &queueLock{file: file}, nil
+}
+
+func (lock *queueLock) Close() error {
+	if lock == nil || lock.file == nil { return nil }
+	file := lock.file
+	lock.file = nil
+	unlockErr := unlockQueueFile(file)
+	closeErr := file.Close()
+	if unlockErr != nil { return unlockErr }
+	return closeErr
 }
