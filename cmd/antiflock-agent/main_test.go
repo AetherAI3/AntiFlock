@@ -77,8 +77,14 @@ func TestStatusReportsPrivateIdentityAndQueueMetadata(t *testing.T) {
 	directory := t.TempDir()
 	stateDirectory := filepath.Join(directory, "state")
 	if err := os.Mkdir(stateDirectory, 0o700); err != nil { t.Fatal(err) }
-	if err := os.WriteFile(filepath.Join(stateDirectory, "node.seed"), make([]byte, 32), 0o600); err != nil { t.Fatal(err) }
-	if err := os.WriteFile(filepath.Join(stateDirectory, "node.pem"), []byte("certificate"), 0o600); err != nil { t.Fatal(err) }
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(stateDirectory, "node.seed"), privateKey.Seed(), 0o600); err != nil { t.Fatal(err) }
+	now := time.Now().UTC()
+	template := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "node-status"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, BasicConstraintsValid: true}
+	certificateDER, err := x509.CreateCertificate(rand.Reader, template, template, publicKey, privateKey)
+	if err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(stateDirectory, "node.pem"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER}), 0o600); err != nil { t.Fatal(err) }
 	queue, err := runtime.OpenQueue(filepath.Join(directory, "queue"), "node-status")
 	if err != nil { t.Fatal(err) }
 	defer queue.Close()
