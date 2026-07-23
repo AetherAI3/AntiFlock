@@ -177,6 +177,7 @@ These are visible project work items, not implied capabilities. They are tracked
 | Nano watchdog | deterministic parser/evaluator, bounded finding frame, and consent-gated proposals | versioned rule storage, a runner/scheduler, signed program admission, replay fixtures, and dashboard/audit presentation |
 | BYOK providers | local Core credentials; read-only mesh probes; offline public-surface fixtures | provider-specific setup, secret storage/rotation, narrow scopes, revocation, audit, and integration tests |
 | Enforcement | signed plans and rollback transaction model | reviewed privileged helper, real packet transport, kill-switch tests, and independent security/privacy review |
+| Public opening | Repository is still private at this audit; security/CI/community files are present. | Before changing visibility: enable private vulnerability reporting, name the security contact, confirm branch protections and billing, and rerun the full CI workflow. |
 
 No **OPEN** item should be enabled by changing a boolean. Each needs its stated contracts, tests, and a security/privacy review before it can affect a real host or provider.
 
