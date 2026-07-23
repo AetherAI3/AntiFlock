@@ -25,6 +25,7 @@ Start with:
 - [Reference vertical-slice release status](release-status.md)
 - [Local operator runbook](operator-runbook.md)
 - [Nano watchdog boundary and runner roadmap](nano-watchdog.md)
+- [Continuous agent and Nano watchdog loop](agent-watchdog-loop.md)
 - [Architecture decisions](adr/README.md)
 
 Normative words such as **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are
