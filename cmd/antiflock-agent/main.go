@@ -271,7 +271,7 @@ func runStatus(arguments []string, stdout, stderr io.Writer) error {
 	queueDirectory := flags.String("queue-dir", "", "private durable queue directory")
 	compact := flags.Bool("compact", false, "write compact JSON")
 	if err := flags.Parse(arguments); err != nil { return err }
-	if flags.NArg() != 0 || strings.TrimSpace(*nodeID) == "" || len(*nodeID) > 128 || strings.TrimSpace(*nodeID) != *nodeID || strings.ContainsAny(*nodeID, "\\r\\n\\x00") || strings.TrimSpace(*queueDirectory) == "" {
+	if flags.NArg() != 0 || strings.TrimSpace(*nodeID) == "" || len(*nodeID) > 128 || strings.TrimSpace(*nodeID) != *nodeID || strings.ContainsAny(*nodeID, "\r\n\x00") || strings.TrimSpace(*queueDirectory) == "" {
 		return errors.New("status requires canonical node-id and queue-dir")
 	}
 	identity := localIdentityStatus(*stateDirectory)
