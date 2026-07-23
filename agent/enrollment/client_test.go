@@ -84,3 +84,22 @@ func TestSaveApprovedCertificateAcceptsOnlyMatchingPrivateIdentity(t *testing.T)
 	otherDER, err := x509.CreateCertificate(rand.Reader, template, template, otherKey.Public(), otherKey); if err != nil { t.Fatal(err) }
 	if err := SaveApprovedCertificate(filepath.Join(directory, "node.seed"), certificatePath, otherDER); err == nil { t.Fatal("accepted a certificate for another identity") }
 }
+
+
+func TestSubmitReturnsOnlyAnApprovedMatchingCertificate(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "state")
+	privateKey, _, err := ensureIdentity(directory, "agent-lab-1")
+	if err != nil { t.Fatal(err) }
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		template := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "agent-lab-1"}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, BasicConstraintsValid: true}
+		der, err := x509.CreateCertificate(rand.Reader, template, template, privateKey.Public(), privateKey)
+		if err != nil { t.Errorf("issue test certificate: %v", err); http.Error(writer, "certificate", http.StatusInternalServerError); return }
+		output := &antiflockv1.EnrollNodeResponse{Enrollment: &antiflockv1.EnrollmentRequest{Id: "enrollment-approved", ProposedNodeId: "agent-lab-1", Status: antiflockv1.EnrollmentStatus_ENROLLMENT_STATUS_APPROVED}, NodeCertificateChainDer: der}
+		encoded, err := (protojson.MarshalOptions{}).Marshal(output); if err != nil { t.Errorf("encode response: %v", err); return }
+		writer.Header().Set("Content-Type", "application/json"); writer.WriteHeader(http.StatusAccepted); _, _ = writer.Write(encoded)
+	}))
+	defer server.Close()
+	result, err := Submit(context.Background(), Config{Endpoint: server.URL, Token: "01234567890123456789012345678901", StateDirectory: directory, NodeID: "agent-lab-1", DisplayName: "Lab agent"})
+	if err != nil { t.Fatal(err) }
+	if result.Status != antiflockv1.EnrollmentStatus_ENROLLMENT_STATUS_APPROVED || len(result.CertificateChainDER) == 0 { t.Fatalf("approval result = %#v", result) }
+}
