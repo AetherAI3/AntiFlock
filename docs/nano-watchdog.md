@@ -104,7 +104,7 @@ antiflockctl watchdog run \
   --node-id node_laptop_01 \
   --reason-code UNEXPECTED_EXPOSURE \
   --confidence 0.95 \
-  --observed-unix 1760000000
+  --observed-unix "$(date +%s)"
 ```
 
 The command returns proposals only. It never calls a provider or executes an
