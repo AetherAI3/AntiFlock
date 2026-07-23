@@ -104,15 +104,20 @@ func (queue *Queue) Acknowledge(ctx context.Context, events []*antiflockv1.Event
 	if err := ctx.Err(); err != nil { return err }
 	ids := make(map[string]struct{}, len(events)); for _, event := range events { if event == nil || event.GetId() == "" { return errors.New("queue acknowledgement contains an invalid event") }; ids[event.GetId()] = struct{}{} }
 	queue.mu.Lock(); defer queue.mu.Unlock()
-	kept := queue.state.Events[:0]
-	for _, stored := range queue.state.Events {
+	original := append([]queuedEvent(nil), queue.state.Events...)
+	kept := make([]queuedEvent, 0, len(original))
+	for _, stored := range original {
 		wire, err := base64.RawStdEncoding.DecodeString(stored.Wire); if err != nil { return errors.New("queued event encoding is invalid") }
 		var event antiflockv1.EventEnvelope; if err := proto.Unmarshal(wire, &event); err != nil { return errors.New("queued event is invalid") }
 		if _, sent := ids[event.GetId()]; !sent { kept = append(kept, stored) }
 	}
-	if len(kept) == len(queue.state.Events) { return errors.New("acknowledgement did not match queued events") }
+	if len(kept) == len(original) { return errors.New("acknowledgement did not match queued events") }
 	queue.state.Events = kept
-	return queue.save()
+	if err := queue.save(); err != nil {
+		queue.state.Events = original
+		return err
+	}
+	return nil
 }
 
 func (queue *Queue) load() error {
