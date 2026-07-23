@@ -191,3 +191,27 @@ func TestSecurityWindowsAndTLSPairsAreBounded(t *testing.T) {
 		})
 	}
 }
+
+
+func TestNanoSchedulerRequiresExplicitBoundedProgramAllowlist(t *testing.T) {
+	valid := config.Default()
+	valid.Nano.AutomaticRunInterval = time.Minute
+	valid.Nano.AutomaticRunProgramIDs = []string{"watchdog-example"}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("explicit scheduler configuration rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*config.Config){
+		"program without interval": func(value *config.Config) { value.Nano.AutomaticRunProgramIDs = []string{"watchdog-example"} },
+		"interval without program": func(value *config.Config) { value.Nano.AutomaticRunInterval = time.Minute },
+		"too-fast interval": func(value *config.Config) { value.Nano.AutomaticRunInterval = time.Millisecond; value.Nano.AutomaticRunProgramIDs = []string{"watchdog-example"} },
+		"duplicate program": func(value *config.Config) { value.Nano.AutomaticRunInterval = time.Minute; value.Nano.AutomaticRunProgramIDs = []string{"watchdog-example", "watchdog-example"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			value := config.Default()
+			mutate(&value)
+			if err := value.Validate(); err == nil {
+				t.Fatal("unsafe Nano scheduler configuration was accepted")
+			}
+		})
+	}
+}
