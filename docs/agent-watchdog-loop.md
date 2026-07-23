@@ -7,12 +7,16 @@ provider, or performs a host/network action.
 ## What is wired
 
 ```text
-Linux metadata + optional socket tables + optional Tailscale status
+operator enrollment token -> private Ed25519 seed + signed proof -> pending operator approval
+    -> approved mTLS client certificate -> signed event + private durable queue -> Core -> Third-Eye
+
+Linux metadata + optional socket tables + optional Tailscale or Headscale observation
     -> signed event -> private durable queue -> HTTPS/mTLS Core batch -> Third-Eye projections
 
 typed finding -> admitted Nano program -> SQLite cursor -> expiring proposal -> existing consent gate
 ```
 
+- `antiflock-agent enroll` creates one private Ed25519 seed and a retry-stable signed enrollment proof, then submits a pending request. It does not self-approve, fetch a certificate, or turn on telemetry.
 - `antiflock-agent --submit` collects at a fixed interval, signs each event with the enrolled Ed25519 key, writes it to a private bounded queue, and removes it only after Core gives a rejection-free acknowledgement.
 - Core accepts an active enrolled node through a verified mTLS client certificate; a bearer token remains only for a loopback/development path.
 - `--include-flow-metadata` reads `/proc/net/tcp`, `tcp6`, `udp`, and `udp6` only when opted in. It emits current endpoint/protocol metadata as `flow.updated`; it intentionally reports no payload, byte counter, start time, direction, egress interface, or process identity.
@@ -22,11 +26,25 @@ typed finding -> admitted Nano program -> SQLite cursor -> expiring proposal -> 
 
 ## Run an enrolled Linux agent
 
-Prerequisites:
+### 1. Request enrollment
 
-1. Core is reachable over HTTPS and has its node client CA configured.
-2. The node was approved through Core enrollment. Keep the matching Ed25519 seed and issued node client certificate in private files with mode `0600`. The agent uses that same seed for signing and mTLS; do not create a second key copy.
-3. Set the real deployment and node IDs used during enrollment. The agent does not synthesize either value.
+Core must be reachable over HTTPS. An operator creates a short-lived agent enrollment token and writes it into a private local file; the token is never sent to the dashboard, queue, or Nano.
+
+```bash
+chmod 600 /etc/antiflock/enrollment.token
+antiflock-agent enroll \\
+  --core-url https://core.example.test \\
+  --enrollment-token-file /etc/antiflock/enrollment.token \\
+  --state-dir /var/lib/antiflock \\
+  --node-id node_laptop_01 \\
+  --display-name "Laptop 01"
+```
+
+The command returns a `pending-operator-approval` document. Retrying it reuses the same seed and request ID. An authorized Core operator must approve the request, then securely place the issued client certificate at `/etc/antiflock/node.pem`. The certificate must match `/var/lib/antiflock/node.seed`; the agent rejects a mismatch and never needs a second private key copy.
+
+### 2. Submit read-only observations
+
+Set the real deployment and node IDs used during enrollment, then run one safe smoke-test cycle:
 
 ```bash
 # One collection / delivery cycle. This is safe to use as a deployment smoke test.
@@ -77,10 +95,10 @@ used instead of the client certificate; it is rejected for a remote HTTP endpoin
 
 | Area | Remaining work |
 | --- | --- |
-| Agent enrollment UX | Generate/import identity and retrieve the approved certificate without a manual handoff; service manager packages and status endpoint. |
+| Agent enrollment UX | Operator approval/certificate retrieval without a manual handoff; service manager packages and status endpoint. Endpoint key generation and retry-safe pending submission are wired. |
 | Queue operations | Cross-process lock, retention/health metrics, and a tested recovery procedure for a full queue. |
 | Flow monitor | Process attribution, bytes/duration, retention controls, non-Linux collectors, and independent privacy review. |
-| Tailscale / Headscale | Roaming/partition tests and dashboard setup/status cards. Both read-only probes are wired into the agent loop. |
+| Tailscale / Headscale | Roaming/partition tests and live setup/status polling. Both read-only probes are wired into the agent loop; Third-Eye has static setup cards. |
 | Nano | Automatic finding-to-program scheduling, disable/version lifecycle, proposal audit projection, and replay fixtures. Audited admission plus the deterministic proposal-only API are wired. |
 | BYOK providers | Key rotation/revocation, platform-keystore references, outbound egress controls, audit records, and integration tests. The Headscale key is read only from a local private file and never sent to Core/Nano. |
 
