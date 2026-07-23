@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 	"github.com/DBarr3/AntiFlock/core/nano"
 	"github.com/DBarr3/AntiFlock/core/storage"
 )
@@ -63,6 +64,24 @@ func (server *Server) handleRunWatchdog(response http.ResponseWriter, request *h
 	result, err := server.nano.RunFinding(request.Context(), request.PathValue("id"), nano.FindingContext{
 		FindingID: body.FindingID, NodeID: body.NodeID, ReasonCode: body.ReasonCode, Confidence: body.Confidence, ObservedUnix: body.ObservedUnix,
 	})
+	if err != nil { server.writeDomainError(response, http.StatusBadRequest, err, ""); return }
+	writeJSON(response, http.StatusOK, result)
+}
+
+// handleRunWatchdogOpenFindings accepts no caller-supplied findings. It runs
+// only current OPEN Core findings through the admitted, proposal-only program.
+func (server *Server) handleRunWatchdogOpenFindings(response http.ResponseWriter, request *http.Request) {
+	if server.nano == nil { server.handleUnavailable(response, request); return }
+	findings := server.findings.List("", antiflockv1.FindingStatus_FINDING_STATUS_OPEN)
+	contexts := make([]nano.FindingContext, 0, len(findings))
+	for _, finding := range findings {
+		if finding == nil || finding.GetMetadata() == nil || finding.GetLastSeenAt() == nil { continue }
+		contexts = append(contexts, nano.FindingContext{
+			FindingID: finding.GetMetadata().GetId(), NodeID: finding.GetNodeId(), ReasonCode: finding.GetReasonCode(),
+			Confidence: float64(finding.GetClaim().GetConfidence()), ObservedUnix: finding.GetLastSeenAt().AsTime().UTC().Unix(),
+		})
+	}
+	result, err := server.nano.RunOpenFindings(request.Context(), request.PathValue("id"), contexts)
 	if err != nil { server.writeDomainError(response, http.StatusBadRequest, err, ""); return }
 	writeJSON(response, http.StatusOK, result)
 }
