@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DBarr3/AntiFlock/adapters/mesh/headscale"
 	"github.com/DBarr3/AntiFlock/adapters/mesh/tailscale"
 	"github.com/DBarr3/AntiFlock/agent/collectors"
 	"github.com/DBarr3/AntiFlock/agent/ingest"
@@ -61,7 +62,10 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	includeSearchDomains := flags.Bool("include-search-domains", false, "include resolver search domains")
 	includeNonDefaultRoutes := flags.Bool("include-non-default-routes", false, "include routes beyond the active default routes")
 	includeFlowMetadata := flags.Bool("include-flow-metadata", false, "include current socket endpoint metadata; never captures packets or process data")
-	meshProvider := flags.String("mesh-provider", "none", "read-only mesh probe: none or tailscale")
+	meshProvider := flags.String("mesh-provider", "none", "read-only mesh probe: none, tailscale, or headscale")
+	headscaleURL := flags.String("headscale-url", "", "Headscale HTTPS URL when mesh-provider=headscale")
+	headscaleAPIKeyFile := flags.String("headscale-api-key-file", "", "private Headscale read-only API-key file")
+	headscaleAssociationsFile := flags.String("headscale-associations-file", "", "JSON map of Headscale provider ids to AntiFlock node ids")
 	meshDryRun := flags.Bool("mesh-dry-run", false, "show the mesh status command without executing it")
 	compact := flags.Bool("compact", false, "write compact JSON")
 	submit := flags.Bool("submit", false, "persist and submit signed telemetry to Core (default is inspect-only JSON)")
@@ -140,8 +144,24 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 				collection.Snapshot.MeshPaths = mesh.Paths
 				return collection, nil
 			})
+		case "headscale":
+			if *meshDryRun { return errors.New("--mesh-dry-run is only available for tailscale") }
+			apiKey, err := readPrivateSecret(*headscaleAPIKeyFile)
+			if err != nil || apiKey == "" || strings.TrimSpace(*headscaleURL) == "" { return errors.New("headscale submission requires headscale-url and headscale-api-key-file") }
+			associations, err := readAssociations(*headscaleAssociationsFile)
+			if err != nil { return err }
+			client, err := headscale.NewClient(headscale.Config{BaseURL: *headscaleURL, APIKey: apiKey, ProviderAssociations: associations, IncludeAddresses: *includeAddresses})
+			if err != nil { return err }
+			source = runtime.CollectorFunc(func(runContext context.Context) (*collectors.Collection, error) {
+				collection, err := collector.Collect(runContext)
+				if err != nil { return nil, err }
+				mesh, err := client.ListNodes(runContext, collection.Snapshot.ObservedAt.AsTime().UTC())
+				if err != nil { return nil, err }
+				collection.Snapshot.MeshPeers = mesh.Peers
+				return collection, nil
+			})
 		default:
-			return errors.New("mesh-provider must be none or tailscale")
+			return errors.New("mesh-provider must be none, tailscale, or headscale")
 		}
 		loop, err := runtime.NewLoop(runtime.LoopConfig{
 			DeploymentID: *deploymentID, NodeID: *nodeID, BootID: *bootID, Interval: *interval,
@@ -222,6 +242,24 @@ func readPrivateSecret(path string) (string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil || len(content) > 16<<10 { return "", errors.New("read bounded agent token file") }
 	return strings.TrimSpace(string(content)), nil
+}
+
+
+func readAssociations(path string) (map[string]string, error) {
+	if strings.TrimSpace(path) == "" { return nil, nil }
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 1<<20 {
+		return nil, errors.New("Headscale associations file must be a bounded regular file")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil { return nil, errors.New("read Headscale associations file") }
+	values := make(map[string]string)
+	decoder := json.NewDecoder(strings.NewReader(string(content)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&values); err != nil { return nil, errors.New("decode Headscale associations JSON") }
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF { return nil, errors.New("Headscale associations JSON contains trailing data") }
+	return values, nil
 }
 
 func newAgentHTTPClient(certificatePath, keyPath, caPath string) (*http.Client, error) {
