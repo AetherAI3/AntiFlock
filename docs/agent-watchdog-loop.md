@@ -18,7 +18,7 @@ typed finding -> admitted Nano program -> SQLite cursor -> expiring proposal -> 
 - `--include-flow-metadata` reads `/proc/net/tcp`, `tcp6`, `udp`, and `udp6` only when opted in. It emits current endpoint/protocol metadata as `flow.updated`; it intentionally reports no payload, byte counter, start time, direction, egress interface, or process identity.
 - `--mesh-provider tailscale --submit` runs only `tailscale status --json` and sends peer/path observations through the same queue. It never invokes a Tailscale mutating command.
 - `--mesh-provider headscale --submit` calls only Headscale’s `GET /api/v1/node` using a read-only API key from a private file. It reports only explicitly associated peers; it cannot create, move, tag, expire, rename, or delete a Headscale node.
-- `nano.Runner` now has a SQLite-backed cursor store. The cursor is saved before a proposal is returned, so a restart cannot refire the same scheduled finding.
+- Nano watchdog admission is a signed-audit Core record: source is compiled against the constrained profile, saved with its immutable digest/binding, and exposed at `POST /v1/watchdogs`. `POST /v1/watchdogs/{id}/run` accepts a typed finding and returns only expiring proposals; it cannot execute an action. Its SQLite cursor is saved before a proposal is returned, so a restart cannot refire the same scheduled finding.
 
 ## Run an enrolled Linux agent
 
@@ -81,7 +81,7 @@ used instead of the client certificate; it is rejected for a remote HTTP endpoin
 | Queue operations | Cross-process lock, retention/health metrics, and a tested recovery procedure for a full queue. |
 | Flow monitor | Process attribution, bytes/duration, retention controls, non-Linux collectors, and independent privacy review. |
 | Tailscale / Headscale | Roaming/partition tests and dashboard setup/status cards. Both read-only probes are wired into the agent loop. |
-| Nano | Signed/versioned program admission, Core scheduler/API, proposal audit view, and replay fixtures. The durable runner cursor is ready for that integration. |
+| Nano | Automatic finding-to-program scheduling, disable/version lifecycle, proposal audit projection, and replay fixtures. Audited admission plus the deterministic proposal-only API are wired. |
 | BYOK providers | Key rotation/revocation, platform-keystore references, outbound egress controls, audit records, and integration tests. The Headscale key is read only from a local private file and never sent to Core/Nano. |
 
 No OPEN item can be enabled by a boolean. Each must gain its own least-privilege
