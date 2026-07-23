@@ -290,7 +290,10 @@ func localIdentityStatus(directory string) string {
 	pending := validateRegularFile(filepath.Join(directory, "enrollment.json"), true) == nil
 	switch {
 	case seed && certificate:
-		return "ready"
+		if _, err := runtime.LoadNodeCertificate(filepath.Join(directory, "node.pem"), filepath.Join(directory, "node.seed")); err == nil {
+			return "ready"
+		}
+		return "incomplete-or-unsafe"
 	case seed && pending:
 		return "pending-operator-approval"
 	case seed || certificate || pending:
