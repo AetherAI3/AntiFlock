@@ -57,11 +57,14 @@ func NewLoop(config LoopConfig) (*Loop, error) {
 }
 
 // Run executes an immediate collection, then repeats at the configured
-// interval. Context cancellation is a clean shutdown, not a failed delivery.
+// interval. A collection or delivery failure leaves the durable queue intact
+// and is retried on the next interval; --once callers use RunOnce directly
+// when they need the error returned to their supervisor.
 func (loop *Loop) Run(ctx context.Context) error {
 	if loop == nil { return errors.New("agent loop is required") }
 	for {
-		if err := loop.RunOnce(ctx); err != nil { if ctx.Err() != nil { return nil }; return err }
+		_ = loop.RunOnce(ctx)
+		if ctx.Err() != nil { return nil }
 		timer := time.NewTimer(loop.config.Interval)
 		select { case <-ctx.Done(): timer.Stop(); return nil; case <-timer.C: }
 	}
