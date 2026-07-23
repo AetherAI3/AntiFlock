@@ -86,3 +86,12 @@ func TestStatusReportsPrivateIdentityAndQueueMetadata(t *testing.T) {
 	if err := run(context.Background(), []string{"status", "--node-id", "node-status", "--state-dir", stateDirectory, "--queue-dir", filepath.Join(directory, "queue")}, &stdout, &stderr); err != nil { t.Fatal(err) }
 	if !strings.Contains(stdout.String(), `"identity": "ready"`) || !strings.Contains(stdout.String(), `"retainedEvents": 0`) { t.Fatalf("status = %s", stdout.String()) }
 }
+
+
+func TestStatusRejectsControlCharactersInNodeID(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := run(context.Background(), []string{"status", "--node-id", "node-status\nforged", "--queue-dir", t.TempDir()}, &stdout, &stderr)
+	if err == nil || !strings.Contains(err.Error(), "canonical node-id") {
+		t.Fatalf("status control-character result = %v", err)
+	}
+}
