@@ -78,6 +78,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	meshProvider := flags.String("mesh-provider", "none", "read-only mesh probe: none, tailscale, or headscale")
 	headscaleURL := flags.String("headscale-url", "", "Headscale HTTPS URL when mesh-provider=headscale")
 	headscaleAPIKeyFile := flags.String("headscale-api-key-file", "", "private Headscale read-only API-key file")
+	headscaleCACertificate := flags.String("headscale-ca-cert", "", "optional Headscale CA PEM for a private Headscale HTTPS certificate")
 	headscaleAssociationsFile := flags.String("headscale-associations-file", "", "JSON map of Headscale provider ids to AntiFlock node ids")
 	meshDryRun := flags.Bool("mesh-dry-run", false, "show the mesh status command without executing it")
 	compact := flags.Bool("compact", false, "write compact JSON")
@@ -163,7 +164,9 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 			if err != nil || apiKey == "" || strings.TrimSpace(*headscaleURL) == "" { return errors.New("headscale submission requires headscale-url and headscale-api-key-file") }
 			associations, err := readAssociations(*headscaleAssociationsFile)
 			if err != nil { return err }
-			client, err := headscale.NewClient(headscale.Config{BaseURL: *headscaleURL, APIKey: apiKey, ProviderAssociations: associations, IncludeAddresses: *includeAddresses})
+			headscaleHTTP, err := newAgentHTTPClient("", "", "", *headscaleCACertificate)
+			if err != nil { return err }
+			client, err := headscale.NewClient(headscale.Config{BaseURL: *headscaleURL, APIKey: apiKey, HTTPClient: headscaleHTTP, ProviderAssociations: associations, IncludeAddresses: *includeAddresses})
 			if err != nil { return err }
 			source = runtime.CollectorFunc(func(runContext context.Context) (*collectors.Collection, error) {
 				collection, err := collector.Collect(runContext)
