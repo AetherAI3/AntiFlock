@@ -65,7 +65,7 @@ antiflock-agent \
 
 Omit the flow flag to avoid endpoint metadata. Omit the mesh flag to avoid the
 provider probe. To use Headscale instead of Tailscale, save the read-only API key
-in a `0600` file and pass an explicit association map:
+in a `0600` file and pass an explicit association map. For a private Headscale certificate, pass its CA PEM with `--headscale-ca-cert`:
 
 ```json
 { "headscale-provider-id": "node_laptop_01" }
