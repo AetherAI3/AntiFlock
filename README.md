@@ -94,7 +94,7 @@ keeps working even if Core goes offline.
 ```text
 Linux device ── read-only routes / DNS / interface state ──┐
 Tailscale CLI ── `tailscale status --json` (read-only) ───┼──> signed events / Third-Eye
-Headscale API ── read-only probe ───────────────────────────┘             │
+Headscale adapter ── read-only client (**OPEN:** no CLI/runner) ──────┘             │
                                                                             v
 Nano source + typed finding ── deterministic proposal ──> Secure Action gate ──> consent + audit
 ```
@@ -163,7 +163,7 @@ milestones — we don't claim them until they're proven.
 
 **Working now:** identity + enrollment · event log with signed audit · deterministic policy,
 findings, and signed plans · secure-action gate + TypeScript SDK · Linux network observation ·
-Third-Eye dashboard · Android Guard reference · Nano watchdog · the coffee-shop demo end-to-end.
+Third-Eye dashboard · Android Guard reference · Nano watchdog evaluator/proposal boundary · the coffee-shop demo end-to-end.
 
 ## OPEN — production work
 
