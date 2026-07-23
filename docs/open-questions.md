@@ -1,7 +1,19 @@
-# Open decisions and release gates
+# OPEN — decisions, unconnected features, and release gates
 
-These items do not weaken the v1 safety contracts. They must be resolved before
-the named milestone.
+**OPEN** means an item is intentionally not production-ready, not wired into a continuous operator workflow, or still needs a decision. It is not an invitation to bypass a safety check. The current safe default remains in force until the stated gate is completed.
+
+## OPEN — integration work
+
+| Capability | Current safe boundary | OPEN completion criteria |
+| --- | --- | --- |
+| Tailscale and Headscale | Read-only probes return local mesh status; they do not enroll, alter a mesh, or continuously upload observations. | Configure canonical provider-to-node associations; deliver signed agent events; schedule bounded collection; show stale/failed probes; validate real exit-node, DNS, captive-portal, and roaming recovery. |
+| Third-Eye | Authenticated local dashboard renders Core projections; browser JavaScript never receives Core credentials. | Document a real-agent installation flow; surface evidence provenance and data freshness; define deployment/TLS model; complete accessibility, threat-model, and production review. |
+| Network traffic monitor | Collectors deliberately exclude packets, sockets, process payloads, and continuous flow capture. | Define opt-in flow-metadata schema and retention; prove no payload collection; document process-attribution limits; add Linux collector and real-network tests; review privacy impact. |
+| Nano watchdog | Nano source can only evaluate host-provided numeric signals and emit immutable, consent-gated proposals. There is no runner. | Add signed/versioned rule admission, persistent schedule cursor, bounded runner, replay corpus, proposal/audit views, and explicit per-binding operator consent. |
+| BYOK providers | Local Core uses local credentials; mesh probes are read-only and public-surface providers are offline fixtures. | One provider at a time: least-privilege scopes, keystore/file-secret handling, rotation/revocation, egress allowlist, audit trail, failure tests, and no browser credential exposure. |
+| Privileged enforcement | Plans and rollback semantics are modeled; executable host mutation is disabled. | Separate least-privilege helper, operator-visible dry run, recovery path, real-host validation, independent security review, and platform-specific signing/release. |
+
+## OPEN — release and governance decisions
 
 | Decision | Current safe default | Required before |
 | --- | --- | --- |
