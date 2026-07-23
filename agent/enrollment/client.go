@@ -59,7 +59,8 @@ func Submit(ctx context.Context, config Config) (Result, error) {
 	proof, err := enrollment.ProofMessage(request); if err != nil { return Result{}, err }; request.ProofOfPossession = ed25519.Sign(privateKey, proof)
 	body, err := (protojson.MarshalOptions{UseProtoNames: false}).Marshal(request); if err != nil { return Result{}, errors.New("encode enrollment request") }
 	client := config.HTTP; if client == nil { client = &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }} }
-	response, err := client.Post(endpoint+"/v1/enrollment/nodes", "application/json", bytes.NewReader(body)); if err != nil { return Result{}, fmt.Errorf("submit enrollment request: %w", err) }
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"/v1/enrollment/nodes", bytes.NewReader(body)); if err != nil { return Result{}, errors.New("build enrollment request") }; httpRequest.Header.Set("Content-Type","application/json"); httpRequest.Header.Set("Accept","application/json"); httpRequest.Header.Set("Accept-Encoding","identity")
+	response, err := client.Do(httpRequest); if err != nil { return Result{}, fmt.Errorf("submit enrollment request: %w", err) }
 	defer response.Body.Close(); content, err := io.ReadAll(io.LimitReader(response.Body, 1<<20)); if err != nil || response.StatusCode != http.StatusAccepted { return Result{}, errors.New("Core did not accept enrollment request") }
 	var output antiflockv1.EnrollNodeResponse; if err := (protojson.UnmarshalOptions{DiscardUnknown:false}).Unmarshal(content, &output); err != nil || output.GetEnrollment() == nil { return Result{}, errors.New("decode Core enrollment response") }
 	return Result{EnrollmentID: output.GetEnrollment().GetId(), ProposedNodeID: output.GetEnrollment().GetProposedNodeId(), StateDirectory: config.StateDirectory}, nil
