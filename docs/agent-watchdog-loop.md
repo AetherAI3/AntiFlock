@@ -84,6 +84,24 @@ Without `--submit`, the same binary retains its inspect-only
 JSON mode. For a loopback development Core, a private `--agent-token-file` can be
 used instead of the client certificate; it is rejected for a remote HTTP endpoint.
 
+### 3. Inspect local agent readiness
+
+This local, read-only command checks only private file shape and queue metadata;
+it never prints the seed, certificate, token, or queued events. It works while
+the continuous agent owns the queue writer lock.
+
+```bash
+antiflock-agent status \\
+  --node-id node_laptop_01 \\
+  --state-dir /var/lib/antiflock \\
+  --queue-dir /var/lib/antiflock/queue
+```
+
+`identity: ready` means the private seed and matching certificate files are
+present with private permissions. The queue report shows the last allocated
+sequence and retained-event count. `pending-operator-approval` is expected
+between the first enrollment command and operator approval.
+
 ## Failure behavior
 
 - Core unavailable: signed events stay in the node-bound queue. `--once` returns an error for a supervisor; continuous `--submit` waits for its next interval and retries the exact signed batch. On Linux, each queue replacement syncs both the staged file and containing directory after atomic rename; an error after installation never rolls the in-memory queue back.
