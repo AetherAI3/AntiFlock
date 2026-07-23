@@ -40,7 +40,7 @@ antiflock-agent enroll \\
   --display-name "Laptop 01"
 ```
 
-The command returns a `pending-operator-approval` document. Retrying it reuses the same seed and request ID. An authorized Core operator must approve the request, then securely place the issued client certificate at `/etc/antiflock/node.pem`. The certificate must match `/var/lib/antiflock/node.seed`; the agent rejects a mismatch and never needs a second private key copy.
+The first command returns a `pending-operator-approval` document. Retrying it reuses the same seed and request ID. An authorized Core operator must approve the request. Then rerun this exact command with the original private token file: Core returns the approved certificate on the authenticated replay, and the agent verifies it matches `/var/lib/antiflock/node.seed` before saving it privately at `/var/lib/antiflock/node.pem`. It never needs a second private key copy or a manual certificate transfer.
 
 ### 2. Submit read-only observations
 
@@ -95,7 +95,7 @@ used instead of the client certificate; it is rejected for a remote HTTP endpoin
 
 | Area | Remaining work |
 | --- | --- |
-| Agent enrollment UX | Operator approval/certificate retrieval without a manual handoff; service manager packages and status endpoint. Endpoint key generation and retry-safe pending submission are wired. |
+| Agent enrollment UX | Service manager packages and status endpoint. Endpoint key generation, retry-safe pending submission, and post-approval certificate retrieval are wired; approval remains deliberately operator-gated. |
 | Queue operations | Cross-process lock, retention/health metrics, and a tested recovery procedure for a full queue. |
 | Flow monitor | Process attribution, bytes/duration, retention controls, non-Linux collectors, and independent privacy review. |
 | Tailscale / Headscale | Roaming/partition tests and live setup/status polling. Both read-only probes are wired into the agent loop; Third-Eye has static setup cards. |
