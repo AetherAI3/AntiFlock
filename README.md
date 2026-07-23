@@ -141,7 +141,7 @@ It runs only `tailscale status --json`; it never invokes `up`, `down`, `set`, `s
 
 ### BYOK today
 
-The local demo generates its own development credentials. Current Tailscale and Headscale probes are read-only and do not need a provider API key. If you add a provider integration, keep credentials in a local secret file or platform keystore, scope them to read-only access, and never put them in YAML, browser code, Git, or issue text. The agent accepts a separate `--headscale-ca-cert` for a private Headscale HTTPS certificate. Provider mutation, credential rotation, and unattended lifecycle automation are **OPEN**—not hidden feature flags. The wired probes remain read-only.
+The local demo generates its own development credentials. Current Tailscale and Headscale probes are read-only and do not need a provider API key. If you add a provider integration, keep credentials in a local secret file or platform keystore, scope them to read-only access, and never put them in YAML, browser code, Git, or issue text. The agent accepts a separate `--headscale-ca-cert` for a private Headscale HTTPS certificate. Provider mutation, credential revocation, and unattended lifecycle automation are **OPEN**—not hidden feature flags. The agent rereads the private Headscale key file each collection cycle, so atomically replacing it rotates the key without restart. The wired probes remain read-only.
 
 ## The evidence rule
 
@@ -202,7 +202,7 @@ These are visible project work items, not implied capabilities. They are tracked
 | Third-Eye | authenticated local dashboard with live Core projections and endpoint setup cards | topology provenance UX, live setup/status polling, and production deployment/review |
 | Network traffic monitor | opt-in Linux socket-table endpoint metadata (`flow.updated`); no packets, payloads, bytes, direction, or process data | retention controls, process attribution limits, non-Linux collectors, and real-network/privacy validation |
 | Nano watchdog | deterministic parser/evaluator, durable SQLite cursor, audited immutable program admission, proposal-only Core API, and opt-in Core scheduler over current OPEN findings | program disable/version lifecycle, replay fixtures, and durable dashboard/audit presentation |
-| BYOK providers | local Core credentials; mTLS agent identity; Tailscale CLI and Headscale read-only live mesh probes | provider-specific secret reference/rotation, narrow scopes, revocation, audit, and integration coverage |
+| BYOK providers | local Core credentials; mTLS agent identity; Tailscale CLI and Headscale read-only live mesh probes, with Headscale key reload on each agent cycle | provider-specific platform-keystore references, narrow scopes, revocation, audit, and integration coverage |
 | Enforcement | signed plans and rollback transaction model | reviewed privileged helper, real packet transport, kill-switch tests, and independent security/privacy review |
 | Public opening | Repository is still private at this audit; security/CI/community files are present. | Before changing visibility: enable private vulnerability reporting, name the security contact, confirm branch protections and billing, and rerun the full CI workflow. |
 
