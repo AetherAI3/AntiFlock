@@ -26,7 +26,7 @@ const (
 
 func runWatchdog(arguments []string, stdout, stderr io.Writer) int {
 	if len(arguments) == 0 {
-		fmt.Fprintln(stderr, "usage: antiflockctl watchdog <admit|run> ...")
+		fmt.Fprintln(stderr, "usage: antiflockctl watchdog <admit|run|run-open-findings> ...")
 		return 2
 	}
 	switch arguments[0] {
@@ -34,6 +34,8 @@ func runWatchdog(arguments []string, stdout, stderr io.Writer) int {
 		return runWatchdogAdmit(arguments[1:], stdout, stderr)
 	case "run":
 		return runWatchdogRun(arguments[1:], stdout, stderr)
+	case "run-open-findings":
+		return runWatchdogRunOpenFindings(arguments[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown watchdog command %q\n", arguments[0])
 		return 2
@@ -87,6 +89,26 @@ func runWatchdogRun(arguments []string, stdout, stderr io.Writer) int {
 	if err != nil { fmt.Fprintf(stderr, "watchdog connection: %v\n", err); return 2 }
 	payload := map[string]any{"findingId": *findingID, "nodeId": *nodeID, "reasonCode": *reasonCode, "confidence": *confidence, "observedUnix": *observedUnix}
 	if err := submitWatchdogJSON(context.Background(), client, endpoint+"/v1/watchdogs/"+url.PathEscape(*programID)+"/run", token, payload, http.StatusOK, stdout); err != nil { fmt.Fprintf(stderr, "watchdog run failed: %v\n", err); return 1 }
+	return 0
+}
+
+
+func runWatchdogRunOpenFindings(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("antiflockctl watchdog run-open-findings", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	baseURL := flags.String("url", "", "Core HTTPS base URL")
+	tokenFile := flags.String("token-file", "", "private operator bearer-token file")
+	caFile := flags.String("ca-cert", "", "optional Core CA PEM for a private HTTPS certificate")
+	programID := flags.String("program-id", "", "admitted watchdog id")
+	timeout := flags.Duration("timeout", 15*time.Second, "request timeout")
+	if err := flags.Parse(arguments); err != nil { return 2 }
+	if flags.NArg() != 0 || !canonicalWatchdogValue(*programID, 128) {
+		fmt.Fprintln(stderr, "run-open-findings requires a canonical program-id")
+		return 2
+	}
+	endpoint, token, client, err := watchdogConnection(*baseURL, *tokenFile, *caFile, *timeout)
+	if err != nil { fmt.Fprintf(stderr, "watchdog connection: %v\n", err); return 2 }
+	if err := submitWatchdogJSON(context.Background(), client, endpoint+"/v1/watchdogs/"+url.PathEscape(*programID)+"/run-open-findings", token, map[string]any{}, http.StatusOK, stdout); err != nil { fmt.Fprintf(stderr, "watchdog Core-finding run failed: %v\n", err); return 1 }
 	return 0
 }
 
