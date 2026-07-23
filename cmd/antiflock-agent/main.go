@@ -124,9 +124,28 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		if err != nil { return err }
 		signer, err := runtime.LoadFileSigner(*nodeID, *nodeKeyFile, func() time.Time { return time.Now().UTC() })
 		if err != nil { return err }
+		source := runtime.Collector(collector)
+		switch strings.ToLower(strings.TrimSpace(*meshProvider)) {
+		case "none":
+		case "tailscale":
+			if *meshDryRun { return errors.New("--mesh-dry-run cannot be used with --submit") }
+			probe, err := tailscale.NewProbe(tailscale.ExecRunner{}, tailscale.Config{NodeID: *nodeID, IncludeAddresses: *includeAddresses})
+			if err != nil { return err }
+			source = runtime.CollectorFunc(func(runContext context.Context) (*collectors.Collection, error) {
+				collection, err := collector.Collect(runContext)
+				if err != nil { return nil, err }
+				mesh, err := probe.Collect(runContext, collection.Snapshot.ObservedAt.AsTime().UTC())
+				if err != nil { return nil, err }
+				collection.Snapshot.MeshPeers = mesh.Peers
+				collection.Snapshot.MeshPaths = mesh.Paths
+				return collection, nil
+			})
+		default:
+			return errors.New("mesh-provider must be none or tailscale")
+		}
 		loop, err := runtime.NewLoop(runtime.LoopConfig{
 			DeploymentID: *deploymentID, NodeID: *nodeID, BootID: *bootID, Interval: *interval,
-			Collector: collector, Queue: queue, Signer: signer, Submitter: submitter,
+			Collector: source, Queue: queue, Signer: signer, Submitter: submitter,
 		})
 		if err != nil { return err }
 		if *once { return loop.RunOnce(ctx) }
