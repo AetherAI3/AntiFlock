@@ -68,7 +68,8 @@ used instead of the client certificate; it is rejected for a remote HTTP endpoin
 
 ## Failure behavior
 
-- Core unavailable: signed events stay in the queue; the agent exits the current cycle with an error and retries on the next invocation/interval.
+- Core unavailable: signed events stay in the node-bound queue; the agent exits the current cycle with an error and retries on the next invocation/interval.
+- Agent reboot: queued telemetry is drained one boot ID at a time, so Core never receives a mixed-boot batch.
 - Queue full: collection stops with an error. The agent does not discard older telemetry to make room.
 - A malformed/partial Core acknowledgement: no events are removed.
 - A suspended or revoked node: Core rejects its mTLS identity before event processing.
