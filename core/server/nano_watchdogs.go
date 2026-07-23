@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
@@ -72,4 +71,3 @@ func projectWatchdog(record storage.NanoWatchdogProgramRecord) watchdogView {
 	return watchdogView{ID: record.ID, NodeID: record.NodeID, Name: record.Name, ProgramDigest: record.ProgramDigest, BindingID: record.BindingID, Status: record.Status, CreatedAt: record.CreatedAt.Format("2006-01-02T15:04:05.999999999Z07:00"), UpdatedAt: record.UpdatedAt.Format("2006-01-02T15:04:05.999999999Z07:00")}
 }
 
-var _ = errors.New
