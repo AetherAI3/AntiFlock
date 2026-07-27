@@ -4,6 +4,8 @@ name: _gofmt-diff
 
 on:
   workflow_dispatch:
+  push:
+    branches: [fix/go-build-main]
 
 permissions:
   contents: read
