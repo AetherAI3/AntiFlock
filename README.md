@@ -1,256 +1,170 @@
 <div align="center">
 
-<img src="assets/antiflock-mark.svg" alt="AntiFl0ck" width="360" />
+<img src="assets/brand/antifl0ck-lockup-hero.png" alt="AntiFl0ck" width="340" />
 
-**Open-source, self-hosted digital counterintelligence.**
+**Open-source counter-surveillance for the networks you control.**
 
-See your exposure. Understand your environment. Control the path.
+Map your exposure. Verify your route. Gate sensitive actions.
 
-[![CI](https://github.com/DBarr3/AntiFlock/actions/workflows/ci.yml/badge.svg)](https://github.com/DBarr3/AntiFlock/actions/workflows/ci.yml)
+[![CI](https://github.com/AetherAI3/AntiFlock/actions/workflows/ci.yml/badge.svg)](https://github.com/AetherAI3/AntiFlock/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-2dd4bf.svg)](LICENSE)
+[![Status: pre-alpha](https://img.shields.io/badge/Status-pre--alpha-e0a84e.svg)](docs/release-status.md)
 [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 [![Node 24](https://img.shields.io/badge/Node-24-339933?logo=node.js&logoColor=white)](package.json)
-[![GitHub stars](https://img.shields.io/github/stars/DBarr3/AntiFlock?style=social)](https://github.com/DBarr3/AntiFlock/stargazers)
 
-**[Quick start](#quick-start)** · **[Integrations](#integration-map)** · **[OPEN work](#open--production-work)** · **[Docs](docs/README.md)** · **[Contribute](#contributing)**
+**[Run the demo](#run-the-demo)** · **[Why it exists](#why-antifl0ck-exists)** · **[Architecture](#architecture)** · **[Contribute](#contributing)** · **[Release status](docs/release-status.md)**
 
-<sub>⭐ Star it — that's how people find an open security project.</sub>
+<sub>Pre-alpha · The local simulation and dashboard work today. Host-level enforcement remains under active development.</sub>
 
 </div>
 
 ---
 
-> Your accounts, devices, and networks leave a trail that moves together like a **flock**.
-> AntiFl0ck helps you see that trail and stay in control of it.
+<div align="center">
 
-**Where it stands:** the local, simulated demo works and is tested behind a 10-check release
-gate. It is **not** yet a real VPN, a phone kill-switch, or proof that anyone is watching you.
-Details in [release status](docs/release-status.md). The roadmap uses **OPEN** for work that is deliberately not connected or production-ready yet.
+<img src="assets/demo/coffee-shop.svg" alt="Animated demo: joining an untrusted network holds a sensitive action; after the route is verified the action is allowed and the audit is signed" width="860" />
 
-## Start here
+</div>
 
-Run the simulation first. It gives you a safe, local tour of the action gate, evidence labels, audit trail, and Third-Eye dashboard without a VPN account, provider key, or host-level network changes.
+When the trusted path disappears, AntiFl0ck **holds** the action — records why,
+verifies the route recovered, and only then lets it through. Every step lands in
+a signed local audit log.
 
-```powershell
-npm run dev
-npm run lab
-```
+**⭐ Star AntiFl0ck** to follow the public build and help more privacy engineers find it.
 
-Then use the dashboard at <http://127.0.0.1:4173> with the password in `.antiflock/dev.env`. Treat that file as a secret. The [operator runbook](docs/operator-runbook.md) has the full lifecycle and recovery steps.
+## Why AntiFl0ck exists
 
-## What it is
+Your phone, laptop, accounts, VPN, Wi-Fi networks, and cloud services leave
+related metadata trails that move together — like a **flock**. Each product
+shows you one fragment. AntiFl0ck is an open attempt to reveal the whole path,
+label what is actually known, and let the operator decide what happens next.
 
-AntiFl0ck runs on your own machines. It watches your network and devices, checks them against
-rules you set, and can **pause a sensitive app action** when your trusted route isn't
-available — keeping a clear, signed record of every decision.
+The debate around Flock Safety and large-scale license-plate-reader (ALPR)
+networks made one problem impossible to ignore: surveillance infrastructure
+grows faster than ordinary people's ability to understand their own exposure.
+AntiFl0ck explores what the *defensive* side should look like.
 
-It brings a few things together in one place:
+> AntiFl0ck is an independent open-source project. It is not affiliated with or
+> endorsed by Flock Safety, and it does not interfere with third-party
+> surveillance infrastructure.
 
-- **Private mesh** — adds identity, policy, and enforcement on top of Tailscale / Headscale /
-  WireGuard. It never touches your actual traffic.
-- **Third-Eye view** — a map of your devices, routes, and who *could* see your metadata.
-- **Guard** — simple rules that decide whether your path is safe, and stop traffic if it isn't.
-- **Secure-action gate** — apps ask before doing something sensitive; you allow, hold, or block.
-- **Scrambler** *(simulation only for now)* — plans safe, reversible changes to your setup.
+## What it does
 
-## What it is not
+| | |
+| --- | --- |
+| **See** | Map your devices, routes, mesh peers, and the metadata others could observe. |
+| **Understand** | Label every finding: detected, verified, reported, inferred, suspected, or unknown. |
+| **Decide** | Deterministic, operator-defined policy allows, holds, or blocks sensitive actions. |
+| **Prove** | Signed decisions, plain-language explanations, expirations, and rollback results — kept on your machine. |
 
-Being honest is the whole point. AntiFl0ck **won't**:
+<div align="center">
 
-- claim someone is spying on you — a broken tunnel or a nearby camera isn't proof;
-- act as a real VPN, an anonymity tool, or a phone kill-switch *(yet)*;
-- track people, or turn a guess into an alarm;
-- let an AI make the block-or-allow decision.
+<img src="assets/brand/evidence-scale.svg" alt="Evidence scale: DETECTED, VERIFIED, REPORTED, INFERRED, SUSPECTED, UNKNOWN — a guess never quietly becomes an accusation" width="860" />
 
-AntiFl0ck **will**:
+</div>
 
-- report only what it can actually see, with a confidence level;
-- follow your rules and **fail safe** (stop) when it's unsure;
-- explain every decision in plain terms;
-- keep the full record on your machine.
+## Run the demo
 
-## How it works
-
-Core is the brain: it manages identity, reads events, checks policy, and explains results — but
-it never sits in your traffic path. Each device keeps a local copy of the rules, so protection
-keeps working even if Core goes offline.
-
-```text
- device + provider adapters
-            |
-     send signed events
-            v
-   event log  ──►  live views (devices, paths, posture, activity)
-            |
-   policy check  ──►  signed, expiring plan per device
-            |                    |
-            └────────►  device enforcer
-                              |
-                     verify, or roll back
-```
-
-## Integration map
-
-```text
-Linux device ── read-only routes / DNS / interface state ──┐
-Tailscale CLI ── `tailscale status --json` (read-only) ───┼──> signed events / Third-Eye
-Headscale API ── read-only `GET /api/v1/node` BYOK probe ─────────────┘             │
-                                                                            v
-Nano source + Core finding ── deterministic expiring proposal ──> operator submits to Secure Action gate ──> consent + audit
-```
-
-The safe direction of travel is deliberately one-way: adapters observe, Nano proposes, and only an operator-submitted request through the existing gate can authorize a bounded action. No adapter, Nano program, dashboard, or provider key can silently become a host-mutation capability.
-
-For continuous Nano evaluation, Core remains fail-closed: the operator must list already-admitted watchdog IDs and a bounded interval in its configuration. The scheduler feeds only current Core findings into those programs and can return only expiring proposals—never an action. See the [Nano watchdog guide](docs/nano-watchdog.md) for the small configuration block.
-
-### Enroll an endpoint, then observe
-
-The agent now has a small deterministic bootstrap command. An operator creates a short-lived enrollment token, saves it in a local `0600` file, then the endpoint proves ownership of a new Ed25519 key. The key and request ID stay private in the selected state directory, so retrying after an outage does not mint a second identity.
+Fully simulated coffee-shop scenario. Needs **Docker** and **Node 24+**; no VPN
+account or real data.
 
 ```bash
-chmod 600 /etc/antiflock/enrollment.token
-antiflock-agent enroll \\
-  --core-url https://core.example.test \\
-  --enrollment-token-file /etc/antiflock/enrollment.token \\
-  --state-dir /var/lib/antiflock \\
-  --ca-cert /etc/antiflock/node-ca.pem \\
-  --node-id node_laptop_01 \\
-  --display-name "Laptop 01"
+make dev
 ```
-
-Use `--ca-cert` only when Core uses a private CA; omit it for a publicly trusted certificate. The first result remains `pending-operator-approval`. An authorized operator must review and approve it. Then rerun the same command: Core returns the approved certificate only to the holder of the original private enrollment token, and the agent verifies it matches `node.seed` before saving private PEM at `state-dir/node.pem`. Only then can `--submit` use mTLS. This preserves a human enrollment decision while making endpoint-side setup repeatable.
-
-At any point, inspect local enrollment and durable-queue readiness without printing a seed, certificate, token, or queued telemetry:
 
 ```bash
-antiflock-agent status --node-id node_laptop_01 --state-dir /var/lib/antiflock --queue-dir /var/lib/antiflock/queue
+make lab
 ```
 
-`identity: ready` means the private certificate verifies against the enrolled seed; `pending-operator-approval` is expected before the operator approves enrollment. See the [enrolled-agent setup](docs/agent-watchdog-loop.md) for the full output contract.
+Then open <http://127.0.0.1:4173> — username `operator`, token from
+`.antiflock/dev.env`. On Windows without `make`: `npm run dev` / `npm run lab`.
+Full guide: [operator runbook](docs/operator-runbook.md).
 
-### Tailscale status preview
+## Working today vs. open
 
-On a Linux device with the official Tailscale client already installed and connected, the current agent can inspect local mesh state without changing it:
+The local, simulated slice is complete and sits behind a 10-gate release check
+(`make verify`). The real-world pieces are separate, later milestones — they are
+not claimed until proven.
 
-```bash
-antiflock-agent --node-id YOUR_ENROLLED_NODE --mesh-provider tailscale --mesh-dry-run
-antiflock-agent --node-id YOUR_ENROLLED_NODE --mesh-provider tailscale
+**Working today**
+
+- Coffee-shop simulation end-to-end, with five signed audit events
+- Signed, hash-chained event and audit log (SQLite)
+- Deterministic policy engine, findings, and signed expiring plans
+- Secure-action gate + TypeScript SDK
+- Endpoint enrollment bootstrap and mTLS device identity
+- Linux route/interface observation; opt-in socket-table flow metadata (no packets or payloads)
+- Read-only live mesh probes — Tailscale CLI and Headscale BYOK — via the durable agent queue
+- Third-Eye dashboard
+- Proposal-only Nano watchdog with audited program admission
+
+**Open engineering work**
+
+- Production enforcement and real packet-path integration
+- Mobile (Android) enforcement beyond the reference state machine
+- Provider lifecycle automation (key rotation, revocation) and broader platform collectors
+- Independent security and privacy review
+
+Details and hard boundaries: [release status](docs/release-status.md) ·
+[OPEN decisions and release gates](docs/open-questions.md) ·
+[Explore open work →](https://github.com/AetherAI3/AntiFlock/issues)
+
+## Architecture
+
+Core is the brain — identity, events, policy, explanations — but it never sits
+in your traffic path. Each device keeps a local copy of the rules, so
+protection keeps working if Core goes offline.
+
+```mermaid
+flowchart LR
+    A[Devices and providers] -->|Signed observations| B[AntiFl0ck Core]
+    B --> C[Evidence and audit]
+    B --> D[Third-Eye dashboard]
+    B --> E[Policy engine]
+    E -->|Signed expiring plan| F[Local agent]
+    F --> G{Verify result}
+    G -->|Success| H[Allow]
+    G -->|Uncertain| I[Hold or roll back]
 ```
 
-It runs only `tailscale status --json`; it never invokes `up`, `down`, `set`, `serve`, or `funnel`. With an approved node identity, `--submit` sends the same read-only peer/path observations through the durable agent queue. It does not configure an exit node or change traffic. See the [enrolled-agent setup](docs/agent-watchdog-loop.md) for the exact certificate, key, and queue contract.
-
-### BYOK today
-
-The local demo generates its own development credentials. Current Tailscale and Headscale probes are read-only and do not need a provider API key. If you add a provider integration, keep credentials in a local secret file or platform keystore, scope them to read-only access, and never put them in YAML, browser code, Git, or issue text. The agent accepts a separate `--headscale-ca-cert` for a private Headscale HTTPS certificate. Provider mutation, credential rotation, and unattended lifecycle automation are **OPEN**—not hidden feature flags. The wired probes remain read-only.
-
-## The evidence rule
-
-AntiFl0ck labels every claim with how sure it is, so a guess never reads like a fact:
-
-- **DETECTED** — seen directly on your device.
-- **VERIFIED** — confirmed by a second source.
-- **REPORTED** — someone else reported it; unconfirmed.
-- **INFERRED** — a rule worked it out from known facts.
-- **SUSPECTED** — might be happening; not confirmed.
-- **UNKNOWN** — not enough information to say.
-
-So *"unknown Wi-Fi gateway detected"* never quietly becomes *"the network is hostile."*
-
-## Try it — the coffee-shop demo
-
-Fully simulated. No VPN account or real data required.
-
-```bash
-make dev    # start Core, the simulator, and the dashboard
-make lab    # run the demo: hold a risky action, recover, then allow it
-```
-
-The demo joins a fake untrusted network, loses the safe route, **holds** a sensitive action,
-verifies the route came back, then lets it through — leaving a full audit trail in SQLite.
-Open <http://127.0.0.1:4173> (username `operator`, token from `.antiflock/dev.env`).
-
-## Quick start
-
-Needs **Docker** and **Node 24+**.
-
-| Command | What it does |
-|---|---|
-| `make dev` | Start the local stack |
-| `make lab` | Run the coffee-shop demo |
-| `make verify` | Full release check — tests, builds, and the 10 gates |
-| `make down` | Stop everything |
-
-On Windows without `make`, use `npm run dev` / `lab` / `verify`. Full guide:
-[operator runbook](docs/operator-runbook.md).
-
-## What's built
-
-The local, simulated slice is done and tested. The real-world pieces are separate, later
-milestones — we don't claim them until they're proven.
-
-**Working now:** identity + enrollment · event log with signed audit · deterministic policy,
-findings, and signed plans · secure-action gate + TypeScript SDK · Linux network observation ·
-Third-Eye dashboard · Android Guard reference · Nano watchdog evaluator/proposal boundary · the coffee-shop demo end-to-end.
-
-## OPEN — production work
-
-These are visible project work items, not implied capabilities. They are tracked in more detail in [OPEN decisions and release gates](docs/open-questions.md).
-
-| Area | What exists now | OPEN before calling it production |
-| --- | --- | --- |
-| Tailscale / Headscale | Tailscale CLI and Headscale `GET /api/v1/node` can run through the enrolled agent queue; Headscale uses an explicit read-only BYOK file and identity map | roaming/partition tests, key rotation/revocation, and live Third-Eye setup/status polling |
-| Third-Eye | authenticated local dashboard with live Core projections and endpoint setup cards | topology provenance UX, live setup/status polling, and production deployment/review |
-| Network traffic monitor | opt-in Linux socket-table endpoint metadata (`flow.updated`); no packets, payloads, bytes, direction, or process data | retention controls, process attribution limits, non-Linux collectors, and real-network/privacy validation |
-| Nano watchdog | deterministic parser/evaluator, durable SQLite cursor, audited immutable program admission, proposal-only Core API, and opt-in Core scheduler over current OPEN findings | program disable/version lifecycle, replay fixtures, and durable dashboard/audit presentation |
-| BYOK providers | local Core credentials; mTLS agent identity; Tailscale CLI and Headscale read-only live mesh probes | provider-specific secret reference/rotation, narrow scopes, revocation, audit, and integration coverage |
-| Enforcement | signed plans and rollback transaction model | reviewed privileged helper, real packet transport, kill-switch tests, and independent security/privacy review |
-| Public opening | Repository is still private at this audit; security/CI/community files are present. | Before changing visibility: enable private vulnerability reporting, name the security contact, confirm branch protections and billing, and rerun the full CI workflow. |
-
-No **OPEN** item should be enabled by changing a boolean. Each needs its stated contracts, tests, and a security/privacy review before it can affect a real host or provider.
-
-## Repo layout
-
-```text
-core/            the brain — identity, events, audit, policy, findings, gate, storage (Go)
-agent/           runs on each device — collects state, enforces cached policy (Go)
-adapters/        talks to Tailscale / Headscale, plus public-data fixtures
-api/             protobuf contracts + generated code
-apps/web/        Third-Eye dashboard — React on a Cloudflare Worker
-apps/android/    Android Guard reference — Kotlin
-sdk/typescript/  Secure Action SDK
-cmd/             the four binaries: core, agent, sim, ctl
-docs/            architecture, threat model, evidence model, OPEN roadmap, ADRs, release status
-scripts/         dev + verify tooling (Node)
-```
+Deep dives: [architecture](docs/architecture.md) ·
+[threat model](docs/threat-model.md) ·
+[evidence model](docs/evidence-model.md) ·
+[enrolled-agent setup](docs/agent-watchdog-loop.md) ·
+[Nano watchdog](docs/nano-watchdog.md) · [all docs](docs/README.md)
 
 ## Contributing
 
-AntiFl0ck is built in public, and contributors shape the roadmap. Good first areas:
-**observation** (network/device discovery), **intelligence** (exposure scoring, findings),
-**security** (policy, signing, hardening), **experience** (dashboard, docs), and **research**.
+Help build the defensive layer surveillance technology never gave ordinary
+people. Five lanes:
 
-Start with [CONTRIBUTING.md](CONTRIBUTING.md). Security or privacy changes begin with a short
-design note (ADR); an AI may *explain* a decision but never *make* it. How decisions get made:
-[GOVERNANCE.md](GOVERNANCE.md).
+- **Observers** — Linux/macOS/Windows/Android collectors, provider adapters
+- **Visualizers** — topology, exposure maps, audit timelines (React)
+- **Policy builders** — deterministic rules, secure-action integrations
+- **Researchers** — metadata models, ALPR research, threat modeling
+- **Hardening engineers** — signing, storage, privilege separation, testing
 
-## Docs, security, and license
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[good first issues](https://github.com/AetherAI3/AntiFlock/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
+Security and privacy changes begin with a short design note (ADR); how decisions
+get made is in [GOVERNANCE.md](GOVERNANCE.md).
 
-- **Start here:** [Vision](docs/vision.md) · [Architecture](docs/architecture.md) ·
-  [Threat model](docs/threat-model.md) · [Evidence model](docs/evidence-model.md)
-- **More:** [all docs](docs/README.md) · [release status](docs/release-status.md) ·
-  [operator runbook](docs/operator-runbook.md)
-- **Name:** *AntiFl0ck* is the public name — an earlier title clashed with another project, so
-  internal names are being migrated.
-- **License:** Apache-2.0. This is pre-release security software; don't rely on it alone for
-  safety or anonymity. Report vulnerabilities privately via [SECURITY.md](SECURITY.md), not a
-  public issue.
+## Safety, security, and license
+
+AntiFl0ck is pre-release defensive software. It does not provide anonymity,
+prove that surveillance is occurring, or replace a VPN. An AI may *explain* a
+finding, but it never makes the allow-or-block decision. Report
+vulnerabilities privately via [SECURITY.md](SECURITY.md), never a public issue.
+
+**License:** [Apache-2.0](LICENSE). The AntiFl0ck name and eagle mark are
+project marks — see [TRADEMARKS.md](TRADEMARKS.md). *AntiFl0ck* is the public
+name; an earlier working title clashed with another project, so internal
+identifiers are still being [migrated](docs/REBRAND.md).
 
 ---
 
 <div align="center">
 
-**Evidence over alarm. Operator over platform.** If that resonates, a ⭐ helps others find it.
-
-[![Star History Chart](https://api.star-history.com/svg?repos=DBarr3/AntiFlock&type=Date)](https://star-history.com/#DBarr3/AntiFlock&Date)
+**Evidence over alarm. Operator over platform.**
 
 </div>
