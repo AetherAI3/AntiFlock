@@ -26,10 +26,10 @@ import (
 const (
 	defaultRouteTable = "/proc/net/route"
 	defaultResolvConf = "/etc/resolv.conf"
-	defaultTCPTable = "/proc/net/tcp"
-	defaultTCP6Table = "/proc/net/tcp6"
-	defaultUDPTable = "/proc/net/udp"
-	defaultUDP6Table = "/proc/net/udp6"
+	defaultTCPTable   = "/proc/net/tcp"
+	defaultTCP6Table  = "/proc/net/tcp6"
+	defaultUDPTable   = "/proc/net/udp"
+	defaultUDP6Table  = "/proc/net/udp6"
 	maximumSourceSize = 1 << 20
 )
 
@@ -103,10 +103,18 @@ func NewLinuxCollector(config LinuxConfig) (*LinuxCollector, error) {
 	if config.ResolvConfPath == "" {
 		config.ResolvConfPath = defaultResolvConf
 	}
-	if config.TCPTablePath == "" { config.TCPTablePath = defaultTCPTable }
-	if config.TCP6TablePath == "" { config.TCP6TablePath = defaultTCP6Table }
-	if config.UDPTablePath == "" { config.UDPTablePath = defaultUDPTable }
-	if config.UDP6TablePath == "" { config.UDP6TablePath = defaultUDP6Table }
+	if config.TCPTablePath == "" {
+		config.TCPTablePath = defaultTCPTable
+	}
+	if config.TCP6TablePath == "" {
+		config.TCP6TablePath = defaultTCP6Table
+	}
+	if config.UDPTablePath == "" {
+		config.UDPTablePath = defaultUDPTable
+	}
+	if config.UDP6TablePath == "" {
+		config.UDP6TablePath = defaultUDP6Table
+	}
 	if config.Clock == nil {
 		config.Clock = func() time.Time { return time.Now().UTC() }
 	}

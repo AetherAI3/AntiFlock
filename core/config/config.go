@@ -333,7 +333,6 @@ func isInternalIP(ip net.IP) bool {
 	return cgnat.Contains(ip)
 }
 
-
 func (config NanoConfig) Validate() error {
 	if config.AutomaticRunInterval == 0 {
 		if len(config.AutomaticRunProgramIDs) != 0 {

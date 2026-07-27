@@ -13,13 +13,20 @@ import (
 func TestApprovedNodeCanAuthenticateWithVerifiedMTLSCertificate(t *testing.T) {
 	runtime := newTestRuntime(t)
 	node, err := runtime.db.GetNode(context.Background(), "node-test")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	block, _ := pem.Decode([]byte(node.CertificatePEM))
-	if block == nil { t.Fatal("decode enrolled node certificate") }
+	if block == nil {
+		t.Fatal("decode enrolled node certificate")
+	}
 	certificate, err := x509.ParseCertificate(block.Bytes)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/events/batch", nil)
+	request.Header.Set("Content-Type", "application/json")
 	request.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{certificate}}}
 	response := httptest.NewRecorder()
 	runtime.server.Handler().ServeHTTP(response, request)

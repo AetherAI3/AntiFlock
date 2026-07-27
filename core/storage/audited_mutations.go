@@ -83,7 +83,6 @@ func (database *DB) UpdateNodeMetadataMutation(nodeID, name string, tags []strin
 	})
 }
 
-
 func (database *DB) CreateNanoWatchdogProgramMutation(record NanoWatchdogProgramRecord) AuditedMutation {
 	return auditedMutationFunc(func(ctx context.Context, entry model.AuditEntry) error {
 		return database.CreateNanoWatchdogProgramWithAudit(ctx, record, entry)

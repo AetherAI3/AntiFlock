@@ -121,6 +121,30 @@ export function dockerAvailable() {
   return dockerUsable;
 }
 
+// Containers default to root, so anything they write into the bind-mounted
+// repository (generated code, caches) ends up root-owned and the host process
+// can no longer clean it up. Run as the invoking user on POSIX hosts; Docker
+// Desktop on Windows and macOS maps ownership itself and exposes no getuid.
+//
+// The mapped uid has no /etc/passwd entry, so HOME is unset and tools that
+// cache under HOME or XDG_CACHE_HOME resolve them to / and cannot write. Point
+// both at /tmp, which is writable and discarded with the --rm container.
+//
+// Skipped for images that own a named cache volume (Gradle): those volumes are
+// initialized with the image's own uid, which the host uid need not match.
+function containerUser(options) {
+  if (options.keepContainerRoot) return [];
+  if (typeof process.getuid !== "function" || typeof process.getgid !== "function") return [];
+  return [
+    "--user",
+    `${process.getuid()}:${process.getgid()}`,
+    "-e",
+    "HOME=/tmp",
+    "-e",
+    "XDG_CACHE_HOME=/tmp/.cache",
+  ];
+}
+
 function containerArgs(image, args, options = {}) {
   const environment = Object.entries(options.containerEnv ?? {}).flatMap(([key, value]) => [
     "-e",
@@ -130,6 +154,7 @@ function containerArgs(image, args, options = {}) {
   return [
     "run",
     "--rm",
+    ...containerUser(options),
     ...environment,
     ...volumes,
     "-v",
@@ -278,6 +303,7 @@ export function runAndroidTests(label = "Android reference JVM tests") {
     `${label} (wrapper in pinned JDK 17 container)`,
     "docker",
     containerArgs(versions.gradleImage, ["bash", "./gradlew", "--no-daemon", "test"], {
+      keepContainerRoot: true,
       containerEnv: { GRADLE_USER_HOME: "/home/gradle/.gradle" },
       containerWorkdir: "/workspace/apps/android",
       volumes: ["antiflock-gradle-cache:/home/gradle/.gradle"],

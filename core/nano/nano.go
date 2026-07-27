@@ -25,10 +25,10 @@ const (
 )
 
 var (
-	ErrLimitExceeded    = errors.New("Nano resource limit exceeded")
-	ErrAdmissionDenied  = errors.New("Nano program is outside the AntiFlock intent profile")
-	ErrInvalidFrame     = errors.New("Nano evaluation frame is invalid")
-	ErrInstructionLimit = errors.New("Nano instruction budget exhausted")
+	ErrLimitExceeded    = errors.New("nano resource limit exceeded")
+	ErrAdmissionDenied  = errors.New("nano program is outside the AntiFlock intent profile")
+	ErrInvalidFrame     = errors.New("nano evaluation frame is invalid")
+	ErrInstructionLimit = errors.New("nano instruction budget exhausted")
 )
 
 type Limits struct {
@@ -96,7 +96,7 @@ type canonicalIR struct {
 
 func (program Program) CanonicalJSON() ([]byte, error) {
 	if strings.TrimSpace(program.Name) == "" {
-		return nil, errors.New("Nano program name is required")
+		return nil, errors.New("nano program name is required")
 	}
 	nodes := make([]irNode, 0, 1+len(program.Conditions)+len(program.Intents)+len(program.Agents))
 	if program.Schedule != nil {
@@ -168,7 +168,7 @@ func Compile(source string, limits Limits) (Program, error) {
 		return Program{}, err
 	}
 	if program.Schedule == nil && len(program.Agents) == 0 {
-		return Program{}, errors.New("Nano strategy requires at least one IR node")
+		return Program{}, errors.New("nano strategy requires at least one IR node")
 	}
 	return program, nil
 }

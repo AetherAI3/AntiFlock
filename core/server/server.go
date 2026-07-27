@@ -29,52 +29,52 @@ import (
 )
 
 type Options struct {
-	Config           config.Config
-	Database         *storage.DB
-	Events           *events.Store
-	Audit            *audit.Service
-	Enrollment       *enrollment.Service
-	PolicyCompiler   *policy.Compiler
-	PostureEngine    *posture.Engine
-	Findings         *findings.Service
-	Scrambler        *scrambler.Planner
-	NanoRegistry     *nano.Registry
-	NanoRunInterval  time.Duration
+	Config            config.Config
+	Database          *storage.DB
+	Events            *events.Store
+	Audit             *audit.Service
+	Enrollment        *enrollment.Service
+	PolicyCompiler    *policy.Compiler
+	PostureEngine     *posture.Engine
+	Findings          *findings.Service
+	Scrambler         *scrambler.Planner
+	NanoRegistry      *nano.Registry
+	NanoRunInterval   time.Duration
 	NanoRunProgramIDs []string
-	DeploymentID     string
-	Credentials      []Credential
-	AuthorizationKey []byte
-	NodeClientCAs    *x509.CertPool
-	Version          string
-	Clock            func() time.Time
+	DeploymentID      string
+	Credentials       []Credential
+	AuthorizationKey  []byte
+	NodeClientCAs     *x509.CertPool
+	Version           string
+	Clock             func() time.Time
 }
 
 // Server exposes the authenticated REST and live-projection surface. It owns
 // no database or key material and can therefore be shut down before the
 // composition root closes those dependencies.
 type Server struct {
-	config        config.Config
-	database      database
-	events        eventBus
-	audit         *audit.Service
-	enrollment    *enrollment.Service
-	policy        *policy.Compiler
-	posture       *posture.Engine
-	findings      *findings.Service
-	scrambler     *scrambler.Planner
-	nano          *nano.Registry
-	nanoRunInterval time.Duration
+	config            config.Config
+	database          database
+	events            eventBus
+	audit             *audit.Service
+	enrollment        *enrollment.Service
+	policy            *policy.Compiler
+	posture           *posture.Engine
+	findings          *findings.Service
+	scrambler         *scrambler.Planner
+	nano              *nano.Registry
+	nanoRunInterval   time.Duration
 	nanoRunProgramIDs []string
-	authenticator *tokenAuthenticator
-	actions       *actionGate
-	deploymentID  string
-	version       string
-	clock         func() time.Time
-	handler       http.Handler
-	requestSlots  chan struct{}
-	ready         atomic.Bool
-	nodeClientCAs *x509.CertPool
-	simulation    bool
+	authenticator     *tokenAuthenticator
+	actions           *actionGate
+	deploymentID      string
+	version           string
+	clock             func() time.Time
+	handler           http.Handler
+	requestSlots      chan struct{}
+	ready             atomic.Bool
+	nodeClientCAs     *x509.CertPool
+	simulation        bool
 }
 
 func New(options Options) (*Server, error) {
@@ -270,7 +270,6 @@ func (server *Server) authenticate(next http.Handler) http.Handler {
 		next.ServeHTTP(response, withPrincipal(request, value))
 	})
 }
-
 
 func (server *Server) enrolledNodePrincipal(request *http.Request) (principal, bool) {
 	// Dynamic agent identity is accepted only from a chain verified by the

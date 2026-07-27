@@ -22,14 +22,14 @@ const maximumResponseSize = 1 << 20
 
 type Config struct {
 	Endpoint string
-	Token string
-	HTTP *http.Client
+	Token    string
+	HTTP     *http.Client
 }
 
 type Client struct {
 	endpoint string
-	token string
-	http *http.Client
+	token    string
+	http     *http.Client
 }
 
 // NewClient only permits plain HTTP to a loopback Core. A remotely reachable
@@ -101,7 +101,7 @@ func (client *Client) Submit(ctx context.Context, input *antiflockv1.SubmitEvent
 		return nil, errors.New("read bounded Core event batch acknowledgement")
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Core rejected agent event batch with HTTP %d", response.StatusCode)
+		return nil, fmt.Errorf("agent event batch rejected by Core with HTTP %d", response.StatusCode)
 	}
 	var output antiflockv1.SubmitEventBatchResponse
 	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(content, &output); err != nil {
@@ -109,7 +109,7 @@ func (client *Client) Submit(ctx context.Context, input *antiflockv1.SubmitEvent
 	}
 	ack := output.GetAck()
 	if ack == nil || ack.GetBatchId() != input.GetBatch().GetBatchId() || len(ack.GetRejected()) != 0 {
-		return nil, errors.New("Core did not durably accept the complete agent event batch")
+		return nil, errors.New("complete agent event batch was not durably accepted by Core")
 	}
 	return ack, nil
 }
@@ -133,9 +133,13 @@ func validInput(input *antiflockv1.SubmitEventBatchRequest) error {
 	return nil
 }
 
-func bounded(value string, maximum int) bool { return value != "" && len(value) <= maximum && strings.TrimSpace(value) == value }
+func bounded(value string, maximum int) bool {
+	return value != "" && len(value) <= maximum && strings.TrimSpace(value) == value
+}
 func loopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") { return true }
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }

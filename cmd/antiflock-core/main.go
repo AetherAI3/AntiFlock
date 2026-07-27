@@ -186,7 +186,6 @@ func serve(arguments []string) error {
 	return serveErr
 }
 
-
 func loadOptionalToken(environmentName, fileEnvironmentName string) (string, error) {
 	if os.Getenv(environmentName) == "" && os.Getenv(fileEnvironmentName) == "" {
 		return "", nil

@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read # gitleaks-action enumerates the pull request's commits
 
 jobs:
   scan:
@@ -24,4 +25,7 @@ jobs:
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITLEAKS_CONFIG: .gitleaks.toml
+          # Required since gitleaks-action v3 to scan pull requests. Without it
+          # every pull-request run fails before scanning anything.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # gitleaks-action is free for public repositories.

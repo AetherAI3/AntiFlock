@@ -62,7 +62,7 @@ func BuildProposals(
 	}
 	deadlineValue, err := time.Parse(time.RFC3339Nano, deadline)
 	if err != nil {
-		return nil, errors.New("Nano proposal deadline must be RFC3339")
+		return nil, errors.New("nano proposal deadline must be RFC3339")
 	}
 	proposals := make([]SecureActionProposal, 0)
 	for index, intent := range result.Intents {
