@@ -16,24 +16,24 @@ type CursorStore interface {
 }
 
 type RunnerConfig struct {
-	Program Program
-	BindingID BindingID
-	NodeID string
+	Program     Program
+	BindingID   BindingID
+	NodeID      string
 	ProposalTTL time.Duration
-	Store CursorStore
-	Clock func() time.Time
+	Store       CursorStore
+	Clock       func() time.Time
 }
 
 // Runner evaluates one admitted program. It cannot fetch data, contact a
 // provider, mutate a host, or submit a proposal to the action gate.
 type Runner struct {
-	program Program
+	program       Program
 	programDigest string
-	bindingID BindingID
-	nodeID string
-	proposalTTL time.Duration
-	store CursorStore
-	clock func() time.Time
+	bindingID     BindingID
+	nodeID        string
+	proposalTTL   time.Duration
+	store         CursorStore
+	clock         func() time.Time
 }
 
 // RunResult is the stable, proposal-only watchdog response. It never signals
@@ -101,8 +101,12 @@ func (runner *Runner) RunFinding(ctx context.Context, finding FindingContext) (R
 		return RunResult{}, err
 	}
 	advanced, err := runner.store.CompareAndSwap(ctx, runner.programDigest, runner.nodeID, cursor, next)
-	if err != nil { return RunResult{}, fmt.Errorf("persist watchdog schedule cursor: %w", err) }
-	if !advanced { return RunResult{}, errors.New("watchdog schedule cursor changed concurrently; retry finding") }
+	if err != nil {
+		return RunResult{}, fmt.Errorf("persist watchdog schedule cursor: %w", err)
+	}
+	if !advanced {
+		return RunResult{}, errors.New("watchdog schedule cursor changed concurrently; retry finding")
+	}
 	return RunResult{ProgramDigest: runner.programDigest, InputDigest: inputDigest, Evaluation: evaluation, Proposals: append([]SecureActionProposal(nil), proposals...)}, nil
 }
 
@@ -129,13 +133,19 @@ func (store *MemoryCursorStore) Load(ctx context.Context, programDigest, nodeID 
 }
 
 func (store *MemoryCursorStore) CompareAndSwap(ctx context.Context, programDigest, nodeID string, previous, next Cursor) (bool, error) {
-	if store == nil { return false, errors.New("cursor store is required") }
-	if err := ctx.Err(); err != nil { return false, err }
+	if store == nil {
+		return false, errors.New("cursor store is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	key := programDigest + "\x00" + nodeID
 	current := store.cursors[key]
-	if current != previous { return false, nil }
+	if current != previous {
+		return false, nil
+	}
 	store.cursors[key] = next
 	return true, nil
 }

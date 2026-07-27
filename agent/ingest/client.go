@@ -22,14 +22,14 @@ const maximumResponseSize = 1 << 20
 
 type Config struct {
 	Endpoint string
-	Token string
-	HTTP *http.Client
+	Token    string
+	HTTP     *http.Client
 }
 
 type Client struct {
 	endpoint string
-	token string
-	http *http.Client
+	token    string
+	http     *http.Client
 }
 
 // NewClient only permits plain HTTP to a loopback Core. A remotely reachable
@@ -133,9 +133,13 @@ func validInput(input *antiflockv1.SubmitEventBatchRequest) error {
 	return nil
 }
 
-func bounded(value string, maximum int) bool { return value != "" && len(value) <= maximum && strings.TrimSpace(value) == value }
+func bounded(value string, maximum int) bool {
+	return value != "" && len(value) <= maximum && strings.TrimSpace(value) == value
+}
 func loopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") { return true }
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }

@@ -12,8 +12,12 @@ import (
 // across a power loss after a successful staged-file sync.
 func syncQueueDirectory(path string) error {
 	directory, err := os.Open(path)
-	if err != nil { return errors.New("open agent queue directory for sync") }
+	if err != nil {
+		return errors.New("open agent queue directory for sync")
+	}
 	defer directory.Close()
-	if err := directory.Sync(); err != nil { return errors.New("sync agent queue directory") }
+	if err := directory.Sync(); err != nil {
+		return errors.New("sync agent queue directory")
+	}
 	return nil
 }

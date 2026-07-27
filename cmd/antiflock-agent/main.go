@@ -132,50 +132,82 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 			return errors.New("--submit requires core-url, deployment-id, node-key-file, and queue-dir")
 		}
 		token, err := readPrivateSecret(*agentTokenFile)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		if token == "" && strings.TrimSpace(*clientCertificate) == "" {
 			return errors.New("--submit requires agent-token-file or an approved client-cert")
 		}
 		httpClient, err := newAgentHTTPClient(*clientCertificate, *clientKey, *nodeKeyFile, *caCertificate)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		submitter, err := ingest.NewClient(ingest.Config{Endpoint: *coreURL, Token: token, HTTP: httpClient})
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		queue, err := agentruntime.OpenQueue(*queueDirectory, *nodeID)
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		defer queue.Close()
 		signer, err := agentruntime.LoadFileSigner(*nodeID, *nodeKeyFile, func() time.Time { return time.Now().UTC() })
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 		source := agentruntime.Collector(collector)
 		switch strings.ToLower(strings.TrimSpace(*meshProvider)) {
 		case "none":
 		case "tailscale":
-			if *meshDryRun { return errors.New("--mesh-dry-run cannot be used with --submit") }
+			if *meshDryRun {
+				return errors.New("--mesh-dry-run cannot be used with --submit")
+			}
 			probe, err := tailscale.NewProbe(tailscale.ExecRunner{}, tailscale.Config{NodeID: *nodeID, IncludeAddresses: *includeAddresses})
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			source = agentruntime.CollectorFunc(func(runContext context.Context) (*collectors.Collection, error) {
 				collection, err := collector.Collect(runContext)
-				if err != nil { return nil, err }
+				if err != nil {
+					return nil, err
+				}
 				mesh, err := probe.Collect(runContext, collection.Snapshot.ObservedAt.AsTime().UTC())
-				if err != nil { return nil, err }
+				if err != nil {
+					return nil, err
+				}
 				collection.Snapshot.MeshPeers = mesh.Peers
 				collection.Snapshot.MeshPaths = mesh.Paths
 				return collection, nil
 			})
 		case "headscale":
-			if *meshDryRun { return errors.New("--mesh-dry-run is only available for tailscale") }
+			if *meshDryRun {
+				return errors.New("--mesh-dry-run is only available for tailscale")
+			}
 			apiKey, err := readPrivateSecret(*headscaleAPIKeyFile)
-			if err != nil || apiKey == "" || strings.TrimSpace(*headscaleURL) == "" { return errors.New("headscale submission requires headscale-url and headscale-api-key-file") }
+			if err != nil || apiKey == "" || strings.TrimSpace(*headscaleURL) == "" {
+				return errors.New("headscale submission requires headscale-url and headscale-api-key-file")
+			}
 			associations, err := readAssociations(*headscaleAssociationsFile)
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			headscaleHTTP, err := newAgentHTTPClient("", "", "", *headscaleCACertificate)
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			client, err := headscale.NewClient(headscale.Config{BaseURL: *headscaleURL, APIKey: apiKey, HTTPClient: headscaleHTTP, ProviderAssociations: associations, IncludeAddresses: *includeAddresses})
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			source = agentruntime.CollectorFunc(func(runContext context.Context) (*collectors.Collection, error) {
 				collection, err := collector.Collect(runContext)
-				if err != nil { return nil, err }
+				if err != nil {
+					return nil, err
+				}
 				mesh, err := client.ListNodes(runContext, collection.Snapshot.ObservedAt.AsTime().UTC())
-				if err != nil { return nil, err }
+				if err != nil {
+					return nil, err
+				}
 				collection.Snapshot.MeshPeers = mesh.Peers
 				return collection, nil
 			})
@@ -186,8 +218,12 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 			DeploymentID: *deploymentID, NodeID: *nodeID, BootID: *bootID, Interval: *interval,
 			Collector: source, Queue: queue, Signer: signer, Submitter: submitter,
 		})
-		if err != nil { return err }
-		if *once { return loop.RunOnce(ctx) }
+		if err != nil {
+			return err
+		}
+		if *once {
+			return loop.RunOnce(ctx)
+		}
 		return loop.Run(ctx)
 	}
 	collection, err := collector.Collect(ctx)
@@ -251,12 +287,10 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	return nil
 }
 
-
-
 type agentStatusOutput struct {
-	SchemaVersion string              `json:"schemaVersion"`
-	NodeID        string              `json:"nodeId"`
-	Identity      string              `json:"identity"`
+	SchemaVersion string                   `json:"schemaVersion"`
+	NodeID        string                   `json:"nodeId"`
+	Identity      string                   `json:"identity"`
 	Queue         agentruntime.QueueStatus `json:"queue"`
 }
 
@@ -270,17 +304,23 @@ func runStatus(arguments []string, stdout, stderr io.Writer) error {
 	stateDirectory := flags.String("state-dir", "/var/lib/antiflock", "private enrolled-node state directory")
 	queueDirectory := flags.String("queue-dir", "", "private durable queue directory")
 	compact := flags.Bool("compact", false, "write compact JSON")
-	if err := flags.Parse(arguments); err != nil { return err }
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
 	if flags.NArg() != 0 || strings.TrimSpace(*nodeID) == "" || len(*nodeID) > 128 || strings.TrimSpace(*nodeID) != *nodeID || strings.ContainsAny(*nodeID, "\r\n\x00") || strings.TrimSpace(*queueDirectory) == "" {
 		return errors.New("status requires canonical node-id and queue-dir")
 	}
 	identity := localIdentityStatus(*stateDirectory)
 	queue, err := agentruntime.InspectQueue(*queueDirectory, *nodeID)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	output := agentStatusOutput{SchemaVersion: "antiflock.agent-status/v1", NodeID: *nodeID, Identity: identity, Queue: queue}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetEscapeHTML(false)
-	if !*compact { encoder.SetIndent("", "  ") }
+	if !*compact {
+		encoder.SetIndent("", "  ")
+	}
 	return encoder.Encode(output)
 }
 
@@ -304,13 +344,13 @@ func localIdentityStatus(directory string) string {
 }
 
 type enrollmentOutput struct {
-	SchemaVersion     string `json:"schemaVersion"`
-	Status            string `json:"status"`
-	EnrollmentID      string `json:"enrollmentId"`
-	ProposedNodeID    string `json:"proposedNodeId"`
-	StateDirectory    string `json:"stateDirectory"`
-	CertificatePath    string `json:"certificatePath,omitempty"`
-	NextAction        string `json:"nextAction"`
+	SchemaVersion   string `json:"schemaVersion"`
+	Status          string `json:"status"`
+	EnrollmentID    string `json:"enrollmentId"`
+	ProposedNodeID  string `json:"proposedNodeId"`
+	StateDirectory  string `json:"stateDirectory"`
+	CertificatePath string `json:"certificatePath,omitempty"`
+	NextAction      string `json:"nextAction"`
 }
 
 func runEnroll(ctx context.Context, arguments []string, stdout, stderr io.Writer) error {
@@ -324,23 +364,37 @@ func runEnroll(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	certificateFile := flags.String("certificate-file", "", "private PEM destination for the approved client certificate (defaults to state-dir/node.pem)")
 	caCertificate := flags.String("ca-cert", "", "Core CA PEM used to verify an enrollment Core with a private CA")
 	compact := flags.Bool("compact", false, "write compact JSON")
-	if err := flags.Parse(arguments); err != nil { return err }
-	if flags.NArg() != 0 { return errors.New("antiflock-agent enroll accepts flags only") }
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("antiflock-agent enroll accepts flags only")
+	}
 	if strings.TrimSpace(*coreURL) == "" || strings.TrimSpace(*tokenFile) == "" || strings.TrimSpace(*nodeID) == "" || strings.TrimSpace(*displayName) == "" {
 		return errors.New("enroll requires core-url, enrollment-token-file, node-id, and display-name")
 	}
 	token, err := readPrivateSecret(*tokenFile)
-	if err != nil || token == "" { return errors.New("read private enrollment token file") }
+	if err != nil || token == "" {
+		return errors.New("read private enrollment token file")
+	}
 	httpClient, err := newAgentHTTPClient("", "", "", *caCertificate)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	result, err := agentenrollment.Submit(ctx, agentenrollment.Config{Endpoint: *coreURL, Token: token, StateDirectory: *stateDirectory, NodeID: *nodeID, DisplayName: *displayName, HTTP: httpClient})
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	document := enrollmentOutput{SchemaVersion: "antiflock.agent-enrollment-result/v1", EnrollmentID: result.EnrollmentID, ProposedNodeID: result.ProposedNodeID, StateDirectory: result.StateDirectory}
 	switch result.Status {
 	case antiflockv1.EnrollmentStatus_ENROLLMENT_STATUS_APPROVED:
 		certificatePath := *certificateFile
-		if strings.TrimSpace(certificatePath) == "" { certificatePath = filepath.Join(*stateDirectory, "node.pem") }
-		if err := agentenrollment.SaveApprovedCertificate(filepath.Join(*stateDirectory, "node.seed"), certificatePath, result.CertificateChainDER); err != nil { return err }
+		if strings.TrimSpace(certificatePath) == "" {
+			certificatePath = filepath.Join(*stateDirectory, "node.pem")
+		}
+		if err := agentenrollment.SaveApprovedCertificate(filepath.Join(*stateDirectory, "node.seed"), certificatePath, result.CertificateChainDER); err != nil {
+			return err
+		}
 		document.Status, document.CertificatePath = "approved-ready-to-submit", certificatePath
 		document.NextAction = "Run antiflock-agent --submit with state-dir/node.seed and this client certificate."
 	case antiflockv1.EnrollmentStatus_ENROLLMENT_STATUS_PENDING:
@@ -357,37 +411,52 @@ func runEnroll(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetEscapeHTML(false)
-	if !*compact { encoder.SetIndent("", "  ") }
-	if err := encoder.Encode(document); err != nil { return errors.New("write enrollment output") }
+	if !*compact {
+		encoder.SetIndent("", "  ")
+	}
+	if err := encoder.Encode(document); err != nil {
+		return errors.New("write enrollment output")
+	}
 	return nil
 }
 
 func readPrivateSecret(path string) (string, error) {
-	if strings.TrimSpace(path) == "" { return "", nil }
+	if strings.TrimSpace(path) == "" {
+		return "", nil
+	}
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
 		return "", errors.New("agent token file must be a private regular file")
 	}
 	content, err := os.ReadFile(path)
-	if err != nil || len(content) > 16<<10 { return "", errors.New("read bounded agent token file") }
+	if err != nil || len(content) > 16<<10 {
+		return "", errors.New("read bounded agent token file")
+	}
 	return strings.TrimSpace(string(content)), nil
 }
 
-
 func readAssociations(path string) (map[string]string, error) {
-	if strings.TrimSpace(path) == "" { return nil, nil }
+	if strings.TrimSpace(path) == "" {
+		return nil, nil
+	}
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 1<<20 {
 		return nil, errors.New("headscale associations file must be a bounded regular file")
 	}
 	content, err := os.ReadFile(path)
-	if err != nil { return nil, errors.New("read Headscale associations file") }
+	if err != nil {
+		return nil, errors.New("read Headscale associations file")
+	}
 	values := make(map[string]string)
 	decoder := json.NewDecoder(strings.NewReader(string(content)))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&values); err != nil { return nil, errors.New("decode Headscale associations JSON") }
+	if err := decoder.Decode(&values); err != nil {
+		return nil, errors.New("decode Headscale associations JSON")
+	}
 	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF { return nil, errors.New("headscale associations JSON contains trailing data") }
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil, errors.New("headscale associations JSON contains trailing data")
+	}
 	return values, nil
 }
 
@@ -395,38 +464,53 @@ func newAgentHTTPClient(certificatePath, keyPath, nodeSeedPath, caPath string) (
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DisableCompression = true
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS13}
-	if certificatePath == "" && keyPath != "" { return nil, errors.New("client-key requires client-cert") }
+	if certificatePath == "" && keyPath != "" {
+		return nil, errors.New("client-key requires client-cert")
+	}
 	if certificatePath != "" {
 		var certificate tls.Certificate
 		var err error
 		if keyPath != "" {
-			if err := validateRegularFile(certificatePath, false); err != nil { return nil, errors.New("node client certificate file is invalid") }
-			if err := validateRegularFile(keyPath, true); err != nil { return nil, errors.New("node client key file must be private and regular") }
+			if err := validateRegularFile(certificatePath, false); err != nil {
+				return nil, errors.New("node client certificate file is invalid")
+			}
+			if err := validateRegularFile(keyPath, true); err != nil {
+				return nil, errors.New("node client key file must be private and regular")
+			}
 			certificate, err = tls.LoadX509KeyPair(certificatePath, keyPath)
 		} else {
 			certificate, err = agentruntime.LoadNodeCertificate(certificatePath, nodeSeedPath)
 		}
-		if err != nil { return nil, errors.New("load node client certificate") }
+		if err != nil {
+			return nil, errors.New("load node client certificate")
+		}
 		transport.TLSClientConfig.Certificates = []tls.Certificate{certificate}
 	}
 	if caPath != "" {
-		if err := validateRegularFile(caPath, false); err != nil { return nil, errors.New("core CA certificate file is invalid") }
+		if err := validateRegularFile(caPath, false); err != nil {
+			return nil, errors.New("core CA certificate file is invalid")
+		}
 		content, err := os.ReadFile(caPath)
-		if err != nil || len(content) == 0 || len(content) > 1<<20 { return nil, errors.New("read bounded Core CA certificate") }
+		if err != nil || len(content) == 0 || len(content) > 1<<20 {
+			return nil, errors.New("read bounded Core CA certificate")
+		}
 		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(content) { return nil, errors.New("core CA certificate does not contain PEM certificates") }
+		if !pool.AppendCertsFromPEM(content) {
+			return nil, errors.New("core CA certificate does not contain PEM certificates")
+		}
 		transport.TLSClientConfig.RootCAs = pool
 	}
 	return &http.Client{Timeout: 15 * time.Second, Transport: transport, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, nil
 }
-
 
 func validateRegularFile(path string, private bool) error {
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 1<<20 {
 		return errors.New("file is not a bounded regular file")
 	}
-	if private && info.Mode().Perm() != 0o600 { return errors.New("file is not private") }
+	if private && info.Mode().Perm() != 0o600 {
+		return errors.New("file is not private")
+	}
 	return nil
 }
 

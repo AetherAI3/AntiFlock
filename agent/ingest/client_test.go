@@ -61,6 +61,10 @@ func TestClientAllowsCertificateOnlyHTTPSIngest(t *testing.T) {
 	}))
 	defer server.Close()
 	client, err := ingest.NewClient(ingest.Config{Endpoint: server.URL, HTTP: server.Client()})
-	if err != nil { t.Fatal(err) }
-	if _, err := client.Submit(context.Background(), batch()); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Submit(context.Background(), batch()); err != nil {
+		t.Fatal(err)
+	}
 }
