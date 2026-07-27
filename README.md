@@ -6,7 +6,7 @@
 
 Map your exposure. Verify your route. Gate sensitive actions.
 
-[![CI](https://github.com/DBarr3/AntiFlock/actions/workflows/ci.yml/badge.svg)](https://github.com/DBarr3/AntiFlock/actions/workflows/ci.yml)
+[![CI](https://github.com/AetherAI3/AntiFlock/actions/workflows/ci.yml/badge.svg)](https://github.com/AetherAI3/AntiFlock/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-2dd4bf.svg)](LICENSE)
 [![Status: pre-alpha](https://img.shields.io/badge/Status-pre--alpha-e0a84e.svg)](docs/release-status.md)
 [![Go 1.26](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
@@ -107,7 +107,7 @@ not claimed until proven.
 
 Details and hard boundaries: [release status](docs/release-status.md) ·
 [OPEN decisions and release gates](docs/open-questions.md) ·
-[Explore open work →](https://github.com/DBarr3/AntiFlock/issues)
+[Explore open work →](https://github.com/AetherAI3/AntiFlock/issues)
 
 ## Architecture
 
@@ -145,7 +145,7 @@ people. Five lanes:
 - **Hardening engineers** — signing, storage, privilege separation, testing
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the
-[good first issues](https://github.com/DBarr3/AntiFlock/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
+[good first issues](https://github.com/AetherAI3/AntiFlock/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
 Security and privacy changes begin with a short design note (ADR); how decisions
 get made is in [GOVERNANCE.md](GOVERNANCE.md).
 
