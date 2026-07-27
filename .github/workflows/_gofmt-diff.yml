@@ -1,0 +1,35 @@
+# TEMPORARY helper: emits the exact `gofmt -d` patch as an artifact so it can be
+# applied on a workstation that has no Go toolchain. Delete before merging.
+name: _gofmt-diff
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.5
+          check-latest: false
+          cache: false
+      - name: Emit gofmt patch
+        run: |
+          gofmt -l . | tee gofmt-files.txt
+          gofmt -d . > gofmt.patch || true
+          wc -c gofmt.patch
+      - name: Upload patch
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gofmt-patch
+          path: |
+            gofmt.patch
+            gofmt-files.txt
