@@ -95,7 +95,7 @@ func (server *Server) handleRunWatchdogOpenFindings(response http.ResponseWriter
 // projected, so neither path can inject arbitrary Nano signals.
 func (server *Server) runWatchdogOpenFindings(ctx context.Context, programID string) (nano.OpenFindingRunResult, error) {
 	if server == nil || server.nano == nil || server.findings == nil {
-		return nano.OpenFindingRunResult{}, errors.New("Nano watchdog runner is unavailable")
+		return nano.OpenFindingRunResult{}, errors.New("nano watchdog runner is unavailable")
 	}
 	openFindings := server.findings.List("", antiflockv1.FindingStatus_FINDING_STATUS_OPEN)
 	contexts := make([]nano.FindingContext, 0, len(openFindings))

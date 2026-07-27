@@ -125,8 +125,8 @@ func watchdogConnection(rawURL, tokenPath, caPath string, timeout time.Duration)
 
 func watchdogBaseURL(raw string) (string, error) {
 	value, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || value.Scheme == "" || value.Host == "" || value.User != nil || value.RawQuery != "" || value.Fragment != "" || (value.Scheme != "https" && value.Scheme != "http") { return "", errors.New("Core URL must be an absolute HTTP(S) URL without credentials, query, or fragment") }
-	if value.Scheme == "http" && !watchdogLoopback(value.Hostname()) { return "", errors.New("Core requires HTTPS outside loopback") }
+	if err != nil || value.Scheme == "" || value.Host == "" || value.User != nil || value.RawQuery != "" || value.Fragment != "" || (value.Scheme != "https" && value.Scheme != "http") { return "", errors.New("core URL must be an absolute HTTP(S) URL without credentials, query, or fragment") }
+	if value.Scheme == "http" && !watchdogLoopback(value.Hostname()) { return "", errors.New("core requires HTTPS outside loopback") }
 	return strings.TrimRight(value.String(), "/"), nil
 }
 
@@ -159,7 +159,7 @@ func watchdogHTTPClient(caPath string, timeout time.Duration) (*http.Client, err
 		content, err := readRegularBoundedFile(caPath, 1<<20, false)
 		if err != nil || len(content) == 0 { return nil, errors.New("read bounded Core CA certificate") }
 		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(content) { return nil, errors.New("Core CA certificate does not contain PEM certificates") }
+		if !pool.AppendCertsFromPEM(content) { return nil, errors.New("core CA certificate does not contain PEM certificates") }
 		transport.TLSClientConfig.RootCAs = pool
 	}
 	return &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, nil
@@ -179,11 +179,11 @@ func submitWatchdogJSON(ctx context.Context, client *http.Client, endpoint, toke
 	defer response.Body.Close()
 	content, err := io.ReadAll(io.LimitReader(response.Body, maximumWatchdogReply+1))
 	if err != nil || len(content) > maximumWatchdogReply { return errors.New("read bounded watchdog response") }
-	if response.StatusCode != expectedStatus { return fmt.Errorf("Core returned HTTP %d", response.StatusCode) }
+	if response.StatusCode != expectedStatus { return fmt.Errorf("core returned HTTP %d", response.StatusCode) }
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.UseNumber()
-	if err := decoder.Decode(&value); err != nil { return errors.New("Core returned invalid watchdog JSON") }
+	if err := decoder.Decode(&value); err != nil { return errors.New("core returned invalid watchdog JSON") }
 	if err := requireWatchdogEOF(decoder); err != nil { return err }
 	pretty, err := json.MarshalIndent(value, "", "  ")
 	if err != nil { return errors.New("format watchdog response") }
@@ -194,7 +194,7 @@ func submitWatchdogJSON(ctx context.Context, client *http.Client, endpoint, toke
 func requireWatchdogEOF(decoder *json.Decoder) error {
 	var extra any
 	if err := decoder.Decode(&extra); err == io.EOF { return nil }
-	return errors.New("Core returned trailing watchdog JSON")
+	return errors.New("core returned trailing watchdog JSON")
 }
 
 func canonicalWatchdogValue(value string, maximum int) bool {

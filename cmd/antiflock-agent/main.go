@@ -20,9 +20,9 @@ import (
 	"github.com/DBarr3/AntiFlock/adapters/mesh/tailscale"
 	"github.com/DBarr3/AntiFlock/agent/collectors"
 	agentenrollment "github.com/DBarr3/AntiFlock/agent/enrollment"
-	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 	"github.com/DBarr3/AntiFlock/agent/ingest"
-	"github.com/DBarr3/AntiFlock/agent/runtime"
+	agentruntime "github.com/DBarr3/AntiFlock/agent/runtime"
+	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -140,19 +140,19 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		if err != nil { return err }
 		submitter, err := ingest.NewClient(ingest.Config{Endpoint: *coreURL, Token: token, HTTP: httpClient})
 		if err != nil { return err }
-		queue, err := runtime.OpenQueue(*queueDirectory, *nodeID)
+		queue, err := agentruntime.OpenQueue(*queueDirectory, *nodeID)
 		if err != nil { return err }
 		defer queue.Close()
-		signer, err := runtime.LoadFileSigner(*nodeID, *nodeKeyFile, func() time.Time { return time.Now().UTC() })
+		signer, err := agentruntime.LoadFileSigner(*nodeID, *nodeKeyFile, func() time.Time { return time.Now().UTC() })
 		if err != nil { return err }
-		source := runtime.Collector(collector)
+		source := agentruntime.Collector(collector)
 		switch strings.ToLower(strings.TrimSpace(*meshProvider)) {
 		case "none":
 		case "tailscale":
 			if *meshDryRun { return errors.New("--mesh-dry-run cannot be used with --submit") }
 			probe, err := tailscale.NewProbe(tailscale.ExecRunner{}, tailscale.Config{NodeID: *nodeID, IncludeAddresses: *includeAddresses})
 			if err != nil { return err }
-			source = runtime.CollectorFunc(func(runContext context.Context) (*collectors.Collection, error) {
+			source = agentruntime.CollectorFunc(func(runContext context.Context) (*collectors.Collection, error) {
 				collection, err := collector.Collect(runContext)
 				if err != nil { return nil, err }
 				mesh, err := probe.Collect(runContext, collection.Snapshot.ObservedAt.AsTime().UTC())
@@ -171,7 +171,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 			if err != nil { return err }
 			client, err := headscale.NewClient(headscale.Config{BaseURL: *headscaleURL, APIKey: apiKey, HTTPClient: headscaleHTTP, ProviderAssociations: associations, IncludeAddresses: *includeAddresses})
 			if err != nil { return err }
-			source = runtime.CollectorFunc(func(runContext context.Context) (*collectors.Collection, error) {
+			source = agentruntime.CollectorFunc(func(runContext context.Context) (*collectors.Collection, error) {
 				collection, err := collector.Collect(runContext)
 				if err != nil { return nil, err }
 				mesh, err := client.ListNodes(runContext, collection.Snapshot.ObservedAt.AsTime().UTC())
@@ -182,7 +182,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		default:
 			return errors.New("mesh-provider must be none, tailscale, or headscale")
 		}
-		loop, err := runtime.NewLoop(runtime.LoopConfig{
+		loop, err := agentruntime.NewLoop(agentruntime.LoopConfig{
 			DeploymentID: *deploymentID, NodeID: *nodeID, BootID: *bootID, Interval: *interval,
 			Collector: source, Queue: queue, Signer: signer, Submitter: submitter,
 		})
@@ -257,7 +257,7 @@ type agentStatusOutput struct {
 	SchemaVersion string              `json:"schemaVersion"`
 	NodeID        string              `json:"nodeId"`
 	Identity      string              `json:"identity"`
-	Queue         runtime.QueueStatus `json:"queue"`
+	Queue         agentruntime.QueueStatus `json:"queue"`
 }
 
 // runStatus is intentionally local and read-only. It proves whether a private
@@ -275,7 +275,7 @@ func runStatus(arguments []string, stdout, stderr io.Writer) error {
 		return errors.New("status requires canonical node-id and queue-dir")
 	}
 	identity := localIdentityStatus(*stateDirectory)
-	queue, err := runtime.InspectQueue(*queueDirectory, *nodeID)
+	queue, err := agentruntime.InspectQueue(*queueDirectory, *nodeID)
 	if err != nil { return err }
 	output := agentStatusOutput{SchemaVersion: "antiflock.agent-status/v1", NodeID: *nodeID, Identity: identity, Queue: queue}
 	encoder := json.NewEncoder(stdout)
@@ -290,7 +290,7 @@ func localIdentityStatus(directory string) string {
 	pending := validateRegularFile(filepath.Join(directory, "enrollment.json"), true) == nil
 	switch {
 	case seed && certificate:
-		if _, err := runtime.LoadNodeCertificate(filepath.Join(directory, "node.pem"), filepath.Join(directory, "node.seed")); err == nil {
+		if _, err := agentruntime.LoadNodeCertificate(filepath.Join(directory, "node.pem"), filepath.Join(directory, "node.seed")); err == nil {
 			return "ready"
 		}
 		return "incomplete-or-unsafe"
@@ -353,7 +353,7 @@ func runEnroll(ctx context.Context, arguments []string, stdout, stderr io.Writer
 		document.Status = "expired"
 		document.NextAction = "Enrollment expired. Request a new operator-scoped enrollment token before retrying."
 	default:
-		return errors.New("Core returned an unsupported enrollment status")
+		return errors.New("core returned an unsupported enrollment status")
 	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetEscapeHTML(false)
@@ -378,7 +378,7 @@ func readAssociations(path string) (map[string]string, error) {
 	if strings.TrimSpace(path) == "" { return nil, nil }
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 1<<20 {
-		return nil, errors.New("Headscale associations file must be a bounded regular file")
+		return nil, errors.New("headscale associations file must be a bounded regular file")
 	}
 	content, err := os.ReadFile(path)
 	if err != nil { return nil, errors.New("read Headscale associations file") }
@@ -387,7 +387,7 @@ func readAssociations(path string) (map[string]string, error) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&values); err != nil { return nil, errors.New("decode Headscale associations JSON") }
 	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF { return nil, errors.New("Headscale associations JSON contains trailing data") }
+	if err := decoder.Decode(&extra); err != io.EOF { return nil, errors.New("headscale associations JSON contains trailing data") }
 	return values, nil
 }
 
@@ -404,17 +404,17 @@ func newAgentHTTPClient(certificatePath, keyPath, nodeSeedPath, caPath string) (
 			if err := validateRegularFile(keyPath, true); err != nil { return nil, errors.New("node client key file must be private and regular") }
 			certificate, err = tls.LoadX509KeyPair(certificatePath, keyPath)
 		} else {
-			certificate, err = runtime.LoadNodeCertificate(certificatePath, nodeSeedPath)
+			certificate, err = agentruntime.LoadNodeCertificate(certificatePath, nodeSeedPath)
 		}
 		if err != nil { return nil, errors.New("load node client certificate") }
 		transport.TLSClientConfig.Certificates = []tls.Certificate{certificate}
 	}
 	if caPath != "" {
-		if err := validateRegularFile(caPath, false); err != nil { return nil, errors.New("Core CA certificate file is invalid") }
+		if err := validateRegularFile(caPath, false); err != nil { return nil, errors.New("core CA certificate file is invalid") }
 		content, err := os.ReadFile(caPath)
 		if err != nil || len(content) == 0 || len(content) > 1<<20 { return nil, errors.New("read bounded Core CA certificate") }
 		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(content) { return nil, errors.New("Core CA certificate does not contain PEM certificates") }
+		if !pool.AppendCertsFromPEM(content) { return nil, errors.New("core CA certificate does not contain PEM certificates") }
 		transport.TLSClientConfig.RootCAs = pool
 	}
 	return &http.Client{Timeout: 15 * time.Second, Transport: transport, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, nil

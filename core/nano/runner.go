@@ -11,8 +11,8 @@ import (
 // CursorStore persists a per-program, per-node schedule cursor. Production
 // runners must supply durable storage before handling real findings.
 type CursorStore interface {
-	Load(context.Context, programDigest, nodeID string) (Cursor, error)
-	CompareAndSwap(context.Context, programDigest, nodeID string, previous, next Cursor) (bool, error)
+	Load(ctx context.Context, programDigest, nodeID string) (Cursor, error)
+	CompareAndSwap(ctx context.Context, programDigest, nodeID string, previous, next Cursor) (bool, error)
 }
 
 type RunnerConfig struct {

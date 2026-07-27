@@ -30,14 +30,14 @@ type AdmissionRequest struct {
 }
 
 func NewRegistry(database *storage.DB, auditService *audit.Service, clock func() time.Time) (*Registry, error) {
-	if database == nil || auditService == nil { return nil, errors.New("Nano registry requires database and audit service") }
+	if database == nil || auditService == nil { return nil, errors.New("nano registry requires database and audit service") }
 	if clock == nil { clock = func() time.Time { return time.Now().UTC() } }
 	return &Registry{database: database, audit: auditService, clock: clock}, nil
 }
 
 func (registry *Registry) Admit(ctx context.Context, request AdmissionRequest) (storage.NanoWatchdogProgramRecord, error) {
 	if registry == nil || !opaque(request.NodeID) || !opaque(request.OperationID) || !opaque(request.ActorID) || strings.TrimSpace(request.Source) == "" {
-		return storage.NanoWatchdogProgramRecord{}, errors.New("Nano watchdog admission request is invalid")
+		return storage.NanoWatchdogProgramRecord{}, errors.New("nano watchdog admission request is invalid")
 	}
 	source := strings.TrimSpace(request.Source)
 	program, err := Compile(source, DefaultLimits)
@@ -60,14 +60,14 @@ func (registry *Registry) Admit(ctx context.Context, request AdmissionRequest) (
 		if existing.NodeID == record.NodeID && existing.ProgramDigest == record.ProgramDigest && existing.BindingID == record.BindingID && existing.Source == record.Source {
 			return existing, nil
 		}
-		return storage.NanoWatchdogProgramRecord{}, errors.New("Nano watchdog operation id is already bound to different source")
+		return storage.NanoWatchdogProgramRecord{}, errors.New("nano watchdog operation id is already bound to different source")
 	}
 	if err != nil { return storage.NanoWatchdogProgramRecord{}, err }
 	return record, nil
 }
 
 func (registry *Registry) List(ctx context.Context, nodeID string) ([]storage.NanoWatchdogProgramRecord, error) {
-	if registry == nil { return nil, errors.New("Nano registry is required") }
+	if registry == nil { return nil, errors.New("nano registry is required") }
 	return registry.database.ListNanoWatchdogPrograms(ctx, nodeID)
 }
 
@@ -95,7 +95,7 @@ type OpenFindingRunResult struct {
 func (registry *Registry) RunFinding(ctx context.Context, programID string, finding FindingContext) (RunResult, error) {
 	runner, record, err := registry.runnerForProgram(ctx, programID)
 	if err != nil { return RunResult{}, err }
-	if record.NodeID != finding.NodeID { return RunResult{}, errors.New("Nano watchdog program is not admitted for this node") }
+	if record.NodeID != finding.NodeID { return RunResult{}, errors.New("nano watchdog program is not admitted for this node") }
 	return runner.RunFinding(ctx, finding)
 }
 
@@ -136,10 +136,10 @@ func (registry *Registry) RunOpenFindings(ctx context.Context, programID string,
 }
 
 func (registry *Registry) runnerForProgram(ctx context.Context, programID string) (*Runner, storage.NanoWatchdogProgramRecord, error) {
-	if registry == nil || !opaque(programID) { return nil, storage.NanoWatchdogProgramRecord{}, errors.New("Nano watchdog run request is invalid") }
+	if registry == nil || !opaque(programID) { return nil, storage.NanoWatchdogProgramRecord{}, errors.New("nano watchdog run request is invalid") }
 	record, err := registry.database.GetNanoWatchdogProgram(ctx, programID)
 	if err != nil { return nil, storage.NanoWatchdogProgramRecord{}, err }
-	if record.Status != storage.NanoWatchdogAdmitted { return nil, storage.NanoWatchdogProgramRecord{}, errors.New("Nano watchdog program is not admitted") }
+	if record.Status != storage.NanoWatchdogAdmitted { return nil, storage.NanoWatchdogProgramRecord{}, errors.New("nano watchdog program is not admitted") }
 	program, err := Compile(record.Source, DefaultLimits)
 	if err != nil { return nil, storage.NanoWatchdogProgramRecord{}, fmt.Errorf("compile admitted Nano source: %w", err) }
 	digest, err := program.Digest(); if err != nil || digest != record.ProgramDigest { return nil, storage.NanoWatchdogProgramRecord{}, errors.New("admitted Nano program digest mismatch") }

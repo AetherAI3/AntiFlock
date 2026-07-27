@@ -101,7 +101,7 @@ func (client *Client) Submit(ctx context.Context, input *antiflockv1.SubmitEvent
 		return nil, errors.New("read bounded Core event batch acknowledgement")
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Core rejected agent event batch with HTTP %d", response.StatusCode)
+		return nil, fmt.Errorf("agent event batch rejected by Core with HTTP %d", response.StatusCode)
 	}
 	var output antiflockv1.SubmitEventBatchResponse
 	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(content, &output); err != nil {
@@ -109,7 +109,7 @@ func (client *Client) Submit(ctx context.Context, input *antiflockv1.SubmitEvent
 	}
 	ack := output.GetAck()
 	if ack == nil || ack.GetBatchId() != input.GetBatch().GetBatchId() || len(ack.GetRejected()) != 0 {
-		return nil, errors.New("Core did not durably accept the complete agent event batch")
+		return nil, errors.New("complete agent event batch was not durably accepted by Core")
 	}
 	return ack, nil
 }

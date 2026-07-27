@@ -72,13 +72,13 @@ func Submit(ctx context.Context, config Config) (Result, error) {
 	response, err := client.Do(httpRequest); if err != nil { return Result{}, fmt.Errorf("submit enrollment request: %w", err) }
 	defer response.Body.Close()
 	content, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-	if readErr != nil || response.StatusCode != http.StatusAccepted { return Result{}, errors.New("Core did not accept enrollment request") }
+	if readErr != nil || response.StatusCode != http.StatusAccepted { return Result{}, errors.New("enrollment request was not accepted by Core") }
 	var output antiflockv1.EnrollNodeResponse
 	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal(content, &output); err != nil || output.GetEnrollment() == nil || output.GetEnrollment().GetId() == "" { return Result{}, errors.New("decode Core enrollment response") }
 	certificateDER := append([]byte(nil), output.GetNodeCertificateChainDer()...)
 	if output.GetEnrollment().GetStatus() == antiflockv1.EnrollmentStatus_ENROLLMENT_STATUS_APPROVED {
-		if len(certificateDER) == 0 || !certificateMatches(privateKey, certificateDER) { return Result{}, errors.New("Core approval did not return the enrolled node certificate") }
-	} else if len(certificateDER) != 0 { return Result{}, errors.New("Core returned a certificate before enrollment approval") }
+		if len(certificateDER) == 0 || !certificateMatches(privateKey, certificateDER) { return Result{}, errors.New("approval from Core did not return the enrolled node certificate") }
+	} else if len(certificateDER) != 0 { return Result{}, errors.New("certificate returned by Core before enrollment approval") }
 	return Result{EnrollmentID: output.GetEnrollment().GetId(), ProposedNodeID: output.GetEnrollment().GetProposedNodeId(), StateDirectory: config.StateDirectory, Status: output.GetEnrollment().GetStatus(), CertificateChainDER: certificateDER}, nil
 }
 
