@@ -26,6 +26,7 @@ func TestApprovedNodeCanAuthenticateWithVerifiedMTLSCertificate(t *testing.T) {
 	}
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/events/batch", nil)
+	request.Header.Set("Content-Type", "application/json")
 	request.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{certificate}}}
 	response := httptest.NewRecorder()
 	runtime.server.Handler().ServeHTTP(response, request)

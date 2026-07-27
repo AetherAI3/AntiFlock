@@ -60,7 +60,9 @@ func TestClientAllowsCertificateOnlyHTTPSIngest(t *testing.T) {
 		_, _ = fmt.Fprint(response, "{\"ack\":{\"batchId\":\"batch-1\",\"highestContiguousSequence\":\"1\",\"rejected\":[]}}")
 	}))
 	defer server.Close()
-	client, err := ingest.NewClient(ingest.Config{Endpoint: server.URL, HTTP: server.Client()})
+	httpClient := server.Client()
+	httpClient.Timeout = 10 * time.Second
+	client, err := ingest.NewClient(ingest.Config{Endpoint: server.URL, HTTP: httpClient})
 	if err != nil {
 		t.Fatal(err)
 	}

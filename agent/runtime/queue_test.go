@@ -21,7 +21,11 @@ func TestQueuePersistsSignedWireUntilAcknowledged(t *testing.T) {
 	if err := queue.Enqueue(context.Background(), event, collectors.QueuePriorityObservation); err != nil {
 		t.Fatal(err)
 	}
-	queue, err = OpenQueue(queue.directory, "node-1")
+	directory := queue.directory
+	if err := queue.Close(); err != nil {
+		t.Fatal(err)
+	}
+	queue, err = OpenQueue(directory, "node-1")
 	if err != nil {
 		t.Fatal(err)
 	}

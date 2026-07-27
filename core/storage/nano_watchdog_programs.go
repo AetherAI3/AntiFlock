@@ -18,6 +18,11 @@ const (
 	NanoWatchdogDisabled NanoWatchdogStatus = "DISABLED"
 )
 
+// ErrProgramConflict reports that a node already has an admitted program with
+// this content digest. The table carries two uniqueness guarantees, so a replay
+// can trip either one; SQLite checks (node_id, program_digest) first.
+var ErrProgramConflict = errors.New("node already admits a program with this digest")
+
 // NanoWatchdogProgramRecord preserves the reviewed source and its canonical
 // digest. It never stores a finding frame, provider secret, or proposed action.
 type NanoWatchdogProgramRecord struct {
@@ -62,6 +67,9 @@ func createNanoWatchdogProgram(ctx context.Context, executor contextExecer, reco
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed: nano_watchdog_programs.operation_id") {
 			return ErrOperationConflict
+		}
+		if strings.Contains(err.Error(), "nano_watchdog_programs.node_id, nano_watchdog_programs.program_digest") {
+			return ErrProgramConflict
 		}
 		return fmt.Errorf("create watchdog program: %w", err)
 	}

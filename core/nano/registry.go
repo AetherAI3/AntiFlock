@@ -77,10 +77,35 @@ func (registry *Registry) Admit(ctx context.Context, request AdmissionRequest) (
 		}
 		return storage.NanoWatchdogProgramRecord{}, errors.New("nano watchdog operation id is already bound to different source")
 	}
+	if errors.Is(err, storage.ErrProgramConflict) {
+		existing, lookupErr := registry.programByDigest(ctx, record.NodeID, record.ProgramDigest)
+		if lookupErr != nil {
+			return storage.NanoWatchdogProgramRecord{}, lookupErr
+		}
+		if existing.OperationID == record.OperationID && existing.BindingID == record.BindingID && existing.Source == record.Source {
+			return existing, nil
+		}
+		return storage.NanoWatchdogProgramRecord{}, errors.New("nano watchdog program digest is already admitted for this node under a different operation")
+	}
 	if err != nil {
 		return storage.NanoWatchdogProgramRecord{}, err
 	}
 	return record, nil
+}
+
+// programByDigest resolves one node's admitted program by content digest. The
+// (node_id, program_digest) uniqueness guarantee means at most one can match.
+func (registry *Registry) programByDigest(ctx context.Context, nodeID, digest string) (storage.NanoWatchdogProgramRecord, error) {
+	programs, err := registry.database.ListNanoWatchdogPrograms(ctx, nodeID)
+	if err != nil {
+		return storage.NanoWatchdogProgramRecord{}, err
+	}
+	for _, program := range programs {
+		if program.ProgramDigest == digest {
+			return program, nil
+		}
+	}
+	return storage.NanoWatchdogProgramRecord{}, errors.New("admitted nano watchdog program is missing after a digest conflict")
 }
 
 func (registry *Registry) List(ctx context.Context, nodeID string) ([]storage.NanoWatchdogProgramRecord, error) {
