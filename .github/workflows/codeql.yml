@@ -13,6 +13,7 @@ on:
 permissions:
   contents: read
   security-events: write
+  actions: read # codeql-action reads its own workflow run; required on private repos
 
 jobs:
   analyze:
@@ -22,8 +23,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # autobuild finds the Makefile and drives docker compose, which boots
+          # the whole stack instead of compiling Go. Build explicitly instead.
           - language: go
-            build-mode: autobuild
+            build-mode: manual
           - language: javascript-typescript
             build-mode: none
     steps:
@@ -36,6 +39,9 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+      - if: matrix.build-mode == 'manual'
+        name: Build Go packages for analysis
+        run: go build ./...
       - uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           category: "/language:${{ matrix.language }}"
