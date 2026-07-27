@@ -121,6 +121,15 @@ export function dockerAvailable() {
   return dockerUsable;
 }
 
+// Containers default to root, so anything they write into the bind-mounted
+// repository (generated code, caches) ends up root-owned and the host process
+// can no longer clean it up. Run as the invoking user on POSIX hosts; Docker
+// Desktop on Windows and macOS maps ownership itself and exposes no getuid.
+function containerUser() {
+  if (typeof process.getuid !== "function" || typeof process.getgid !== "function") return [];
+  return ["--user", `${process.getuid()}:${process.getgid()}`];
+}
+
 function containerArgs(image, args, options = {}) {
   const environment = Object.entries(options.containerEnv ?? {}).flatMap(([key, value]) => [
     "-e",
@@ -130,6 +139,7 @@ function containerArgs(image, args, options = {}) {
   return [
     "run",
     "--rm",
+    ...containerUser(),
     ...environment,
     ...volumes,
     "-v",
