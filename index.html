@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AntiFl0ck — open-source counter-surveillance for the networks you control</title>
+<meta name="description" content="Self-hosted counter-surveillance: map device and network exposure, verify trusted routes, and hold sensitive actions when the trusted path drops — every decision signed into a local audit log. Apache-2.0, pre-alpha.">
+<link rel="canonical" href="https://aetherai3.github.io/AntiFlock/">
+<link rel="icon" type="image/png" href="antifl0ck-mark-512.png">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="AntiFl0ck">
+<meta property="og:url" content="https://aetherai3.github.io/AntiFlock/">
+<meta property="og:title" content="AntiFl0ck — open-source counter-surveillance">
+<meta property="og:description" content="Map your exposure. Verify your route. Gate sensitive actions. Self-hosted, evidence-first, Apache-2.0. Pre-alpha.">
+<meta property="og:image" content="https://aetherai3.github.io/AntiFlock/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="AntiFl0ck — open-source counter-surveillance">
+<meta name="twitter:description" content="Map your exposure. Verify your route. Gate sensitive actions. Self-hosted, evidence-first, Apache-2.0. Pre-alpha.">
+<meta name="twitter:image" content="https://aetherai3.github.io/AntiFlock/social-preview.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "AntiFl0ck",
+  "applicationCategory": "SecurityApplication",
+  "operatingSystem": "Linux, macOS, Windows",
+  "license": "https://www.apache.org/licenses/LICENSE-2.0",
+  "url": "https://github.com/AetherAI3/AntiFlock",
+  "codeRepository": "https://github.com/AetherAI3/AntiFlock",
+  "softwareVersion": "0.1.0-alpha",
+  "description": "Self-hosted counter-surveillance software that maps device and network exposure, labels findings by evidence status, and holds sensitive actions when a trusted route disappears — recording every decision in a signed local audit log.",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --ink:#060b0c; --panel:#0e1b1e; --edge:#16292d;
+  --teal:#2dd4bf; --teal-dim:#1a8a7d;
+  --amber:#e0a84e; --rust:#c96b52;
+  --fog:#8aa4a6; --paper:#e9f2f1;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --disp:"Archivo",system-ui,-apple-system,Segoe UI,sans-serif;
+  --wrap:1080px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  background:var(--ink); color:var(--paper);
+  font-family:var(--disp); line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+img,svg{max-width:100%;height:auto}
+a{color:var(--teal);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:var(--wrap);margin:0 auto;padding:0 24px}
+section{padding:72px 0;border-top:1px solid var(--edge)}
+
+/* hero */
+.hero{
+  border-top:none; padding:76px 0 64px;
+  background:
+    radial-gradient(1100px 480px at 22% -8%, rgba(45,212,191,.13), transparent 62%),
+    radial-gradient(760px 380px at 92% 8%, rgba(224,168,78,.07), transparent 60%);
+}
+.hero-grid{display:flex;align-items:center;gap:48px;flex-wrap:wrap}
+.hero-mark{width:220px;flex:0 0 auto;filter:drop-shadow(0 12px 40px rgba(45,212,191,.22))}
+.hero-copy{flex:1 1 380px;min-width:300px}
+h1{
+  font-size:clamp(2.9rem,8vw,4.6rem); font-weight:800;
+  letter-spacing:-.03em; line-height:1; margin-bottom:14px;
+}
+.tag{font-size:clamp(1.05rem,2.4vw,1.4rem);color:var(--teal);font-weight:600;margin-bottom:10px}
+.sub{color:var(--fog);font-size:1.05rem;margin-bottom:22px;max-width:46ch}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:26px;font-family:var(--mono);font-size:.76rem}
+.chip{border:1px solid var(--edge);background:var(--panel);color:var(--fog);padding:5px 11px;border-radius:100px}
+.chip.alpha{border-color:rgba(224,168,78,.45);color:var(--amber)}
+.cta{display:flex;gap:12px;flex-wrap:wrap}
+.btn{
+  display:inline-flex;align-items:center;gap:9px;
+  padding:13px 22px;border-radius:9px;font-weight:600;font-size:.96rem;
+  border:1px solid var(--edge);transition:.16s;
+}
+.btn:hover{text-decoration:none;transform:translateY(-1px)}
+.btn-p{background:var(--teal);color:#06201c;border-color:var(--teal)}
+.btn-p:hover{background:#5fe6d4}
+.btn-s{background:var(--panel);color:var(--paper)}
+.btn-s:hover{border-color:var(--teal-dim);color:var(--teal)}
+
+h2{font-size:clamp(1.55rem,3.6vw,2.15rem);font-weight:700;letter-spacing:-.02em;margin-bottom:12px}
+.lead{color:var(--fog);max-width:62ch;margin-bottom:34px}
+.eyebrow{font-family:var(--mono);font-size:.74rem;letter-spacing:.16em;text-transform:uppercase;color:var(--teal-dim);margin-bottom:10px}
+
+.figure{background:var(--panel);border:1px solid var(--edge);border-radius:13px;padding:22px;margin-bottom:20px;overflow-x:auto}
+.cap{color:var(--fog);font-size:.9rem;max-width:64ch}
+
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(232px,1fr))}
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:13px;padding:24px;transition:.16s}
+.card:hover{border-color:var(--teal-dim)}
+.card h3{font-size:1.12rem;margin-bottom:8px;color:var(--teal)}
+.card p{color:var(--fog);font-size:.94rem}
+
+.cols{display:grid;gap:20px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.panel{background:var(--panel);border:1px solid var(--edge);border-radius:13px;padding:26px}
+.panel.open{border-color:rgba(224,168,78,.3)}
+.panel h3{font-size:1.05rem;margin-bottom:14px;display:flex;align-items:center;gap:9px}
+.dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.dot.on{background:var(--teal)}
+.dot.wip{background:var(--amber)}
+.panel ul{list-style:none;display:flex;flex-direction:column;gap:9px}
+.panel li{color:var(--fog);font-size:.92rem;padding-left:17px;position:relative}
+.panel li::before{content:"";position:absolute;left:0;top:.62em;width:6px;height:1px;background:var(--teal-dim)}
+.panel.open li::before{background:var(--amber)}
+
+pre{
+  background:#040809;border:1px solid var(--edge);border-radius:11px;
+  padding:19px;overflow-x:auto;font-family:var(--mono);font-size:.88rem;
+  line-height:1.75;color:var(--paper);
+}
+code{font-family:var(--mono);font-size:.9em}
+.cmt{color:var(--fog)}
+.tl{color:var(--teal)}
+
+.warn{
+  border:1px solid rgba(201,107,82,.42);background:rgba(201,107,82,.07);
+  border-radius:11px;padding:20px;color:var(--fog);font-size:.93rem;max-width:74ch;
+}
+.warn strong{color:var(--rust)}
+
+footer{border-top:1px solid var(--edge);padding:44px 0;color:var(--fog);font-size:.87rem}
+.fnav{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:18px}
+.motto{font-family:var(--mono);color:var(--teal-dim);font-size:.8rem;letter-spacing:.09em;margin-top:18px}
+
+@media (max-width:640px){
+  section{padding:52px 0}
+  .hero{padding:48px 0 44px}
+  .hero-grid{gap:30px}
+  .hero-mark{width:142px;margin:0 auto}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <img class="hero-mark" src="antifl0ck-mark-512.png" alt="AntiFl0ck eagle mark" width="512" height="512">
+    <div class="hero-copy">
+      <h1>AntiFl0ck</h1>
+      <p class="tag">Open-source counter-surveillance for the networks you control.</p>
+      <p class="sub">Map your exposure. Verify your route. Gate sensitive actions — with every decision signed into an audit log that never leaves your machine.</p>
+      <div class="chips">
+        <span class="chip alpha">pre-alpha</span>
+        <span class="chip">Apache-2.0</span>
+        <span class="chip">self-hosted</span>
+        <span class="chip">evidence-first</span>
+        <span class="chip">Go + React</span>
+      </div>
+      <div class="cta">
+        <a class="btn btn-p" href="https://github.com/AetherAI3/AntiFlock">View on GitHub</a>
+        <a class="btn btn-s" href="#run">Run the demo</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">The scenario</p>
+    <h2>When the trusted path disappears, the action waits.</h2>
+    <p class="lead">A laptop joins an untrusted network. An application asks to perform a sensitive upload. The trusted route is gone — so the action is <strong>held</strong>, with a recorded reason. When the route returns and is <strong>verified</strong>, the action is <strong>allowed</strong>. Five signed events, replayable on your machine today.</p>
+    <div class="figure">
+      <img src="coffee-shop.svg" alt="Demo lifecycle: trusted, route lost, action held, route verified, action allowed" width="860">
+    </div>
+    <p class="cap">The full coffee-shop scenario runs locally and is entirely simulated — no VPN account, no real data, no cloud dependency.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">What it does</p>
+    <h2>Four verbs</h2>
+    <div class="grid">
+      <div class="card"><h3>See</h3><p>Map your devices, routes, mesh peers, and the metadata an outside observer could plausibly collect. An inventory of your own footprint — not a threat feed.</p></div>
+      <div class="card"><h3>Understand</h3><p>Label every finding by evidence status: detected, verified, reported, inferred, suspected, unknown. A guess never quietly becomes an accusation.</p></div>
+      <div class="card"><h3>Decide</h3><p>Deterministic, operator-defined policy allows, holds, or blocks sensitive actions. Same inputs, same decision, every time. No model guessing at risk.</p></div>
+      <div class="card"><h3>Prove</h3><p>Signed, hash-chained decisions with plain-language explanations, expirations, and rollback results — stored locally, never in a vendor's cloud.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Evidence model</p>
+    <h2>A guess never quietly becomes an accusation.</h2>
+    <p class="lead">Something directly observed is not the same as something a third party reported, and neither is the same as an inference. AntiFl0ck keeps those categories separate on purpose. An AI may <em>explain</em> a finding; it never makes the allow-or-block decision.</p>
+    <div class="figure">
+      <img src="evidence-scale.svg" alt="Evidence scale from DETECTED through UNKNOWN" width="860">
+    </div>
+  </div>
+</section>
+
+<section id="run">
+  <div class="wrap">
+    <p class="eyebrow">Quickstart</p>
+    <h2>Run the demo</h2>
+    <p class="lead">Needs Docker and Node 24+. Nothing else — no account, no real data.</p>
+<pre><span class="cmt"># clone and start the stack</span>
+git clone https://github.com/AetherAI3/AntiFlock
+cd AntiFlock
+make dev
+
+<span class="cmt"># run the simulated coffee-shop scenario</span>
+make lab
+
+<span class="cmt"># Third-Eye dashboard</span>
+<span class="tl">http://127.0.0.1:4173</span>  <span class="cmt">— user: operator</span></pre>
+    <p class="cap" style="margin-top:14px">On Windows without <code>make</code>: <code>npm run dev</code> / <code>npm run lab</code>. Token is in <code>.antiflock/dev.env</code>. Full guide in the <a href="https://github.com/AetherAI3/AntiFlock/blob/main/docs/operator-runbook.md">operator runbook</a>.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Honest status</p>
+    <h2>What works, and what doesn't</h2>
+    <p class="lead">The local simulated slice is complete and sits behind a ten-gate release check. The real-world pieces are later milestones — they are not claimed until proven.</p>
+    <div class="cols">
+      <div class="panel">
+        <h3><span class="dot on"></span>Working today</h3>
+        <ul>
+          <li>Coffee-shop simulation end-to-end, five signed audit events</li>
+          <li>Signed, hash-chained event and audit log (SQLite)</li>
+          <li>Deterministic policy engine and signed expiring plans</li>
+          <li>Secure-action gate + TypeScript SDK</li>
+          <li>Endpoint enrollment and mTLS device identity</li>
+          <li>Linux route and interface observation</li>
+          <li>Read-only Tailscale and Headscale mesh probes</li>
+          <li>Third-Eye dashboard</li>
+        </ul>
+      </div>
+      <div class="panel open">
+        <h3><span class="dot wip"></span>Open engineering work</h3>
+        <ul>
+          <li>Production enforcement and real packet-path integration</li>
+          <li>Mobile (Android) enforcement beyond the reference state machine</li>
+          <li>macOS and Windows collectors</li>
+          <li>Provider lifecycle automation — key rotation, revocation</li>
+          <li>Independent security and privacy review</li>
+        </ul>
+      </div>
+    </div>
+    <p class="cap" style="margin-top:20px">Hard boundaries: <a href="https://github.com/AetherAI3/AntiFlock/blob/main/docs/release-status.md">release status</a> · <a href="https://github.com/AetherAI3/AntiFlock/blob/main/docs/threat-model.md">threat model</a> · <a href="https://github.com/AetherAI3/AntiFlock/blob/main/docs/open-questions.md">open decisions</a></p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Contribute</p>
+    <h2>Five lanes in</h2>
+    <p class="lead">Help build the defensive layer surveillance technology never gave ordinary people. Scoped issues are labelled <code>good first issue</code> and <code>help wanted</code>.</p>
+    <div class="grid">
+      <div class="card"><h3>Observers</h3><p>Linux, macOS, Windows, and Android collectors; provider adapters.</p></div>
+      <div class="card"><h3>Visualizers</h3><p>Topology, exposure maps, and audit timelines in React.</p></div>
+      <div class="card"><h3>Policy builders</h3><p>Deterministic rules and secure-action integrations.</p></div>
+      <div class="card"><h3>Researchers</h3><p>Metadata models, ALPR research, threat modeling.</p></div>
+      <div class="card"><h3>Hardening</h3><p>Signing, storage, privilege separation, testing.</p></div>
+    </div>
+    <div class="cta" style="margin-top:26px">
+      <a class="btn btn-p" href="https://github.com/AetherAI3/AntiFlock/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22">Good first issues</a>
+      <a class="btn btn-s" href="https://github.com/AetherAI3/AntiFlock/blob/main/CONTRIBUTING.md">Contributing guide</a>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Read this first</p>
+    <div class="warn">
+      <p><strong>Pre-release defensive software.</strong> AntiFl0ck does not provide anonymity, does not prove that surveillance is occurring, and does not replace a VPN. It does not detect or locate ALPR cameras, scan for nearby hardware, or interfere with anyone's surveillance infrastructure — it is a defensive layer for the networks you already control.</p>
+      <p style="margin-top:12px">AntiFl0ck is an independent open-source project. It is not affiliated with or endorsed by Flock Safety. Report vulnerabilities privately via <a href="https://github.com/AetherAI3/AntiFlock/blob/main/SECURITY.md">SECURITY.md</a>, never a public issue.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="fnav">
+      <a href="https://github.com/AetherAI3/AntiFlock">GitHub</a>
+      <a href="https://github.com/AetherAI3/AntiFlock/releases">Releases</a>
+      <a href="https://github.com/AetherAI3/AntiFlock/blob/main/docs/architecture.md">Architecture</a>
+      <a href="https://github.com/AetherAI3/AntiFlock/blob/main/docs/threat-model.md">Threat model</a>
+      <a href="https://github.com/AetherAI3/AntiFlock/discussions">Discussions</a>
+      <a href="https://github.com/AetherAI3/AntiFlock/blob/main/SECURITY.md">Security</a>
+    </div>
+    <p>Licensed <a href="https://github.com/AetherAI3/AntiFlock/blob/main/LICENSE">Apache-2.0</a>. The AntiFl0ck name and eagle mark are project marks — see <a href="https://github.com/AetherAI3/AntiFlock/blob/main/TRADEMARKS.md">TRADEMARKS.md</a>.</p>
+    <p class="motto">Evidence over alarm. Operator over platform.</p>
+  </div>
+</footer>
+
+</body>
+</html>
