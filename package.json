@@ -2,7 +2,7 @@
   "name": "antiflock",
   "version": "0.1.0",
   "private": true,
-  "description": "Self-hosted personal private-security operating layer",
+  "description": "Self-hosted counter-surveillance for the networks you control: map exposure, verify trusted routes, gate sensitive actions",
   "engines": {
     "node": ">=24"
   },

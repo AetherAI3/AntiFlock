@@ -1,0 +1,42 @@
+cff-version: 1.2.0
+title: >-
+  AntiFl0ck: self-hosted counter-surveillance for the networks
+  you control
+message: >-
+  If you reference AntiFl0ck in research, writing, or another
+  project, please cite it using this metadata.
+type: software
+authors:
+  - name: The AntiFl0ck authors and contributors
+    website: https://github.com/AetherAI3/AntiFlock
+  - given-names: Brandon
+    family-names: Barrante
+repository-code: https://github.com/AetherAI3/AntiFlock
+url: https://github.com/AetherAI3/AntiFlock
+abstract: >-
+  AntiFl0ck is open-source, self-hosted counter-surveillance
+  software for the networks an operator already controls. It maps
+  device and network exposure, labels every finding by evidence
+  status (detected, verified, reported, inferred, suspected, or
+  unknown), evaluates deterministic operator-defined policy, and
+  holds sensitive actions when a trusted route disappears —
+  recording each decision in a signed, hash-chained local audit
+  log. The pre-alpha release ships a fully simulated coffee-shop
+  scenario, a policy engine, a secure-action gate with a
+  TypeScript SDK, read-only Tailscale and Headscale probes, and
+  the Third-Eye dashboard. Production enforcement remains open
+  engineering work. AntiFl0ck is an independent project, is not
+  affiliated with or endorsed by Flock Safety, and does not
+  interfere with third-party surveillance infrastructure.
+keywords:
+  - counter-surveillance
+  - privacy
+  - network-security
+  - zero-trust
+  - self-hosted
+  - threat-modeling
+  - audit-log
+  - opsec
+license: Apache-2.0
+version: 0.1.0-alpha
+date-released: '2026-07-27'
