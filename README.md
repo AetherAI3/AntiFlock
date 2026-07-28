@@ -30,6 +30,13 @@ When the trusted path disappears, AntiFl0ck **holds** the action — records why
 verifies the route recovered, and only then lets it through. Every step lands in
 a signed local audit log.
 
+**For you if** you run a homelab, or a Tailscale / Headscale / WireGuard mesh, and you want your
+devices, routes, and sensitive actions under one operator-defined policy with a signed audit trail.
+
+**What it is not:** AntiFl0ck does not detect or locate ALPR cameras, scan for nearby hardware, or
+interfere with anyone's surveillance infrastructure. It is a defensive layer for the networks *you*
+already control.
+
 **⭐ Star AntiFl0ck** to follow the public build and help more privacy engineers find it.
 
 ## Why AntiFl0ck exists
