@@ -105,7 +105,7 @@ Enrollment mechanics, certificate handling, and queue internals are documented i
 
 ## Deterministic watchdogs: small agents that cannot go rogue
 
-One piece of AntiFl0ck deserves its own spotlight, because it is a separate open-source project with a life beyond this one: **[Nano](https://github.com/DBarr3/Nano)**.
+One piece of AntiFl0ck deserves its own spotlight, because it is a separate open-source project with a life beyond this one: **[Nano](https://github.com/AetherAI3/Nano)**.
 
 Nano is a tiny, deterministic rule language. A Nano "agent" is not an autonomous AI process — it is closer to a unit script in a strategy game: a few readable lines that watch declared signals and propose a bounded move. Legible, predictable, replayable. The complexity comes from composing many small rules, and the player — the operator — never loses command.
 
@@ -162,6 +162,6 @@ Run the simulation. Inspect the threat model. Challenge the assumptions. Open an
 - **[Run the demo](https://github.com/AetherAI3/AntiFlock#run-the-demo)**
 - **[Explore good first issues](https://github.com/AetherAI3/AntiFlock/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)**
 - **[Read the threat model](https://github.com/AetherAI3/AntiFlock/blob/main/docs/threat-model.md)**
-- **[Explore Nano](https://github.com/DBarr3/Nano)**
+- **[Explore Nano](https://github.com/AetherAI3/Nano)**
 
 **Evidence over alarm. Operator over platform.**

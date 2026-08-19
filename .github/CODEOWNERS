@@ -3,26 +3,26 @@
 # TODO(governance): add dedicated security/privacy maintainers per GOVERNANCE.md.
 
 # Default owner for everything in the repo.
-*                             @DBarr3
+*                             @AetherAI3
 
 # Control, policy, and intelligence plane.
-/core/                        @DBarr3
-/agent/                       @DBarr3
-/adapters/                    @DBarr3
+/core/                        @AetherAI3
+/agent/                       @AetherAI3
+/adapters/                    @AetherAI3
 
 # Wire contracts — protobuf fields are published once released.
-/api/                         @DBarr3
+/api/                         @AetherAI3
 
 # Deployment, supply chain, and CI.
-/deploy/                      @DBarr3
-/.github/                     @DBarr3
+/deploy/                      @AetherAI3
+/.github/                     @AetherAI3
 
 # Locked safety, privacy, and governance documents.
-/SECURITY.md                  @DBarr3
-/GOVERNANCE.md                @DBarr3
-/CODE_OF_CONDUCT.md           @DBarr3
-/docs/threat-model.md         @DBarr3
-/docs/evidence-model.md       @DBarr3
-/docs/privacy-invariants.md   @DBarr3
-/docs/signing-contracts.md    @DBarr3
-/docs/community-intelligence-policy.md  @DBarr3
+/SECURITY.md                  @AetherAI3
+/GOVERNANCE.md                @AetherAI3
+/CODE_OF_CONDUCT.md           @AetherAI3
+/docs/threat-model.md         @AetherAI3
+/docs/evidence-model.md       @AetherAI3
+/docs/privacy-invariants.md   @AetherAI3
+/docs/signing-contracts.md    @AetherAI3
+/docs/community-intelligence-policy.md  @AetherAI3
