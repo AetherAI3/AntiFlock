@@ -39,7 +39,7 @@ jobs:
         run: node scripts/verify.mjs --section proto
 
   go:
-    name: Go 1.26.5
+    name: Go 1.26.6
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -53,7 +53,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.26.5
+          go-version: 1.26.6
           check-latest: false
           cache: true
       - name: Verify format, modules, tests, race detector, vet, build, staticcheck, and vulnerabilities
@@ -122,7 +122,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: 1.26.5
+          go-version: 1.26.6
           check-latest: false
           cache: true
       - name: Install JavaScript workspaces reproducibly

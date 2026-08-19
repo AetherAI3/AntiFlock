@@ -14,8 +14,8 @@ import { fileURLToPath } from "node:url";
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const versions = Object.freeze({
-  go: "1.26.5",
-  goImage: "golang:1.26.5-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651",
+  go: "1.26.6",
+  goImage: "golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36",
   node: "24.18.0",
   buf: "1.72.0",
   bufImage: "bufbuild/buf:1.72.0@sha256:65bd496a89c762ad7151ca9e7d885a45dacb3671a8e8ec39738b9f844d3405ea",
