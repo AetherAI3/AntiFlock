@@ -49,5 +49,5 @@ the exact capability boundary and the gates that remain.
   evidence class and calibrated confidence on every claim; a ten-gate strict
   acceptance harness enforced by `npm run verify`.
 
-[Unreleased]: https://github.com/DBarr3/AntiFlock/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/DBarr3/AntiFlock/releases/tag/v0.1.0
+[Unreleased]: https://github.com/AetherAI3/AntiFlock/compare/v0.1.0-alpha...HEAD
+[0.1.0]: https://github.com/AetherAI3/AntiFlock/releases/tag/v0.1.0-alpha

@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         **Do not report vulnerabilities here.** Use a
-        [private Security Advisory](https://github.com/DBarr3/AntiFlock/security/advisories/new)
+        [private Security Advisory](https://github.com/AetherAI3/AntiFlock/security/advisories/new)
         (see [SECURITY.md](../blob/main/SECURITY.md)).
 
         **Never paste** credentials, enrollment tokens, operator identifiers, exact

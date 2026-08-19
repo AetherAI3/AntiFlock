@@ -1,6 +1,6 @@
 # Nano watchdog reference boundary
 
-AntiFlock pins its Nano v0.1 compatibility contract to DBarr3/Nano PR #1 at
+AntiFlock pins its Nano v0.1 compatibility contract to AetherAI3/Nano PR #1 at
 commit `40f697ba9020a4d4fee985406779c0d90ea2d6f4`. The Go implementation in
 `core/nano` is an independent conformance implementation; no unlicensed Nano
 source is vendored into this Apache-2.0 repository.
