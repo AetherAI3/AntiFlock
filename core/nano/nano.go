@@ -1,5 +1,5 @@
 // Package nano implements AntiFlock's deterministic, I/O-free conformance
-// runtime for Nano v0.1. It follows DBarr3/Nano PR #1 without copying its
+// runtime for Nano v0.1. It follows AetherAI3/Nano PR #1 without copying its
 // Python implementation. Programs can only produce typed intents; this
 // package has no filesystem, process, network, clock, randomness, or host
 // mutation capability.
