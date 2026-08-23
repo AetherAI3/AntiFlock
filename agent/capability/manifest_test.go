@@ -1,6 +1,7 @@
 package capability
 
 import (
+	"crypto/ed25519"
 	"errors"
 	"slices"
 	"strings"
@@ -219,5 +220,29 @@ func TestEntryRoundTripsProbe(t *testing.T) {
 	probe.Key = ""
 	if _, err := EntryFromProbe(probe); !errors.Is(err, driver.ErrProbeInvalid) {
 		t.Fatalf("invalid probe produced an entry: %v", err)
+	}
+}
+
+// TestManifestVerifyRejectsForeignSignatureDomain proves the signature is
+// domain-separated: a signature by the correct node key over the correct
+// digest under any other domain string must not verify.
+func TestManifestVerifyRejectsForeignSignatureDomain(t *testing.T) {
+	t.Parallel()
+	manifest := testManifest(t)
+	digest, err := manifest.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, private := testKey(1)
+	for _, domain := range []string{"", "AntiFlock-CapabilityManifest-v2", "antiflock.capability-manifest.v1", "AntiFlock-Signature-v1", "AntiFlock-DriverProbe-v1"} {
+		message := append([]byte(domain), digest...)
+		manifest.Signature = &Signature{KeyID: testNodeID, Algorithm: SignatureAlgorithm, Value: ed25519.Sign(private, message)}
+		if err := manifest.Verify(public); !errors.Is(err, ErrSignatureInvalid) {
+			t.Fatalf("domain %q: signature under a foreign domain verified: %v", domain, err)
+		}
+	}
+	manifest.Signature = &Signature{KeyID: testNodeID, Algorithm: SignatureAlgorithm, Value: ed25519.Sign(private, signatureMessage(digest))}
+	if err := manifest.Verify(public); err != nil {
+		t.Fatalf("correct domain rejected: %v", err)
 	}
 }
