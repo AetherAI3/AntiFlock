@@ -214,7 +214,8 @@ func TestDiscoverRejectsBadOptions(t *testing.T) {
 			t.Errorf("%s: code %s, want %s", name, code, ReasonOptionsInvalid)
 		}
 	}
-	if _, err := Discover(nil, discoveryOptions(probers)); discoveryCode(t, err) != ReasonOptionsInvalid { //nolint:staticcheck // nil ctx is the case under test
+	//lint:ignore SA1012 a nil context is the condition under test
+	if _, err := Discover(nil, discoveryOptions(probers)); discoveryCode(t, err) != ReasonOptionsInvalid {
 		t.Fatal("nil context accepted")
 	}
 }
