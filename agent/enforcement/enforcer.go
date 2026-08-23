@@ -322,13 +322,17 @@ func (err *validationError) Error() string { return err.reasonCode }
 func reject(reason string) *validationError { return &validationError{reasonCode: reason} }
 
 func (enforcer *Enforcer) validatePlan(plan *antiflockv1.Plan, now time.Time) *validationError {
+	return enforcer.validatePlanMode(plan, now, true)
+}
+
+func (enforcer *Enforcer) validatePlanMode(plan *antiflockv1.Plan, now time.Time, requireCapabilities bool) *validationError {
 	if proto.Size(plan) > maximumPlanBytes || model.RejectUnknownFields(plan) != nil {
 		return reject("AF-PLAN-WIRE-INVALID")
 	}
 	if plan.DeploymentId != enforcer.deploymentID || plan.NodeId != enforcer.nodeID {
 		return reject("AF-PLAN-TARGET-MISMATCH")
 	}
-	if plan.Id == "" || plan.PolicyId == "" || plan.PolicyRevision == 0 || plan.Revision == 0 || len(plan.Nonce) != sha256.Size {
+	if !safePlanToken(plan.Id) || !safePlanToken(plan.PolicyId) || plan.PolicyRevision == 0 || plan.Revision == 0 || len(plan.Nonce) != sha256.Size {
 		return reject("AF-PLAN-IDENTITY-INVALID")
 	}
 	if plan.Status != antiflockv1.PlanStatus_PLAN_STATUS_SIGNED && plan.Status != antiflockv1.PlanStatus_PLAN_STATUS_DELIVERED {
@@ -372,6 +376,9 @@ func (enforcer *Enforcer) validatePlan(plan *antiflockv1.Plan, now time.Time) *v
 			if check == nil || check.Id == "" || check.Phase != checkSet.phase || check.CheckType == "" || check.Parameters == nil || !validTimeout(check.Timeout) {
 				return reject("AF-PLAN-CHECK-INVALID")
 			}
+			if !validCapabilityRequirements(check.RequiredCapabilities) {
+				return reject("AF-PLAN-CAPABILITY-INVALID")
+			}
 			if !validCheckParameters(check) {
 				return reject("AF-PLAN-CHECK-PARAMETERS-INVALID")
 			}
@@ -379,7 +386,7 @@ func (enforcer *Enforcer) validatePlan(plan *antiflockv1.Plan, now time.Time) *v
 				return reject("AF-PLAN-DUPLICATE-ID")
 			}
 			ids[check.Id] = struct{}{}
-			if !enforcer.supportsAll(check.RequiredCapabilities) {
+			if requireCapabilities && !enforcer.supportsAll(check.RequiredCapabilities) {
 				return reject("AF-PLAN-CAPABILITY-UNSUPPORTED")
 			}
 		}
@@ -389,6 +396,9 @@ func (enforcer *Enforcer) validatePlan(plan *antiflockv1.Plan, now time.Time) *v
 			if operation == nil || operation.Id == "" || operation.Type == antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_UNSPECIFIED || operation.Target == "" || operation.Parameters == nil || !validTimeout(operation.Timeout) {
 				return reject("AF-PLAN-OPERATION-INVALID")
 			}
+			if !validCapabilityRequirements(operation.RequiredCapabilities) {
+				return reject("AF-PLAN-CAPABILITY-INVALID")
+			}
 			if _, duplicate := ids[operation.Id]; duplicate {
 				return reject("AF-PLAN-DUPLICATE-ID")
 			}
@@ -396,7 +406,7 @@ func (enforcer *Enforcer) validatePlan(plan *antiflockv1.Plan, now time.Time) *v
 			if !validOperationParameters(operation, operationSetIndex == 1, plan.RecoveryAllowlist) {
 				return reject("AF-PLAN-OPERATION-PARAMETERS-INVALID")
 			}
-			if !enforcer.supportsAll(operation.RequiredCapabilities) {
+			if requireCapabilities && !enforcer.supportsAll(operation.RequiredCapabilities) {
 				return reject("AF-PLAN-CAPABILITY-UNSUPPORTED")
 			}
 		}
@@ -408,48 +418,115 @@ func validPlanLayout(plan *antiflockv1.Plan) bool {
 	if len(plan.Preconditions) != 1 || len(plan.Actions) != 4 || len(plan.Verifications) != 3 || len(plan.Rollback) != 3 {
 		return false
 	}
+	firewall := capabilityContract{
+		key: "firewall.egress.enforce",
+		operations: []antiflockv1.CapabilityOperation{
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ENFORCE,
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ROLLBACK,
+		},
+	}
+	mesh := capabilityContract{
+		key: "mesh.path.enforce",
+		operations: []antiflockv1.CapabilityOperation{
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ENFORCE,
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_VERIFY,
+		},
+	}
+	route := capabilityContract{
+		key: "network.route.enforce",
+		operations: []antiflockv1.CapabilityOperation{
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ENFORCE,
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_VERIFY,
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ROLLBACK,
+		},
+	}
+	dns := capabilityContract{
+		key: "dns.protected.enforce",
+		operations: []antiflockv1.CapabilityOperation{
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ENFORCE,
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_VERIFY,
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ROLLBACK,
+		},
+	}
 	if plan.Preconditions[0] == nil || plan.Preconditions[0].Id != "preflight-current-state" || plan.Preconditions[0].CheckType != "state.capture" || !plan.Preconditions[0].Required {
 		return false
 	}
+	if !matchesCapabilityContracts(plan.Preconditions[0].RequiredCapabilities, firewall, mesh, route, dns) {
+		return false
+	}
 	checks := []struct {
-		id   string
-		kind string
-	}{{"verify-mesh", "mesh.connected"}, {"verify-route", "route.egress"}, {"verify-dns", "dns.path"}}
+		id         string
+		kind       string
+		capability capabilityContract
+	}{{"verify-mesh", "mesh.connected", mesh}, {"verify-route", "route.egress", route}, {"verify-dns", "dns.path", dns}}
 	for index, expected := range checks {
 		check := plan.Verifications[index]
-		if check == nil || check.Id != expected.id || check.CheckType != expected.kind || !check.Required {
+		if check == nil || check.Id != expected.id || check.CheckType != expected.kind || !check.Required ||
+			!matchesCapabilityContracts(check.RequiredCapabilities, expected.capability) {
 			return false
 		}
 	}
 	operations := []struct {
-		id     string
-		kind   antiflockv1.PlanOperationType
-		target string
+		id         string
+		kind       antiflockv1.PlanOperationType
+		target     string
+		capability capabilityContract
 	}{
-		{"guard-egress", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_FIREWALL, "protected-egress"},
-		{"connect-mesh", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_MESH, ""},
-		{"set-route", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_ROUTE, "approved-egress"},
-		{"set-dns", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_DNS, "protected-dns"},
+		{"guard-egress", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_FIREWALL, "protected-egress", firewall},
+		{"connect-mesh", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_MESH, "", mesh},
+		{"set-route", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_ROUTE, "approved-egress", route},
+		{"set-dns", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_DNS, "protected-dns", dns},
 	}
 	for index, expected := range operations {
 		operation := plan.Actions[index]
-		if operation == nil || operation.Id != expected.id || operation.Type != expected.kind || (expected.target != "" && operation.Target != expected.target) {
+		if operation == nil || operation.Id != expected.id || operation.Type != expected.kind ||
+			(expected.target != "" && operation.Target != expected.target) ||
+			!matchesCapabilityContracts(operation.RequiredCapabilities, expected.capability) {
 			return false
 		}
 	}
 	rollbacks := []struct {
-		id     string
-		kind   antiflockv1.PlanOperationType
-		target string
+		id         string
+		kind       antiflockv1.PlanOperationType
+		target     string
+		capability capabilityContract
 	}{
-		{"rollback-dns", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_DNS, "captured:dns"},
-		{"rollback-route", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_ROUTE, "captured:route"},
-		{"rollback-firewall", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_FIREWALL, "captured:firewall"},
+		{"rollback-dns", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_DNS, "captured:dns", dns},
+		{"rollback-route", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_ROUTE, "captured:route", route},
+		{"rollback-firewall", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_FIREWALL, "captured:firewall", firewall},
 	}
 	for index, expected := range rollbacks {
 		operation := plan.Rollback[index]
-		if operation == nil || operation.Id != expected.id || operation.Type != expected.kind || operation.Target != expected.target {
+		if operation == nil || operation.Id != expected.id || operation.Type != expected.kind || operation.Target != expected.target ||
+			!matchesCapabilityContracts(operation.RequiredCapabilities, expected.capability) {
 			return false
+		}
+	}
+	return true
+}
+
+type capabilityContract struct {
+	key        string
+	operations []antiflockv1.CapabilityOperation
+}
+
+func matchesCapabilityContracts(actual []*antiflockv1.CapabilityRequirement, expected ...capabilityContract) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	for index, contract := range expected {
+		requirement := actual[index]
+		if requirement == nil || requirement.Key != contract.key ||
+			requirement.MinimumSupportLevel != antiflockv1.CapabilitySupportLevel_CAPABILITY_SUPPORT_LEVEL_FULL ||
+			len(requirement.RequiredOperations) != len(contract.operations) {
+			return false
+		}
+		seen := make(map[antiflockv1.CapabilityOperation]struct{}, len(requirement.RequiredOperations))
+		for _, operation := range requirement.RequiredOperations {
+			if _, duplicate := seen[operation]; duplicate || !slices.Contains(contract.operations, operation) {
+				return false
+			}
+			seen[operation] = struct{}{}
 		}
 	}
 	return true
@@ -585,13 +662,10 @@ func validTimeout(value interface {
 }
 
 func (enforcer *Enforcer) supportsAll(requirements []*antiflockv1.CapabilityRequirement) bool {
-	if len(requirements) == 0 {
+	if !validCapabilityRequirements(requirements) {
 		return false
 	}
 	for _, requirement := range requirements {
-		if requirement == nil || requirement.Key == "" || len(requirement.RequiredOperations) == 0 || requirement.MinimumSupportLevel == antiflockv1.CapabilitySupportLevel_CAPABILITY_SUPPORT_LEVEL_UNSPECIFIED {
-			return false
-		}
 		matched := false
 		for _, capability := range enforcer.capabilities.Capabilities {
 			if capability == nil || capability.Key != requirement.Key || !supportSatisfies(capability.SupportLevel, requirement.MinimumSupportLevel) {
@@ -611,6 +685,37 @@ func (enforcer *Enforcer) supportsAll(requirements []*antiflockv1.CapabilityRequ
 		if !matched {
 			return false
 		}
+	}
+	return true
+}
+
+func validCapabilityRequirements(requirements []*antiflockv1.CapabilityRequirement) bool {
+	if len(requirements) == 0 {
+		return false
+	}
+	for _, requirement := range requirements {
+		if requirement == nil || !safePlanToken(requirement.Key) || len(requirement.RequiredOperations) == 0 ||
+			requirement.MinimumSupportLevel == antiflockv1.CapabilitySupportLevel_CAPABILITY_SUPPORT_LEVEL_UNSPECIFIED {
+			return false
+		}
+	}
+	return true
+}
+
+// safePlanToken is the canonical form for identifiers that may appear in
+// operator output. Restricting them to visible ASCII prevents terminal control,
+// escape, and bidirectional-display injection even when a plan is validly
+// signed by a compromised or misconfigured policy key.
+func safePlanToken(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || strings.ContainsRune("._:-", character) {
+			continue
+		}
+		return false
 	}
 	return true
 }
