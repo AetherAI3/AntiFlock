@@ -108,7 +108,7 @@ func TestVerifyPlanRejectsValidlySignedCapabilityControl(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if verified.Valid || verified.Executable || verified.ReasonCode != "AF-PLAN-CAPABILITY-INVALID" {
+	if verified.Valid || verified.Executable || verified.ReasonCode != "AF-PLAN-LAYOUT-UNSUPPORTED" {
 		t.Fatalf("control-bearing capability verification = %#v", verified)
 	}
 }

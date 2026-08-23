@@ -418,48 +418,115 @@ func validPlanLayout(plan *antiflockv1.Plan) bool {
 	if len(plan.Preconditions) != 1 || len(plan.Actions) != 4 || len(plan.Verifications) != 3 || len(plan.Rollback) != 3 {
 		return false
 	}
+	firewall := capabilityContract{
+		key: "firewall.egress.enforce",
+		operations: []antiflockv1.CapabilityOperation{
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ENFORCE,
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ROLLBACK,
+		},
+	}
+	mesh := capabilityContract{
+		key: "mesh.path.enforce",
+		operations: []antiflockv1.CapabilityOperation{
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ENFORCE,
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_VERIFY,
+		},
+	}
+	route := capabilityContract{
+		key: "network.route.enforce",
+		operations: []antiflockv1.CapabilityOperation{
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ENFORCE,
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_VERIFY,
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ROLLBACK,
+		},
+	}
+	dns := capabilityContract{
+		key: "dns.protected.enforce",
+		operations: []antiflockv1.CapabilityOperation{
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ENFORCE,
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_VERIFY,
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_ROLLBACK,
+		},
+	}
 	if plan.Preconditions[0] == nil || plan.Preconditions[0].Id != "preflight-current-state" || plan.Preconditions[0].CheckType != "state.capture" || !plan.Preconditions[0].Required {
 		return false
 	}
+	if !matchesCapabilityContracts(plan.Preconditions[0].RequiredCapabilities, firewall, mesh, route, dns) {
+		return false
+	}
 	checks := []struct {
-		id   string
-		kind string
-	}{{"verify-mesh", "mesh.connected"}, {"verify-route", "route.egress"}, {"verify-dns", "dns.path"}}
+		id         string
+		kind       string
+		capability capabilityContract
+	}{{"verify-mesh", "mesh.connected", mesh}, {"verify-route", "route.egress", route}, {"verify-dns", "dns.path", dns}}
 	for index, expected := range checks {
 		check := plan.Verifications[index]
-		if check == nil || check.Id != expected.id || check.CheckType != expected.kind || !check.Required {
+		if check == nil || check.Id != expected.id || check.CheckType != expected.kind || !check.Required ||
+			!matchesCapabilityContracts(check.RequiredCapabilities, expected.capability) {
 			return false
 		}
 	}
 	operations := []struct {
-		id     string
-		kind   antiflockv1.PlanOperationType
-		target string
+		id         string
+		kind       antiflockv1.PlanOperationType
+		target     string
+		capability capabilityContract
 	}{
-		{"guard-egress", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_FIREWALL, "protected-egress"},
-		{"connect-mesh", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_MESH, ""},
-		{"set-route", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_ROUTE, "approved-egress"},
-		{"set-dns", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_DNS, "protected-dns"},
+		{"guard-egress", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_FIREWALL, "protected-egress", firewall},
+		{"connect-mesh", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_MESH, "", mesh},
+		{"set-route", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_ROUTE, "approved-egress", route},
+		{"set-dns", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_DNS, "protected-dns", dns},
 	}
 	for index, expected := range operations {
 		operation := plan.Actions[index]
-		if operation == nil || operation.Id != expected.id || operation.Type != expected.kind || (expected.target != "" && operation.Target != expected.target) {
+		if operation == nil || operation.Id != expected.id || operation.Type != expected.kind ||
+			(expected.target != "" && operation.Target != expected.target) ||
+			!matchesCapabilityContracts(operation.RequiredCapabilities, expected.capability) {
 			return false
 		}
 	}
 	rollbacks := []struct {
-		id     string
-		kind   antiflockv1.PlanOperationType
-		target string
+		id         string
+		kind       antiflockv1.PlanOperationType
+		target     string
+		capability capabilityContract
 	}{
-		{"rollback-dns", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_DNS, "captured:dns"},
-		{"rollback-route", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_ROUTE, "captured:route"},
-		{"rollback-firewall", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_FIREWALL, "captured:firewall"},
+		{"rollback-dns", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_DNS, "captured:dns", dns},
+		{"rollback-route", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_ROUTE, "captured:route", route},
+		{"rollback-firewall", antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_FIREWALL, "captured:firewall", firewall},
 	}
 	for index, expected := range rollbacks {
 		operation := plan.Rollback[index]
-		if operation == nil || operation.Id != expected.id || operation.Type != expected.kind || operation.Target != expected.target {
+		if operation == nil || operation.Id != expected.id || operation.Type != expected.kind || operation.Target != expected.target ||
+			!matchesCapabilityContracts(operation.RequiredCapabilities, expected.capability) {
 			return false
+		}
+	}
+	return true
+}
+
+type capabilityContract struct {
+	key        string
+	operations []antiflockv1.CapabilityOperation
+}
+
+func matchesCapabilityContracts(actual []*antiflockv1.CapabilityRequirement, expected ...capabilityContract) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	for index, contract := range expected {
+		requirement := actual[index]
+		if requirement == nil || requirement.Key != contract.key ||
+			requirement.MinimumSupportLevel != antiflockv1.CapabilitySupportLevel_CAPABILITY_SUPPORT_LEVEL_FULL ||
+			len(requirement.RequiredOperations) != len(contract.operations) {
+			return false
+		}
+		seen := make(map[antiflockv1.CapabilityOperation]struct{}, len(requirement.RequiredOperations))
+		for _, operation := range requirement.RequiredOperations {
+			if _, duplicate := seen[operation]; duplicate || !slices.Contains(contract.operations, operation) {
+				return false
+			}
+			seen[operation] = struct{}{}
 		}
 	}
 	return true
