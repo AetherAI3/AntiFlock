@@ -296,3 +296,21 @@ func DetectedEvidence(checkID string, observedAt time.Time) *antiflockv1.Evidenc
 		Summary:           "A deterministic in-memory endpoint check observed the simulated state.",
 	}
 }
+
+// FixedPlanTime is the creation instant of every deterministic plan fixture.
+var FixedPlanTime = time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+
+// NewDeterministicPlanFixture is NewPlanFixture with the plan's timestamps
+// pinned to FixedPlanTime and the plan re-signed, so the signed bytes are
+// identical across processes (fuzz workers, replay seeds, golden corpora).
+func NewDeterministicPlanFixture(tb testing.TB) PlanFixture {
+	tb.Helper()
+	fixture := NewPlanFixture(tb)
+	fixture.Plan.CreatedAt = timestamppb.New(FixedPlanTime)
+	fixture.Plan.ExpiresAt = timestamppb.New(FixedPlanTime.Add(5 * time.Minute))
+	if err := ResignPlan(fixture.Plan, PlanKeyID, fixture.PlanPrivateKey, FixedPlanTime); err != nil {
+		tb.Fatal(err)
+	}
+	fixture.Now = FixedPlanTime.Add(time.Second)
+	return fixture
+}
