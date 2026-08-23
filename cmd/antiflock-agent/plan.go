@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/DBarr3/AntiFlock/agent/enforcement"
@@ -113,14 +114,18 @@ func currentDriverAvailability() []driverAvailability {
 }
 
 func writePlanVerificationHuman(writer io.Writer, output planVerificationOutput) {
-	fmt.Fprintf(writer, "Plan %s\n", output.PlanID)
+	fmt.Fprintf(writer, "Plan %s\n", strconv.QuoteToASCII(output.PlanID))
 	fmt.Fprintf(writer, "  valid: %t\n", output.Valid)
 	fmt.Fprintf(writer, "  capability compatible: %t\n", output.CapabilityCompatible)
 	fmt.Fprintln(writer, "  executable: false")
 	fmt.Fprintf(writer, "  reason: %s\n", output.ReasonCode)
 	fmt.Fprintf(writer, "  detail: %s\n", output.SafeMessage)
 	if len(output.MissingCapabilities) != 0 {
-		fmt.Fprintf(writer, "  missing capabilities: %s\n", strings.Join(output.MissingCapabilities, ", "))
+		quoted := make([]string, len(output.MissingCapabilities))
+		for index, capability := range output.MissingCapabilities {
+			quoted[index] = strconv.QuoteToASCII(capability)
+		}
+		fmt.Fprintf(writer, "  missing capabilities: %s\n", strings.Join(quoted, ", "))
 	}
 	fmt.Fprintln(writer, "Driver readiness")
 	for _, driver := range output.Drivers {

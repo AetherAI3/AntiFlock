@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"sort"
-	"strings"
 	"time"
 
 	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
@@ -47,7 +46,7 @@ type PlanVerification struct {
 // Executable is always false in this API because driver/recovery readiness and
 // operator authorization are intentionally outside cryptographic validation.
 func VerifyPlan(config PlanVerificationConfig, input *antiflockv1.Plan) (*PlanVerification, error) {
-	if strings.TrimSpace(config.DeploymentID) == "" || strings.TrimSpace(config.NodeID) == "" || strings.TrimSpace(config.PlanKeyID) == "" {
+	if !safePlanToken(config.DeploymentID) || !safePlanToken(config.NodeID) || !safePlanToken(config.PlanKeyID) {
 		return nil, errors.New("plan verification requires deployment, node, and policy signing key ids")
 	}
 	if len(config.PlanPublicKey) != ed25519.PublicKeySize {

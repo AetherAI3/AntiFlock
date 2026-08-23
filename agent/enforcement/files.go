@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"io"
 	"os"
 	"strings"
 
@@ -65,12 +66,19 @@ func readBoundedRegularFile(path string, maximum int64) ([]byte, error) {
 	if strings.TrimSpace(path) == "" || maximum <= 0 {
 		return nil, errors.New("file path and size bound are required")
 	}
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() <= 0 || info.Size() > maximum {
+	file, err := openRegularFileNoFollow(path)
+	if err != nil {
 		return nil, errors.New("file is not a bounded regular file")
 	}
-	content, err := os.ReadFile(path)
-	if err != nil || int64(len(content)) != info.Size() {
+	defer file.Close()
+	before, err := file.Stat()
+	if err != nil || !before.Mode().IsRegular() || before.Size() <= 0 || before.Size() > maximum {
+		return nil, errors.New("file is not a bounded regular file")
+	}
+	content, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	after, statErr := file.Stat()
+	if err != nil || statErr != nil || int64(len(content)) != before.Size() || int64(len(content)) > maximum ||
+		!os.SameFile(before, after) || after.Size() != before.Size() {
 		return nil, errors.New("read complete regular file")
 	}
 	return content, nil

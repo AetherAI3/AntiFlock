@@ -332,7 +332,7 @@ func (enforcer *Enforcer) validatePlanMode(plan *antiflockv1.Plan, now time.Time
 	if plan.DeploymentId != enforcer.deploymentID || plan.NodeId != enforcer.nodeID {
 		return reject("AF-PLAN-TARGET-MISMATCH")
 	}
-	if plan.Id == "" || plan.PolicyId == "" || plan.PolicyRevision == 0 || plan.Revision == 0 || len(plan.Nonce) != sha256.Size {
+	if !safePlanToken(plan.Id) || !safePlanToken(plan.PolicyId) || plan.PolicyRevision == 0 || plan.Revision == 0 || len(plan.Nonce) != sha256.Size {
 		return reject("AF-PLAN-IDENTITY-INVALID")
 	}
 	if plan.Status != antiflockv1.PlanStatus_PLAN_STATUS_SIGNED && plan.Status != antiflockv1.PlanStatus_PLAN_STATUS_DELIVERED {
@@ -376,6 +376,9 @@ func (enforcer *Enforcer) validatePlanMode(plan *antiflockv1.Plan, now time.Time
 			if check == nil || check.Id == "" || check.Phase != checkSet.phase || check.CheckType == "" || check.Parameters == nil || !validTimeout(check.Timeout) {
 				return reject("AF-PLAN-CHECK-INVALID")
 			}
+			if !validCapabilityRequirements(check.RequiredCapabilities) {
+				return reject("AF-PLAN-CAPABILITY-INVALID")
+			}
 			if !validCheckParameters(check) {
 				return reject("AF-PLAN-CHECK-PARAMETERS-INVALID")
 			}
@@ -392,6 +395,9 @@ func (enforcer *Enforcer) validatePlanMode(plan *antiflockv1.Plan, now time.Time
 		for _, operation := range operationSet {
 			if operation == nil || operation.Id == "" || operation.Type == antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_UNSPECIFIED || operation.Target == "" || operation.Parameters == nil || !validTimeout(operation.Timeout) {
 				return reject("AF-PLAN-OPERATION-INVALID")
+			}
+			if !validCapabilityRequirements(operation.RequiredCapabilities) {
+				return reject("AF-PLAN-CAPABILITY-INVALID")
 			}
 			if _, duplicate := ids[operation.Id]; duplicate {
 				return reject("AF-PLAN-DUPLICATE-ID")
@@ -589,13 +595,10 @@ func validTimeout(value interface {
 }
 
 func (enforcer *Enforcer) supportsAll(requirements []*antiflockv1.CapabilityRequirement) bool {
-	if len(requirements) == 0 {
+	if !validCapabilityRequirements(requirements) {
 		return false
 	}
 	for _, requirement := range requirements {
-		if requirement == nil || requirement.Key == "" || len(requirement.RequiredOperations) == 0 || requirement.MinimumSupportLevel == antiflockv1.CapabilitySupportLevel_CAPABILITY_SUPPORT_LEVEL_UNSPECIFIED {
-			return false
-		}
 		matched := false
 		for _, capability := range enforcer.capabilities.Capabilities {
 			if capability == nil || capability.Key != requirement.Key || !supportSatisfies(capability.SupportLevel, requirement.MinimumSupportLevel) {
@@ -615,6 +618,37 @@ func (enforcer *Enforcer) supportsAll(requirements []*antiflockv1.CapabilityRequ
 		if !matched {
 			return false
 		}
+	}
+	return true
+}
+
+func validCapabilityRequirements(requirements []*antiflockv1.CapabilityRequirement) bool {
+	if len(requirements) == 0 {
+		return false
+	}
+	for _, requirement := range requirements {
+		if requirement == nil || !safePlanToken(requirement.Key) || len(requirement.RequiredOperations) == 0 ||
+			requirement.MinimumSupportLevel == antiflockv1.CapabilitySupportLevel_CAPABILITY_SUPPORT_LEVEL_UNSPECIFIED {
+			return false
+		}
+	}
+	return true
+}
+
+// safePlanToken is the canonical form for identifiers that may appear in
+// operator output. Restricting them to visible ASCII prevents terminal control,
+// escape, and bidirectional-display injection even when a plan is validly
+// signed by a compromised or misconfigured policy key.
+func safePlanToken(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || strings.ContainsRune("._:-", character) {
+			continue
+		}
+		return false
 	}
 	return true
 }

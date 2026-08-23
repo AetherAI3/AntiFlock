@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DBarr3/AntiFlock/agent/enforcement"
 	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 	"github.com/DBarr3/AntiFlock/core/policy"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -85,6 +86,22 @@ func TestPlanVerifyReturnsNonzeroForTamperedTargetAfterWritingStructuredResult(t
 	}
 	if output.Valid || output.Executable || output.ReasonCode != "AF-PLAN-TARGET-MISMATCH" {
 		t.Fatalf("tampered target output = %#v", output)
+	}
+}
+
+func TestPlanVerifyHumanOutputEscapesExternalIdentifiers(t *testing.T) {
+	t.Parallel()
+	var output bytes.Buffer
+	writePlanVerificationHuman(&output, planVerificationOutput{
+		PlanVerification: &enforcement.PlanVerification{
+			PlanID:              "plan_ok\r\nexecutable: true\x1b[2J\u202E",
+			MissingCapabilities: []string{"dns.ok\x1b[31m", "mesh.ok\r\nforged"},
+		},
+	})
+	text := output.String()
+	if strings.ContainsAny(text, "\r\x1b\u202E") || strings.Contains(text, "\nexecutable: true") ||
+		!strings.Contains(text, `\r\n`) || !strings.Contains(text, `\x1b`) || !strings.Contains(text, `\u202e`) {
+		t.Fatalf("human output did not neutralize external identifiers: %q", text)
 	}
 }
 

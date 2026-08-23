@@ -97,6 +97,7 @@ type fixture struct {
 	plan           *antiflockv1.Plan
 	manifest       *antiflockv1.CapabilityManifest
 	planPublicKey  ed25519.PublicKey
+	planPrivateKey ed25519.PrivateKey
 	nodePublicKey  ed25519.PublicKey
 	nodePrivateKey ed25519.PrivateKey
 	now            time.Time
@@ -122,7 +123,7 @@ func newFixture(t *testing.T) fixture {
 		t.Fatalf("compile plan: %v, %#v", err, violations)
 	}
 	return fixture{
-		plan: plan, manifest: manifest, planPublicKey: planPrivateKey.Public().(ed25519.PublicKey),
+		plan: plan, manifest: manifest, planPublicKey: planPrivateKey.Public().(ed25519.PublicKey), planPrivateKey: planPrivateKey,
 		nodePublicKey: nodePrivateKey.Public().(ed25519.PublicKey), nodePrivateKey: nodePrivateKey,
 		now: plan.CreatedAt.AsTime().Add(time.Second),
 	}
