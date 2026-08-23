@@ -230,12 +230,12 @@ func (diff Diff) Validate() error {
 // driver's prediction; it is never a promise, and the lifecycle still
 // verifies after apply.
 type SimulationResult struct {
-	OperationID   string
-	Target        string
+	OperationID    string
+	Target         string
 	SnapshotDigest string
-	Diff          Diff
-	WouldSucceed  bool
-	ReasonCodes   []string
+	Diff           Diff
+	WouldSucceed   bool
+	ReasonCodes    []string
 }
 
 // Validate enforces the SimulationResult invariants.

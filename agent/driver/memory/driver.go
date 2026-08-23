@@ -20,8 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 	"github.com/DBarr3/AntiFlock/agent/driver"
+	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -698,3 +698,7 @@ func (instance *Driver) Recover(ctx context.Context) (driver.RecoveryReport, err
 	}
 	return report, nil
 }
+
+// Backing returns the durable state this instance is opened over, so tests
+// can open a second instance that shares it.
+func (instance *Driver) Backing() *Backing { return instance.backing }
