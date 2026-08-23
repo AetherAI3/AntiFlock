@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 	"unicode"
 )
@@ -252,10 +253,14 @@ func prescanJSON(data []byte) error {
 				return loadError(ReasonJSONString, errors.New("manifest contains a non-printable or format character"))
 			}
 			if frame.object && frame.expectKey {
-				if _, duplicate := frame.seen[text]; duplicate {
+				// encoding/json matches struct fields case-insensitively, so two
+				// member names that differ only by case would both bind to one
+				// field with last-wins. Fold before comparing.
+				folded := strings.ToLower(text)
+				if _, duplicate := frame.seen[folded]; duplicate {
 					return loadError(ReasonJSONDuplicateKey, errors.New("manifest repeats a member name"))
 				}
-				frame.seen[text] = struct{}{}
+				frame.seen[folded] = struct{}{}
 				frame.expectKey = false
 				continue
 			}
