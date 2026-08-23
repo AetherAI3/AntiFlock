@@ -386,11 +386,11 @@ func (verifier *RecoveryVerifier) VerifyRecovery(ctx context.Context, claim inte
 
 // Compile-time seam checks.
 var (
-	_ integration.ExternalWitness   = (*Witness)(nil)
-	_ integration.IdentityProvider  = (*IdentityProvider)(nil)
-	_ integration.PolicySource      = (*PolicySource)(nil)
-	_ integration.EventSink         = (*EventSink)(nil)
-	_ integration.FindingSink       = (*FindingSink)(nil)
-	_ integration.DecisionConsumer  = (*DecisionConsumer)(nil)
-	_ integration.RecoveryVerifier  = (*RecoveryVerifier)(nil)
+	_ integration.ExternalWitness  = (*Witness)(nil)
+	_ integration.IdentityProvider = (*IdentityProvider)(nil)
+	_ integration.PolicySource     = (*PolicySource)(nil)
+	_ integration.EventSink        = (*EventSink)(nil)
+	_ integration.FindingSink      = (*FindingSink)(nil)
+	_ integration.DecisionConsumer = (*DecisionConsumer)(nil)
+	_ integration.RecoveryVerifier = (*RecoveryVerifier)(nil)
 )

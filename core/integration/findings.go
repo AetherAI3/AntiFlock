@@ -15,10 +15,10 @@ type FindingStatus string
 // Severities and statuses accepted in a FindingSummary.
 const (
 	SeverityInformational FindingSeverity = "INFORMATIONAL"
-	SeverityLow      FindingSeverity = "LOW"
-	SeverityMedium   FindingSeverity = "MEDIUM"
-	SeverityHigh     FindingSeverity = "HIGH"
-	SeverityCritical FindingSeverity = "CRITICAL"
+	SeverityLow           FindingSeverity = "LOW"
+	SeverityMedium        FindingSeverity = "MEDIUM"
+	SeverityHigh          FindingSeverity = "HIGH"
+	SeverityCritical      FindingSeverity = "CRITICAL"
 
 	StatusOpen         FindingStatus = "OPEN"
 	StatusAcknowledged FindingStatus = "ACKNOWLEDGED"

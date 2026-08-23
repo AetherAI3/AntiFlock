@@ -182,8 +182,8 @@ func TestHTTPWitnessHostileResponses(t *testing.T) {
 			encoded, _ := witnesshttp.EncodeReceipt(receipt)
 			return append([]byte(`{"nodeId":"node-1",`), encoded[1:]...)
 		}}, integration.ErrInvalidReceipt},
-		"oversized": {response{200, func() []byte { return []byte(strings.Repeat(" ", witnesshttp.DefaultMaximumResponse+1)) }}, integration.ErrInvalidReceipt},
-		"empty":     {response{200, func() []byte { return nil }}, integration.ErrInvalidReceipt},
+		"oversized":    {response{200, func() []byte { return []byte(strings.Repeat(" ", witnesshttp.DefaultMaximumResponse+1)) }}, integration.ErrInvalidReceipt},
+		"empty":        {response{200, func() []byte { return nil }}, integration.ErrInvalidReceipt},
 		"server error": {response{503, func() []byte { return []byte("down") }}, integration.ErrUnavailable},
 		"refused":      {response{409, func() []byte { return nil }}, integration.ErrInvalidInput},
 	}
