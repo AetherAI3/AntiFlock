@@ -16,13 +16,13 @@ machine).
 | File | Owns |
 |---|---|
 | `probe.go` (frozen, schema v1) | `ProbeResult`, `Prober`: what the driver observed about its own capability |
-| `contract.go` | Interfaces and value types; `ValidateTarget`; sentinel errors |
-| `lifecycle.go` | `Lifecycle` state machine, `Approval`, `StepTimeouts` |
+| `contract.go` | Interfaces and value types; `ValidateTarget`; `OwnershipTokenFor`; sentinel errors |
+| `lifecycle.go` | `Lifecycle` state machine with `Recover`/`Health`, `Approval`, `StepTimeouts` |
 | `journal.go`, `journal_file.go` | `Journal`, `MemoryJournal`, `FileJournal` |
 | `reservation.go` | `ReservationStore`, `MemoryReservationStore` |
 | `receipt.go` | `Receipt`, `ReceiptStore`, `MemoryReceiptStore` |
 | `memory/` | Reference `Driver` over a fake host |
-| `conformance/` | `RunConformance(t, factory)` |
+| `conformance/` | `RunConformance(t, factory)` (driver + lifecycle-over-driver), `RunReservationStore`, `RunJournal` |
 
 ## Lifecycle
 
@@ -60,11 +60,11 @@ Step semantics:
 |---|---|---|---|---|
 | Begin | lifecycle | none | `BEGIN` at CAPTURE | IDLE |
 | Capture | `HostStateCapturer` | read-only | no | FAILED |
-| Simulate | `Simulator` | none (pure) | `ADVANCE` SIMULATE | FAILED (`ErrSimulationRejected`) |
+| Simulate | `Simulator` | none (pure) | `ADVANCE` SIMULATE, digest = predicted after-digest, target | FAILED (`ErrSimulationRejected`) |
 | Approve | caller supplies `Approval` | none | `ADVANCE` APPROVE | stays SIMULATED (`ErrApprovalMismatch`) |
-| Reserve | `ReservationStore` | none | `ADVANCE` RESERVE | FAILED |
-| Apply | `Applier` | mutates exactly `Target` | `ADVANCE` APPLY before the driver is called | FAILED |
-| Verify | `PostApplyVerifier` | read-only | `ADVANCE` VERIFY with ownership token | FAILED (`ErrVerificationFailed`) |
+| Reserve | `ReservationStore` | none | `ADVANCE` RESERVE with the full `ReservationKey` | FAILED |
+| Apply | `Applier` | mutates exactly `Target` | `ADVANCE` APPLY (before-digest, key, target) before the driver is called; `ADVANCE` VERIFY (ownership token, applied digest) as soon as the driver returns | FAILED |
+| Verify | `PostApplyVerifier` | read-only | nothing (read-only step) | FAILED (`ErrVerificationFailed`) |
 | Record | `ReceiptStore` | none | `ADVANCE` RECORD | FAILED |
 | Commit | reservation release + receipt | none | `FINISH` COMMIT | FAILED |
 | Rollback | `RollbackDriver` (if applied) + release | reverts owned change | `FINISH` ROLLBACK | FAILED |
@@ -96,8 +96,11 @@ approval is transported or signed, is out of scope for this package.
 | `HealthReporter.Health` | Read-only. A corrupt journal reports `UNAVAILABLE` + `AF-PROBE-JOURNAL-CORRUPT`; an open journal entry reports `DEGRADED`. |
 | `RecoveryAccess.RecoveryPaths` | Read-only. Every path returned must stay reachable regardless of the plan; applying a plan must not change the list. A driver with no path returns an empty list and the caller refuses to enforce. |
 | `CommandPlanner.CommandPlan` | Read-only dry run: one executable, an explicit argument vector, stdin input. No argument may contain shell metacharacters. |
-| `Journal` | Append-only; every write durable before return; at most one open entry per `(plan, revision, operation)`; `FINISH` only at a terminal step; corrupt on load is `ErrJournalCorrupt` and is never repaired. |
-| `ReservationStore` | Durable before return. Same key or same plan id again: `ErrAlreadyReserved`. Revision at or below the floor: `ErrStaleRevision`. `Release` only at a terminal step, and the key is remembered forever so a released plan cannot be replayed. |
+| `Journal` | Append-only; every write durable before return; at most one open entry per `(plan, revision, operation)`; `FINISH` only at a terminal step; records carry plan identity, step, ownership token, digest, target and the full reservation key; finished entries are compacted once the journal exceeds `JournalCompactionThreshold` (open entries are never dropped); corrupt on load, or any schema other than `antiflock.driver-journal/v2`, is `ErrJournalCorrupt` and is never repaired or migrated. |
+| `ReservationStore` | Durable before return. `ReservationKey` carries `PolicyRevision` and `PlanRevision`; the store keeps both as monotonic floors exactly like `enforcement.StateStore`: policy revision below the floor, or plan revision at or below the floor, is `ErrStaleRevision`. Same plan id under a different key, or the identical key while in progress: `ErrAlreadyReserved`. The identical key redelivered after release returns `Reservation{Replayed: true, Terminal, Result}`, the stored terminal result, so redelivery is idempotent. `Release` only at a terminal step with an opaque bounded result; a second release must match (`ErrReservationConflict` otherwise); the key is remembered forever. |
+| `Lifecycle.Recover` | Reads the lifecycle journal; finishes or reverts every in-flight entry deterministically (see Crash model); idempotent; refuses while a plan is active. `Begin` refuses with `ErrRecoveryPending` until it has run. |
+| `Lifecycle.Health` | `UNAVAILABLE` + `AF-PROBE-JOURNAL-CORRUPT` on a corrupt lifecycle journal, `DEGRADED` + `AF-DRIVER-RECOVERY-PENDING` while an in-flight entry exists, otherwise the driver's own health. |
+| `OwnershipTokenFor` | Every driver issues exactly `OwnershipTokenFor(planID, planRevision, operationID, target, reservationToken)` so a lifecycle can re-derive the token from its journal after a crash. |
 | `ReceiptStore` | Append-only; duplicates (same `ContentDigest`) are `ErrReceiptDuplicate`. `Receipt.ContentDigest` is the value a node key signs; it is pinned by test. |
 
 ## Target and string rules
@@ -130,13 +133,37 @@ apply.
 
 ## Crash model
 
-The journal is written before the host changes. A process that dies between
-`BEGIN` and `FINISH` leaves an open entry. On the next start, `Health` is
-`DEGRADED`, and `Recover` reverts the entry using the durable ownership
-record. The conformance suite proves this against every driver by arming
-`CrashSimulator.InjectCrash`, applying, reopening the driver over the same
-durable state (`Reopener.Reopen`), and requiring `Recover` to restore the
-pre-apply digest. Running `Recover` again must find nothing.
+There are two journals. The driver journal covers the window inside `Apply`;
+the lifecycle journal covers every orchestration step. Both are written
+before the action they describe takes effect, and both are read on restart.
+
+**Driver window.** `Apply` persists its ownership record and journals `BEGIN`
+before the host changes. A process that dies between that `BEGIN` and the
+driver's `FINISH` leaves an open driver entry; the driver's `Health` is
+`DEGRADED` and its `Recover` reverts the entry from the ownership record.
+
+**Lifecycle window.** `Lifecycle.Recover` reads the lifecycle journal's
+in-flight entries and, for each, acts on the step alone:
+
+| In-flight step | What happened | Recovery action | Reason code |
+|---|---|---|---|
+| CAPTURE, SIMULATE, APPROVE | nothing reserved or applied | close as ROLLBACK | `AF-DRIVER-RECOVERY-ABORTED` |
+| RESERVE | reserved, nothing applied | release reservation as ROLLBACK, close | `AF-DRIVER-RECOVERY-ABORTED` |
+| APPLY | driver may have mutated | driver `Recover`; re-derive token with `OwnershipTokenFor`; `Verify` against the SIMULATE after-digest; verified: append receipts, release as COMMIT, close; else driver `Rollback`, release as ROLLBACK, close | `AF-DRIVER-RECOVERY-COMMITTED` / `AF-DRIVER-RECOVERY-ROLLED-BACK` |
+| VERIFY, RECORD | applied, receipt journalled | same as APPLY but against the journalled applied digest | as above |
+
+Recovery never reads the host to decide what it owns: ownership comes from the
+journal and `OwnershipTokenFor`; the host is touched only through the
+read-only `Verify` and the idempotent `Rollback`. Running `Recover` again
+finds nothing. While an entry is open, `Health` is `DEGRADED` and `Begin`
+refuses with `ErrRecoveryPending`, so an operator sees the condition and the
+next plan cannot start on top of it.
+
+The conformance suite proves both windows against every driver: crash inside
+`Apply` (`CrashSimulator.InjectCrash`) with driver-level `Recover`, and two
+lifecycle crashes (after `Apply` returned, and inside `Apply`) with a fresh
+`Lifecycle` over the same journal, reservation and receipt stores and a
+reopened driver (`Reopener.Reopen`).
 
 ## What a driver must never do
 
@@ -157,10 +184,24 @@ pre-apply digest. Running `Recover` again must find nothing.
 ## Adapting the enforcer
 
 `enforcement.Driver` (`Check`/`Apply`/`Rollback` over `PlanOperation`) and
-`enforcement.StateStore` (`Reserve`/`Complete`) can be adapted onto this
-contract without changing their semantics: `CheckObservation` has the same
-fields; `ReservationStore.Reserve` maps `ErrAlreadyReserved` onto
-`ErrPlanReplay`/`ErrPlanInProgress` and `ErrStaleRevision` onto
-`ErrPlanReplay`; `Release` at `StepCommit`/`StepRollback` corresponds to
-`Complete` with the terminal signed result. That adapter belongs to the
-enforcement package and is not part of this lane.
+`enforcement.StateStore` (`Reserve`/`Complete`) adapt onto this contract
+without changing their semantics:
+
+- `CheckObservation` has the same fields.
+- `enforcement.Reservation{PlanID, Fingerprint, PolicyRevision, PlanRevision}`
+  maps onto `ReservationKey` one to one (the nonce is the plan nonce as a
+  printable string). Both floors behave identically: `ErrStaleRevision` is
+  the enforcer's `ErrPlanReplay`; `ErrAlreadyReserved` for the identical
+  in-progress key is `ErrPlanInProgress`, and for a different key under the
+  same plan id is `ErrPlanReplay`.
+- `StateStore.Complete(result)` is `Release(token, terminal, result)` with the
+  deterministic encoding of the signed `PlanExecutionResult` as the opaque
+  result; a redelivered identical reservation returns it through
+  `Reservation.Result`, exactly as `Reserve` returns the persisted signed
+  result today. The `Lifecycle` stores its commit/rollback receipt digest as
+  the result; an adapter that needs the signed plan result as the result of
+  record releases through the store itself, or wraps the store.
+- One `Lifecycle` per node, one run per plan operation; `Recover` on agent
+  start before any plan is delivered.
+
+That adapter belongs to the enforcement package and is not part of this lane.
