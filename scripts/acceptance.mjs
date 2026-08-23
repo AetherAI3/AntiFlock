@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -274,6 +274,145 @@ function npmRootScript(script, timeout = 300_000) {
   return run(npm, ["run", script], root, timeout);
 }
 
+// Gate 11: adversarial fixtures are present, statically sound, and pass.
+// A hostile test file must contain at least one test that is not skipped
+// unconditionally, every skip must carry a KNOWN-GAP id (or an
+// ENV-UNAVAILABLE reason), and every gap id must be documented in
+// docs/adversarial-qualification.md. The suites are then executed.
+const adversarialSuiteDirectories = Object.freeze(["tests/hostile", "tests/replay", "tests/fuzz", "tests/netns"]);
+const adversarialStaticDirectories = Object.freeze(["tests/hostile", "tests/replay"]);
+const gapIdPattern = /KNOWN-GAP (AF-GAP-\d{3}):/;
+const environmentSkipPattern = /^ENV-UNAVAILABLE:/;
+
+function listGoTestFiles(directory) {
+  const absolute = join(root, directory);
+  if (!existsSync(absolute)) return [];
+  return readdirSync(absolute, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith("_test.go"))
+    .map((entry) => `${directory}/${entry.name}`)
+    .sort();
+}
+
+function skipLiteral(source, index) {
+  // Returns the first string literal argument of the t.Skip/t.Skipf call
+  // starting at index, or null when the argument is not a literal.
+  const rest = source.slice(index);
+  const match = rest.match(/^t\.Skipf?\(\s*("((?:[^"\\]|\\.)*)"|`([^`]*)`)/);
+  if (!match) return null;
+  return match[2] ?? match[3] ?? "";
+}
+
+function inspectHostileFile(path) {
+  const source = readFileSync(join(root, path), "utf8");
+  const problems = [];
+  const gapIds = new Set();
+  let tests = 0;
+  let liveTests = 0;
+  for (const match of source.matchAll(/^func (Test[A-Za-z0-9_]+)\(t \*testing\.T\) \{\n([\s\S]*?)\n\}\n/gm)) {
+    tests += 1;
+    // A skip indented by exactly one tab is a top-level statement of the test
+    // body: the whole test is skipped unconditionally.
+    if (!/^\tt\.Skipf?\(/m.test(match[2])) liveTests += 1;
+  }
+  for (const match of source.matchAll(/t\.Skipf?\(/g)) {
+    const literal = skipLiteral(source, match.index);
+    const line = source.slice(0, match.index).split("\n").length;
+    if (literal === null) {
+      problems.push(`${path}:${line} skip reason must be a string literal`);
+      continue;
+    }
+    const gap = literal.match(gapIdPattern);
+    if (gap) {
+      gapIds.add(gap[1]);
+    } else if (!environmentSkipPattern.test(literal)) {
+      problems.push(`${path}:${line} skip lacks a KNOWN-GAP AF-GAP-nnn id: ${JSON.stringify(literal)}`);
+    }
+  }
+  if (tests === 0) problems.push(`${path} declares no tests`);
+  else if (liveTests === 0) problems.push(`${path} has no test that is not skipped unconditionally`);
+  return { problems, gapIds, tests, liveTests };
+}
+
+function adversarialFixturesGate() {
+  const id = "adversarial-fixtures";
+  const title = "Adversarial fixtures present, every skip names a documented gap, and the suites pass";
+  const documentation = "docs/adversarial-qualification.md";
+  const missing = [];
+  const evidence = [];
+  const documented = existsSync(join(root, documentation))
+    ? new Set([...readFileSync(join(root, documentation), "utf8").matchAll(/AF-GAP-\d{3}/g)].map((match) => match[0]))
+    : null;
+  if (documented === null) missing.push(`${documentation} is missing`);
+  const files = adversarialStaticDirectories.flatMap(listGoTestFiles);
+  if (files.length === 0) missing.push("no adversarial test files under tests/hostile or tests/replay");
+  let tests = 0;
+  let liveTests = 0;
+  for (const file of files) {
+    const inspection = inspectHostileFile(file);
+    tests += inspection.tests;
+    liveTests += inspection.liveTests;
+    missing.push(...inspection.problems);
+    for (const gapId of inspection.gapIds) {
+      if (documented && !documented.has(gapId)) missing.push(`${file} references ${gapId}, which ${documentation} does not document`);
+    }
+    if (inspection.problems.length === 0) evidence.push(`${file}: ${inspection.liveTests}/${inspection.tests} tests live`);
+  }
+  for (const directory of adversarialSuiteDirectories) {
+    if (!existsSync(join(root, directory))) missing.push(`${directory} is missing`);
+  }
+  if (missing.length > 0) {
+    return { id, title, passed: false, evidence: [], missing, command: null, tests, liveTests };
+  }
+  const result = goTest(adversarialSuiteDirectories.map((directory) => `./${directory}/`), ["-race"]);
+  return {
+    id,
+    title,
+    passed: result.passed,
+    evidence: result.passed ? [...evidence, result.command] : [],
+    missing: result.passed ? [] : ["adversarial suites failed"],
+    command: result,
+    tests,
+    liveTests,
+  };
+}
+
+// Gate 12: the external adversarial CI (rootless netns smoke, disposable VM,
+// partition and upgrade drills) must report "pass" through the
+// ADVERSARIAL_CI_RESULT environment variable or the file named by
+// ADVERSARIAL_CI_RESULT_FILE. Absence is a failure: an unavailable external
+// gate is never a pass. The gate is required-once-configured: --strict
+// treats it as required as soon as either input is present.
+function externalAdversarialGate() {
+  const id = "external-adversarial-ci";
+  const title = "External adversarial CI reports pass";
+  const unavailable = "external adversarial CI unavailable is not a pass";
+  let source = null;
+  let value = null;
+  if (process.env.ADVERSARIAL_CI_RESULT !== undefined) {
+    source = "env:ADVERSARIAL_CI_RESULT";
+    value = process.env.ADVERSARIAL_CI_RESULT;
+  } else if (process.env.ADVERSARIAL_CI_RESULT_FILE) {
+    source = `file:${process.env.ADVERSARIAL_CI_RESULT_FILE}`;
+    try {
+      value = readFileSync(process.env.ADVERSARIAL_CI_RESULT_FILE, "utf8");
+    } catch {
+      value = null;
+    }
+  }
+  const configured = source !== null;
+  const passed = configured && value !== null && value.trim() === "pass";
+  return {
+    id,
+    title,
+    passed,
+    required: configured,
+    requiredOnceConfigured: true,
+    evidence: passed ? [source] : [],
+    missing: passed ? [] : [configured ? `${source} reported ${JSON.stringify(value === null ? null : value.trim())}; ${unavailable}` : unavailable],
+    command: null,
+  };
+}
+
 const gates = [
   workingNameContractsGate([
     "LICENSE",
@@ -344,9 +483,16 @@ const gates = [
     goScopes.coffeeShop,
     ["-run", "^TestCoffeeShopFailureHoldRecoveryAndRelease$"],
   )),
+  adversarialFixturesGate(),
+  externalAdversarialGate(),
 ];
 
+for (const gate of gates) {
+  if (gate.required === undefined) gate.required = true;
+}
 const passed = gates.filter((gate) => gate.passed).length;
+const requiredGates = gates.filter((gate) => gate.required);
+const requiredPassed = requiredGates.filter((gate) => gate.passed).length;
 const report = {
   schemaVersion: "antiflock.reference-vertical-slice-acceptance/v1",
   title: "AntiFlock reference vertical slice acceptance",
@@ -357,6 +503,10 @@ const report = {
   value: passed,
   total: gates.length,
   ratio: passed / gates.length,
+  required: requiredGates.length,
+  requiredPassed,
+  strict,
+  strictPassed: requiredPassed === requiredGates.length,
   environment: {
     platform: process.platform,
     architecture: process.arch,
@@ -368,6 +518,6 @@ const report = {
 };
 
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-if (strict && passed !== gates.length) {
+if (strict && requiredPassed !== requiredGates.length) {
   process.exitCode = 1;
 }
