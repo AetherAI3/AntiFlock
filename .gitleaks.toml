@@ -9,7 +9,7 @@ description = "Non-secret fixtures, examples, and generated artifacts."
 regexTarget = "match"
 paths = [
   '''\.env\.example$''',
-  '''(^|/)_loopstate/''',        # recorded run artifacts / audit fixtures
+  '''(^|/)_loopstate/''',        # removed from the tree; kept so the full-history scan still allowlists old commits
   '''(^|/)api/gen/''',           # generated protobuf code
   '''.*\.pb\.go$''',             # generated protobuf code
   '''(^|/)apps/web/public/''',   # static assets
