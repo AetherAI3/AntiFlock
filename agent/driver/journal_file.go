@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	fileJournalSchema    = "antiflock.driver-journal/v1"
+	fileJournalSchema    = "antiflock.driver-journal/v2"
 	fileJournalName      = "driver-journal.json"
 	fileJournalLockName  = ".driver-journal.lock"
 	maximumJournalBytes  = 8 << 20
@@ -26,7 +26,8 @@ const (
 // enforcement plan state store: a private directory that is not reached
 // through a symlink, files opened without following links, an OS lock across
 // processes, write-temp-fsync-rename installs, a hard size bound, and strict
-// decoding that rejects unknown fields and trailing data. Any load failure is
+// decoding that rejects unknown fields, trailing data and any schema other
+// than the current one (older journals are refused, not migrated). Any load failure is
 // ErrJournalCorrupt; the journal never repairs itself.
 type FileJournal struct {
 	directory string
@@ -39,15 +40,25 @@ type persistedJournal struct {
 }
 
 type persistedJournalRecord struct {
-	SchemaVersion  uint32 `json:"schemaVersion"`
-	Kind           string `json:"kind"`
+	SchemaVersion  uint32                   `json:"schemaVersion"`
+	Kind           string                   `json:"kind"`
+	PlanID         string                   `json:"planId"`
+	PlanRevision   uint64                   `json:"planRevision"`
+	OperationID    string                   `json:"operationId"`
+	Step           string                   `json:"step"`
+	OwnershipToken string                   `json:"ownershipToken,omitempty"`
+	Digest         string                   `json:"digest,omitempty"`
+	Target         string                   `json:"target,omitempty"`
+	Reservation    *persistedReservationKey `json:"reservation,omitempty"`
+	At             string                   `json:"at"`
+}
+
+type persistedReservationKey struct {
 	PlanID         string `json:"planId"`
+	PolicyRevision uint64 `json:"policyRevision"`
 	PlanRevision   uint64 `json:"planRevision"`
-	OperationID    string `json:"operationId"`
-	Step           string `json:"step"`
-	OwnershipToken string `json:"ownershipToken,omitempty"`
-	Digest         string `json:"digest,omitempty"`
-	At             string `json:"at"`
+	Nonce          string `json:"nonce"`
+	Fingerprint    string `json:"fingerprint"`
 }
 
 // NewFileJournal creates or validates the private journal directory. The
@@ -296,9 +307,17 @@ func encodeJournalRecord(record JournalRecord) persistedJournalRecord {
 	return persistedJournalRecord{
 		SchemaVersion: record.SchemaVersion, Kind: record.Kind.String(),
 		PlanID: record.PlanID, PlanRevision: record.PlanRevision, OperationID: record.OperationID,
-		Step: record.Step.String(), OwnershipToken: record.OwnershipToken, Digest: record.Digest,
-		At: record.At.UTC().Format(time.RFC3339Nano),
+		Step: record.Step.String(), OwnershipToken: record.OwnershipToken, Digest: record.Digest, Target: record.Target,
+		Reservation: encodeReservationKey(record.Reservation),
+		At:          record.At.UTC().Format(time.RFC3339Nano),
 	}
+}
+
+func encodeReservationKey(key ReservationKey) *persistedReservationKey {
+	if key == (ReservationKey{}) {
+		return nil
+	}
+	return &persistedReservationKey{PlanID: key.PlanID, PolicyRevision: key.PolicyRevision, PlanRevision: key.PlanRevision, Nonce: key.Nonce, Fingerprint: key.Fingerprint}
 }
 
 func (entry persistedJournalRecord) decode() (JournalRecord, error) {
@@ -317,7 +336,13 @@ func (entry persistedJournalRecord) decode() (JournalRecord, error) {
 	record := JournalRecord{
 		SchemaVersion: entry.SchemaVersion, Kind: kind,
 		PlanID: entry.PlanID, PlanRevision: entry.PlanRevision, OperationID: entry.OperationID,
-		Step: step, OwnershipToken: entry.OwnershipToken, Digest: entry.Digest, At: at.UTC(),
+		Step: step, OwnershipToken: entry.OwnershipToken, Digest: entry.Digest, Target: entry.Target, At: at.UTC(),
+	}
+	if entry.Reservation != nil {
+		record.Reservation = ReservationKey{
+			PlanID: entry.Reservation.PlanID, PolicyRevision: entry.Reservation.PolicyRevision, PlanRevision: entry.Reservation.PlanRevision,
+			Nonce: entry.Reservation.Nonce, Fingerprint: entry.Reservation.Fingerprint,
+		}
 	}
 	if err := record.Validate(); err != nil {
 		return JournalRecord{}, err

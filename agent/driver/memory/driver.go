@@ -9,7 +9,6 @@ package memory
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -428,24 +427,6 @@ func (instance *Driver) CommandPlan(ctx context.Context, operation *antiflockv1.
 	return plan, nil
 }
 
-func ownershipToken(request driver.ApplyRequest, startedAt time.Time) string {
-	hash := sha256.New()
-	write := func(value string) {
-		var length [4]byte
-		binary.BigEndian.PutUint32(length[:], uint32(len(value)))
-		hash.Write(length[:])
-		hash.Write([]byte(value))
-	}
-	write("AntiFlock-MemoryDriverOwnership-v1")
-	write(request.PlanID)
-	write(fmt.Sprintf("%d", request.PlanRevision))
-	write(request.OperationID)
-	write(request.Target)
-	write(request.Reservation.Token)
-	write(startedAt.UTC().Format(time.RFC3339Nano))
-	return hex.EncodeToString(hash.Sum(nil))
-}
-
 // Apply implements driver.Applier. Order: validate, check journal health,
 // capture before-state, simulate, persist the ownership record, journal
 // Begin, mutate, journal Finish. A crash injected after the mutation leaves
@@ -478,7 +459,7 @@ func (instance *Driver) Apply(ctx context.Context, request driver.ApplyRequest) 
 		return driver.ApplyReceipt{}, fmt.Errorf("%w: fake host is full", driver.ErrInvalidRequest)
 	}
 	key := ruleKey{Type: request.Operation.GetType(), Target: request.Target}
-	token := ownershipToken(request, startedAt)
+	token := driver.OwnershipTokenFor(request.PlanID, request.PlanRevision, request.OperationID, request.Target, request.Reservation.Token)
 	previous, existed := instance.backing.rules[key]
 	instance.backing.saved[token] = savedState{key: key, previous: previous, existed: existed}
 	record := driver.JournalRecord{

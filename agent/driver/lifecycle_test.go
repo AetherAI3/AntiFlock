@@ -47,7 +47,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	fix := &fixture{
 		driver: instance, journal: driver.NewMemoryJournal(),
-		reservations: driver.NewMemoryReservationStore(0, clock), receipts: driver.NewMemoryReceiptStore(),
+		reservations: driver.NewMemoryReservationStore(0, 0, clock), receipts: driver.NewMemoryReceiptStore(),
 	}
 	fix.lifecycle, err = driver.NewLifecycle(driver.LifecycleConfig{
 		Driver: instance, Journal: fix.journal, Reservations: fix.reservations, Receipts: fix.receipts, Clock: clock,
@@ -81,7 +81,7 @@ func approval(t *testing.T, revision uint64, boundTarget string) driver.Approval
 }
 
 func key(revision uint64) driver.ReservationKey {
-	return driver.ReservationKey{PlanID: planID, PlanRevision: revision, Nonce: "01", Fingerprint: "fp"}
+	return driver.ReservationKey{PlanID: planID, PolicyRevision: 1, PlanRevision: revision, Nonce: "01", Fingerprint: "fp"}
 }
 
 // drive runs the happy path up to and including the named state.
@@ -264,7 +264,7 @@ func TestLifecycleRefusesHostDrift(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second driver: %v", err)
 	}
-	driftKey := driver.ReservationKey{PlanID: "plan-drift", PlanRevision: 9, Nonce: "02", Fingerprint: "fp"}
+	driftKey := driver.ReservationKey{PlanID: "plan-drift", PolicyRevision: 1, PlanRevision: 9, Nonce: "02", Fingerprint: "fp"}
 	driftDigest, _ := driftKey.Digest()
 	driftOperation := operation()
 	driftOperation.Id = "drift"
@@ -297,8 +297,8 @@ func TestLifecycleRollbackAfterApplyRestoresAndReleases(t *testing.T) {
 	if receipt.AlreadyRolledBack || len(fix.driver.Backing().Rules()) != 0 {
 		t.Fatalf("rollback did not restore: receipt=%+v rules=%v", receipt, fix.driver.Backing().Rules())
 	}
-	if _, err := fix.reservations.Reserve(context.Background(), key(1)); !errors.Is(err, driver.ErrAlreadyReserved) {
-		t.Fatalf("re-reserve after rollback: err = %v, want ErrAlreadyReserved (replay defense survives rollback)", err)
+	if replay, err := fix.reservations.Reserve(context.Background(), key(1)); err != nil || !replay.Replayed || replay.Terminal != driver.StepRollback {
+		t.Fatalf("re-reserve after rollback = %+v (%v), want replayed ROLLBACK result (replay defense survives rollback)", replay, err)
 	}
 	receipts, _ := fix.receipts.List(context.Background(), planID)
 	if len(receipts) != 1 || receipts[0].Kind != driver.ReceiptKindRollback {

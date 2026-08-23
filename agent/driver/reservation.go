@@ -4,20 +4,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 )
+
+// MaxReservationResultBytes bounds the opaque terminal result a store keeps
+// for a released reservation. It equals the enforcer's plan size ceiling.
+const MaxReservationResultBytes = 512 * 1024
 
 // Reservation sentinel errors. They mirror enforcement.ErrPlanReplay and
 // enforcement.ErrPlanInProgress closely enough that an adapter can map one
 // onto the other without losing the distinction the enforcer reports.
 var (
-	// ErrAlreadyReserved reports a second Reserve of a key, or of a plan id,
-	// that is already reserved; it covers both in-progress and replayed
-	// plans because the durable record outlives the run.
+	// ErrAlreadyReserved reports a Reserve of a plan id that is already
+	// reserved under a different key (replay), or of the identical key while
+	// the plan is still in progress.
 	ErrAlreadyReserved = errors.New("plan is already reserved")
-	// ErrStaleRevision reports a plan revision at or below the durable
-	// monotonic floor.
+	// ErrStaleRevision reports a policy revision below the durable policy
+	// floor or a plan revision at or below the durable plan floor.
 	ErrStaleRevision = errors.New("plan revision is stale")
 	// ErrReservationNotTerminal reports a Release whose step is not
 	// terminal; reservations are released only by commit or rollback.
@@ -25,76 +30,108 @@ var (
 	// ErrReservationUnknown reports a Release for a token the store never
 	// issued.
 	ErrReservationUnknown = errors.New("reservation is unknown")
+	// ErrReservationConflict reports a second Release with a different
+	// terminal step or result than the one already stored.
+	ErrReservationConflict = errors.New("reservation was already released with a different result")
 )
 
+// Reservation is the outcome of Reserve. A fresh reservation has
+// Replayed=false. An identical key redelivered after release has
+// Replayed=true and carries the stored terminal step and result, matching
+// the enforcer's idempotent redelivery of a persisted signed result.
+type Reservation struct {
+	Token    ReservationToken
+	Replayed bool
+	Terminal Step
+	Result   []byte
+}
+
+// RevisionFloor is the pair of durable monotonic floors a store enforces.
+type RevisionFloor struct {
+	PolicyRevision uint64
+	PlanRevision   uint64
+}
+
 // ReservationStore is the durable replay boundary. Guarantee: Reserve
-// persists before it returns; a second Reserve of the same key, or of the
-// same plan id with a different key, is ErrAlreadyReserved; a revision at or
-// below the floor is ErrStaleRevision; Release accepts only terminal steps
-// and never forgets the key, so a released plan can never be replayed; Floor
-// reports the durable revision below which every plan is stale.
+// persists before it returns; the identical key redelivered after release
+// returns the stored terminal result; the identical key while in progress,
+// or the same plan id under a different key, is ErrAlreadyReserved; a policy
+// revision below the policy floor or a plan revision at or below the plan
+// floor is ErrStaleRevision; Release accepts only terminal steps, stores an
+// opaque bounded result, and never forgets the key; Floor reports both
+// durable floors.
 type ReservationStore interface {
-	Reserve(ctx context.Context, key ReservationKey) (ReservationToken, error)
-	Release(ctx context.Context, token ReservationToken, terminal Step) error
-	Floor(ctx context.Context) (uint64, error)
+	Reserve(ctx context.Context, key ReservationKey) (Reservation, error)
+	Release(ctx context.Context, token ReservationToken, terminal Step, result []byte) error
+	Floor(ctx context.Context) (RevisionFloor, error)
 }
 
 type reservationRecord struct {
 	token    ReservationToken
 	released bool
 	terminal Step
+	result   []byte
 }
 
 // MemoryReservationStore is the in-process ReservationStore for tests and
-// simulation. Its semantics match enforcement.MemoryStateStore: the plan
-// revision floor is monotonic and a plan id is reserved at most once.
+// simulation. Its semantics match enforcement.MemoryStateStore: both floors
+// are monotonic and a plan id is reserved at most once.
 type MemoryReservationStore struct {
 	mu      sync.Mutex
-	floor   uint64
+	floor   RevisionFloor
 	clock   func() time.Time
 	records map[string]reservationRecord
 }
 
-// NewMemoryReservationStore returns a store whose floor starts at
-// lastPlanRevision. The clock stamps IssuedAt; a nil clock uses time.Now.
-func NewMemoryReservationStore(lastPlanRevision uint64, clock func() time.Time) *MemoryReservationStore {
+// NewMemoryReservationStore returns a store whose floors start at the given
+// revisions. The clock stamps IssuedAt; a nil clock uses time.Now.
+func NewMemoryReservationStore(lastPolicyRevision, lastPlanRevision uint64, clock func() time.Time) *MemoryReservationStore {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &MemoryReservationStore{floor: lastPlanRevision, clock: clock, records: make(map[string]reservationRecord)}
+	return &MemoryReservationStore{
+		floor: RevisionFloor{PolicyRevision: lastPolicyRevision, PlanRevision: lastPlanRevision},
+		clock: clock, records: make(map[string]reservationRecord),
+	}
 }
 
 // Reserve implements ReservationStore.
-func (store *MemoryReservationStore) Reserve(ctx context.Context, key ReservationKey) (ReservationToken, error) {
+func (store *MemoryReservationStore) Reserve(ctx context.Context, key ReservationKey) (Reservation, error) {
 	if store == nil {
-		return ReservationToken{}, errors.New("reservation store is required")
+		return Reservation{}, errors.New("reservation store is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return ReservationToken{}, err
+		return Reservation{}, err
 	}
 	digest, err := key.Digest()
 	if err != nil {
-		return ReservationToken{}, err
+		return Reservation{}, err
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if _, exists := store.records[key.PlanID]; exists {
-		return ReservationToken{}, ErrAlreadyReserved
+	if existing, exists := store.records[key.PlanID]; exists {
+		if existing.token.Key != key {
+			return Reservation{}, ErrAlreadyReserved
+		}
+		if !existing.released {
+			return Reservation{}, ErrAlreadyReserved
+		}
+		return Reservation{Token: existing.token, Replayed: true, Terminal: existing.terminal, Result: slices.Clone(existing.result)}, nil
 	}
-	if key.PlanRevision <= store.floor {
-		return ReservationToken{}, ErrStaleRevision
+	if key.PolicyRevision < store.floor.PolicyRevision || key.PlanRevision <= store.floor.PlanRevision {
+		return Reservation{}, ErrStaleRevision
 	}
 	token := ReservationToken{Key: key, Token: digest, IssuedAt: store.clock().UTC()}
 	if token.IssuedAt.IsZero() {
-		return ReservationToken{}, errors.New("reservation clock returned a zero time")
+		return Reservation{}, errors.New("reservation clock returned a zero time")
 	}
-	store.floor = key.PlanRevision
+	store.floor = RevisionFloor{PolicyRevision: key.PolicyRevision, PlanRevision: key.PlanRevision}
 	store.records[key.PlanID] = reservationRecord{token: token}
-	return token, nil
+	return Reservation{Token: token}, nil
 }
 
 // Release implements ReservationStore.
-func (store *MemoryReservationStore) Release(ctx context.Context, token ReservationToken, terminal Step) error {
+func (store *MemoryReservationStore) Release(ctx context.Context, token ReservationToken, terminal Step, result []byte) error {
 	if store == nil {
 		return errors.New("reservation store is required")
 	}
@@ -107,6 +144,9 @@ func (store *MemoryReservationStore) Release(ctx context.Context, token Reservat
 	if !terminal.Terminal() {
 		return ErrReservationNotTerminal
 	}
+	if len(result) > MaxReservationResultBytes {
+		return fmt.Errorf("%w: terminal result exceeds %d bytes", ErrInvalidRequest, MaxReservationResultBytes)
+	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	record, exists := store.records[token.Key.PlanID]
@@ -114,24 +154,25 @@ func (store *MemoryReservationStore) Release(ctx context.Context, token Reservat
 		return ErrReservationUnknown
 	}
 	if record.released {
-		if record.terminal == terminal {
+		if record.terminal == terminal && slices.Equal(record.result, result) {
 			return nil
 		}
-		return fmt.Errorf("%w: already released by %s", ErrReservationUnknown, record.terminal)
+		return ErrReservationConflict
 	}
 	record.released = true
 	record.terminal = terminal
+	record.result = slices.Clone(result)
 	store.records[token.Key.PlanID] = record
 	return nil
 }
 
 // Floor implements ReservationStore.
-func (store *MemoryReservationStore) Floor(ctx context.Context) (uint64, error) {
+func (store *MemoryReservationStore) Floor(ctx context.Context) (RevisionFloor, error) {
 	if store == nil {
-		return 0, errors.New("reservation store is required")
+		return RevisionFloor{}, errors.New("reservation store is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return RevisionFloor{}, err
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()

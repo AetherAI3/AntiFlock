@@ -85,6 +85,9 @@ var (
 	// ErrNotImplemented reports an interface the driver deliberately does not
 	// provide.
 	ErrNotImplemented = errors.New("driver operation is not implemented")
+	// ErrRecoveryPending reports a lifecycle whose journal holds in-flight
+	// entries; Recover must run before a new plan may begin.
+	ErrRecoveryPending = errors.New("lifecycle recovery is pending")
 )
 
 // Reason codes emitted by the contract layer. Drivers extend these with the
@@ -104,6 +107,10 @@ const (
 	ReasonCheckFailed      = "AF-DRIVER-CHECK-FAILED"
 	ReasonCheckUnsupported = "AF-DRIVER-CHECK-UNSUPPORTED"
 	ReasonTargetUnsafe     = "AF-DRIVER-TARGET-UNSAFE"
+	ReasonRecoveryPending  = "AF-DRIVER-RECOVERY-PENDING"
+	ReasonRecoveryCommit   = "AF-DRIVER-RECOVERY-COMMITTED"
+	ReasonRecoveryRollback = "AF-DRIVER-RECOVERY-ROLLED-BACK"
+	ReasonRecoveryAborted  = "AF-DRIVER-RECOVERY-ABORTED"
 )
 
 // Scope bounds a host-state capture to one operation type and, optionally,
@@ -280,14 +287,17 @@ func (observation CheckObservation) Validate() error {
 	return nil
 }
 
-// ReservationKey is the replay identity of one plan revision on one node.
-// Fingerprint is the caller's digest of the executable plan content; Nonce is
-// the plan nonce as a printable string (hex or base64 as the caller chooses).
+// ReservationKey is the replay identity of one plan revision on one node. It
+// mirrors enforcement.Reservation: PolicyRevision and PlanRevision are both
+// held to durable monotonic floors. Fingerprint is the caller's digest of the
+// executable plan content; Nonce is the plan nonce as a printable string (hex
+// or base64 as the caller chooses).
 type ReservationKey struct {
-	PlanID       string
-	PlanRevision uint64
-	Nonce        string
-	Fingerprint  string
+	PlanID         string
+	PolicyRevision uint64
+	PlanRevision   uint64
+	Nonce          string
+	Fingerprint    string
 }
 
 // Validate enforces the ReservationKey invariants.
@@ -295,8 +305,8 @@ func (key ReservationKey) Validate() error {
 	if !validIdentifier(key.PlanID) {
 		return fmt.Errorf("%w: reservation plan id is not a bounded identifier", ErrReservationInvalid)
 	}
-	if key.PlanRevision == 0 {
-		return fmt.Errorf("%w: reservation plan revision is required", ErrReservationInvalid)
+	if key.PolicyRevision == 0 || key.PlanRevision == 0 {
+		return fmt.Errorf("%w: reservation policy and plan revisions are required", ErrReservationInvalid)
 	}
 	if !validIdentifier(key.Nonce) || !validIdentifier(key.Fingerprint) || len(key.Fingerprint) > 256 {
 		return fmt.Errorf("%w: reservation nonce and fingerprint must be bounded identifiers", ErrReservationInvalid)
@@ -313,6 +323,7 @@ func (key ReservationKey) Digest() (string, error) {
 	}
 	hasher := newDigest("AntiFlock-DriverReservation-v1")
 	hasher.str(key.PlanID)
+	hasher.uint(key.PolicyRevision)
 	hasher.uint(key.PlanRevision)
 	hasher.str(key.Nonce)
 	hasher.str(key.Fingerprint)
@@ -897,3 +908,18 @@ func (writer digestWriter) time(value time.Time) {
 }
 
 func (writer digestWriter) hex() string { return hex.EncodeToString(writer.hash.Sum(nil)) }
+
+// OwnershipTokenFor derives the ownership token every driver must issue for
+// an apply request. It is deterministic over the plan id, revisions, operation,
+// target and reservation token so a lifecycle that crashed after the driver
+// mutated the host can re-derive the token from its journal and still verify
+// or roll back. Drivers must not invent their own token layout.
+func OwnershipTokenFor(planID string, planRevision uint64, operationID, target, reservationToken string) string {
+	hasher := newDigest("AntiFlock-DriverOwnership-v1")
+	hasher.str(planID)
+	hasher.uint(planRevision)
+	hasher.str(operationID)
+	hasher.str(target)
+	hasher.str(reservationToken)
+	return hasher.hex()
+}

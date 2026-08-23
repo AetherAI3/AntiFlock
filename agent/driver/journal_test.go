@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DBarr3/AntiFlock/agent/driver"
+	"github.com/DBarr3/AntiFlock/agent/driver/conformance"
 )
 
 func record(step driver.Step, at time.Time) driver.JournalRecord {
@@ -19,85 +20,9 @@ func record(step driver.Step, at time.Time) driver.JournalRecord {
 	}
 }
 
-func journalSuite(t *testing.T, open func(t *testing.T) driver.Journal) {
-	t.Helper()
-	at := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
-	ctx := context.Background()
-
-	t.Run("begin advance finish", func(t *testing.T) {
-		journal := open(t)
-		if err := journal.Begin(ctx, record(driver.StepCapture, at)); err != nil {
-			t.Fatalf("begin: %v", err)
-		}
-		if err := journal.Begin(ctx, record(driver.StepCapture, at)); !errors.Is(err, driver.ErrJournalActive) {
-			t.Fatalf("duplicate begin: err = %v, want ErrJournalActive", err)
-		}
-		if err := journal.Advance(ctx, record(driver.StepCapture, at)); !errors.Is(err, driver.ErrJournalOrder) {
-			t.Fatalf("advance to same step: err = %v, want ErrJournalOrder", err)
-		}
-		if err := journal.Advance(ctx, record(driver.StepApply, at)); err != nil {
-			t.Fatalf("advance: %v", err)
-		}
-		if err := journal.Advance(ctx, record(driver.StepSimulate, at)); !errors.Is(err, driver.ErrJournalOrder) {
-			t.Fatalf("advance backwards: err = %v, want ErrJournalOrder", err)
-		}
-		inFlight, err := journal.InFlight(ctx)
-		if err != nil || len(inFlight) != 1 || inFlight[0].Step != driver.StepApply {
-			t.Fatalf("in-flight = %+v (%v), want one APPLY", inFlight, err)
-		}
-		if err := journal.Finish(ctx, record(driver.StepApply, at)); !errors.Is(err, driver.ErrInvalidRequest) {
-			t.Fatalf("finish at non-terminal step: err = %v, want ErrInvalidRequest", err)
-		}
-		if err := journal.Finish(ctx, record(driver.StepCommit, at)); err != nil {
-			t.Fatalf("finish: %v", err)
-		}
-		if err := journal.Finish(ctx, record(driver.StepCommit, at)); !errors.Is(err, driver.ErrJournalInactive) {
-			t.Fatalf("double finish: err = %v, want ErrJournalInactive", err)
-		}
-		inFlight, err = journal.InFlight(ctx)
-		if err != nil || len(inFlight) != 0 {
-			t.Fatalf("in-flight after finish = %+v (%v), want none", inFlight, err)
-		}
-		records, err := journal.Records(ctx)
-		if err != nil || len(records) != 3 {
-			t.Fatalf("records = %d (%v), want 3", len(records), err)
-		}
-	})
-
-	t.Run("advance without begin", func(t *testing.T) {
-		journal := open(t)
-		if err := journal.Advance(ctx, record(driver.StepApply, at)); !errors.Is(err, driver.ErrJournalInactive) {
-			t.Fatalf("err = %v, want ErrJournalInactive", err)
-		}
-	})
-
-	t.Run("invalid record", func(t *testing.T) {
-		journal := open(t)
-		bad := record(driver.StepCapture, at)
-		bad.PlanID = ""
-		if err := journal.Begin(ctx, bad); !errors.Is(err, driver.ErrInvalidRequest) {
-			t.Fatalf("err = %v, want ErrInvalidRequest", err)
-		}
-		bad = record(driver.StepCapture, at)
-		bad.Digest = "not-hex"
-		if err := journal.Begin(ctx, bad); !errors.Is(err, driver.ErrInvalidRequest) {
-			t.Fatalf("bad digest: err = %v, want ErrInvalidRequest", err)
-		}
-	})
-
-	t.Run("expired context", func(t *testing.T) {
-		journal := open(t)
-		expired, cancel := context.WithDeadline(ctx, time.Unix(0, 0))
-		defer cancel()
-		if err := journal.Begin(expired, record(driver.StepCapture, at)); !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("err = %v, want DeadlineExceeded", err)
-		}
-	})
-}
-
 func TestMemoryJournal(t *testing.T) {
 	t.Parallel()
-	journalSuite(t, func(t *testing.T) driver.Journal { return driver.NewMemoryJournal() })
+	conformance.RunJournal(t, func(t *testing.T) driver.Journal { return driver.NewMemoryJournal() })
 	t.Run("corrupt", func(t *testing.T) {
 		journal := driver.NewMemoryJournal()
 		journal.Corrupt()
@@ -109,7 +34,7 @@ func TestMemoryJournal(t *testing.T) {
 
 func TestFileJournal(t *testing.T) {
 	t.Parallel()
-	journalSuite(t, func(t *testing.T) driver.Journal {
+	conformance.RunJournal(t, func(t *testing.T) driver.Journal {
 		journal, err := driver.NewFileJournal(t.TempDir())
 		if err != nil {
 			t.Fatalf("file journal: %v", err)
@@ -152,18 +77,18 @@ func TestFileJournalSurvivesReopen(t *testing.T) {
 func TestFileJournalRejectsCorruption(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"unknown field":   `{"schemaVersion":"antiflock.driver-journal/v1","records":[],"extra":1}`,
-		"wrong schema":    `{"schemaVersion":"antiflock.driver-journal/v2","records":[]}`,
-		"trailing data":   `{"schemaVersion":"antiflock.driver-journal/v1","records":[]} {}`,
+		"unknown field":   `{"schemaVersion":"antiflock.driver-journal/v2","records":[],"extra":1}`,
+		"older schema":    `{"schemaVersion":"antiflock.driver-journal/v1","records":[]}`,
+		"trailing data":   `{"schemaVersion":"antiflock.driver-journal/v2","records":[]} {}`,
 		"not json":        `garbage`,
 		"empty":           ``,
-		"unknown kind":    `{"schemaVersion":"antiflock.driver-journal/v1","records":[{"schemaVersion":1,"kind":"WHATEVER","planId":"p","planRevision":1,"operationId":"o","step":"APPLY","at":"2026-08-23T12:00:00Z"}]}`,
-		"unknown step":    `{"schemaVersion":"antiflock.driver-journal/v1","records":[{"schemaVersion":1,"kind":"BEGIN","planId":"p","planRevision":1,"operationId":"o","step":"EXPLODE","at":"2026-08-23T12:00:00Z"}]}`,
-		"finish no begin": `{"schemaVersion":"antiflock.driver-journal/v1","records":[{"schemaVersion":1,"kind":"FINISH","planId":"p","planRevision":1,"operationId":"o","step":"COMMIT","at":"2026-08-23T12:00:00Z"}]}`,
-		"double begin":    `{"schemaVersion":"antiflock.driver-journal/v1","records":[{"schemaVersion":1,"kind":"BEGIN","planId":"p","planRevision":1,"operationId":"o","step":"APPLY","at":"2026-08-23T12:00:00Z"},{"schemaVersion":1,"kind":"BEGIN","planId":"p","planRevision":1,"operationId":"o","step":"APPLY","at":"2026-08-23T12:00:00Z"}]}`,
-		"bad time":        `{"schemaVersion":"antiflock.driver-journal/v1","records":[{"schemaVersion":1,"kind":"BEGIN","planId":"p","planRevision":1,"operationId":"o","step":"APPLY","at":"yesterday"}]}`,
-		"record schema":   `{"schemaVersion":"antiflock.driver-journal/v1","records":[{"schemaVersion":2,"kind":"BEGIN","planId":"p","planRevision":1,"operationId":"o","step":"APPLY","at":"2026-08-23T12:00:00Z"}]}`,
-		"control char id": `{"schemaVersion":"antiflock.driver-journal/v1","records":[{"schemaVersion":1,"kind":"BEGIN","planId":"p\u001b","planRevision":1,"operationId":"o","step":"APPLY","at":"2026-08-23T12:00:00Z"}]}`,
+		"unknown kind":    `{"schemaVersion":"antiflock.driver-journal/v2","records":[{"schemaVersion":1,"kind":"WHATEVER","planId":"p","planRevision":1,"operationId":"o","step":"APPLY","at":"2026-08-23T12:00:00Z"}]}`,
+		"unknown step":    `{"schemaVersion":"antiflock.driver-journal/v2","records":[{"schemaVersion":1,"kind":"BEGIN","planId":"p","planRevision":1,"operationId":"o","step":"EXPLODE","at":"2026-08-23T12:00:00Z"}]}`,
+		"finish no begin": `{"schemaVersion":"antiflock.driver-journal/v2","records":[{"schemaVersion":1,"kind":"FINISH","planId":"p","planRevision":1,"operationId":"o","step":"COMMIT","at":"2026-08-23T12:00:00Z"}]}`,
+		"double begin":    `{"schemaVersion":"antiflock.driver-journal/v2","records":[{"schemaVersion":1,"kind":"BEGIN","planId":"p","planRevision":1,"operationId":"o","step":"APPLY","at":"2026-08-23T12:00:00Z"},{"schemaVersion":1,"kind":"BEGIN","planId":"p","planRevision":1,"operationId":"o","step":"APPLY","at":"2026-08-23T12:00:00Z"}]}`,
+		"bad time":        `{"schemaVersion":"antiflock.driver-journal/v2","records":[{"schemaVersion":1,"kind":"BEGIN","planId":"p","planRevision":1,"operationId":"o","step":"APPLY","at":"yesterday"}]}`,
+		"record schema":   `{"schemaVersion":"antiflock.driver-journal/v2","records":[{"schemaVersion":2,"kind":"BEGIN","planId":"p","planRevision":1,"operationId":"o","step":"APPLY","at":"2026-08-23T12:00:00Z"}]}`,
+		"control char id": `{"schemaVersion":"antiflock.driver-journal/v2","records":[{"schemaVersion":1,"kind":"BEGIN","planId":"p\u001b","planRevision":1,"operationId":"o","step":"APPLY","at":"2026-08-23T12:00:00Z"}]}`,
 	}
 	for name, content := range cases {
 		content := content
@@ -198,7 +123,7 @@ func TestFileJournalRejectsOversizedFile(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 	padding := strings.Repeat(" ", 8<<20)
-	if err := os.WriteFile(filepath.Join(directory, "driver-journal.json"), []byte(`{"schemaVersion":"antiflock.driver-journal/v1","records":[]}`+padding), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(directory, "driver-journal.json"), []byte(`{"schemaVersion":"antiflock.driver-journal/v2","records":[]}`+padding), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if _, err := journal.InFlight(context.Background()); !errors.Is(err, driver.ErrJournalCorrupt) {
@@ -229,7 +154,7 @@ func TestFileJournalRejectsSymlinks(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 	elsewhere := filepath.Join(base, "elsewhere.json")
-	if err := os.WriteFile(elsewhere, []byte(`{"schemaVersion":"antiflock.driver-journal/v1","records":[]}`), 0o600); err != nil {
+	if err := os.WriteFile(elsewhere, []byte(`{"schemaVersion":"antiflock.driver-journal/v2","records":[]}`), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if err := os.Symlink(elsewhere, filepath.Join(directory, "driver-journal.json")); err != nil {

@@ -56,7 +56,12 @@ func RunConformance(t *testing.T, factory Factory) {
 		{"shell-free targets", testShellFree},
 		{"exact target binding", testTargetBinding},
 		{"receipt digest stable", testReceiptDigest},
+		{"ownership token deterministic", testOwnershipToken},
 		{"recovery paths independent of plan", testRecoveryPaths},
+		{"lifecycle over factory commits", testLifecycleCommit},
+		{"lifecycle over factory rolls back", testLifecycleRollback},
+		{"lifecycle crash after apply then recover commits", testLifecycleCrashRecoverCommit},
+		{"lifecycle crash inside apply then recover reverts", testLifecycleCrashRecoverRollback},
 	}
 	for _, testCase := range cases {
 		testCase := testCase
@@ -88,7 +93,7 @@ func scope(targets ...string) driver.Scope {
 
 func reservation(t *testing.T, revision uint64) driver.ReservationToken {
 	t.Helper()
-	key := driver.ReservationKey{PlanID: planID, PlanRevision: revision, Nonce: "6e6f6e6365", Fingerprint: "fp-" + strings.Repeat("0", 8)}
+	key := driver.ReservationKey{PlanID: planID, PolicyRevision: 1, PlanRevision: revision, Nonce: "6e6f6e6365", Fingerprint: "fp-" + strings.Repeat("0", 8)}
 	digest, err := key.Digest()
 	if err != nil {
 		t.Fatalf("reservation digest: %v", err)
@@ -382,18 +387,9 @@ func testReservationReplay(t *testing.T, factory Factory) {
 	if _, err := instance.Apply(context.Background(), foreign); !errors.Is(err, driver.ErrReservationInvalid) {
 		t.Fatalf("apply with a reservation for another revision: err = %v, want ErrReservationInvalid", err)
 	}
-	store := driver.NewMemoryReservationStore(1, func() time.Time { return time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC) })
-	key := driver.ReservationKey{PlanID: planID, PlanRevision: 2, Nonce: "01", Fingerprint: "fp"}
-	if _, err := store.Reserve(context.Background(), key); err != nil {
-		t.Fatalf("reserve: %v", err)
-	}
-	if _, err := store.Reserve(context.Background(), key); !errors.Is(err, driver.ErrAlreadyReserved) {
-		t.Fatalf("duplicate reserve: err = %v, want ErrAlreadyReserved", err)
-	}
-	stale := driver.ReservationKey{PlanID: "plan-stale", PlanRevision: 1, Nonce: "02", Fingerprint: "fp"}
-	if _, err := store.Reserve(context.Background(), stale); !errors.Is(err, driver.ErrStaleRevision) {
-		t.Fatalf("stale reserve: err = %v, want ErrStaleRevision", err)
-	}
+	RunReservationStore(t, func(t *testing.T) driver.ReservationStore {
+		return driver.NewMemoryReservationStore(0, 0, func() time.Time { return time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC) })
+	})
 }
 
 func testTimeouts(t *testing.T, factory Factory) {

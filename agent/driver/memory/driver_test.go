@@ -3,12 +3,14 @@ package memory_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/DBarr3/AntiFlock/agent/driver"
 	"github.com/DBarr3/AntiFlock/agent/driver/conformance"
 	"github.com/DBarr3/AntiFlock/agent/driver/memory"
+	antiflockv1 "github.com/DBarr3/AntiFlock/api/gen/go/antiflock/v1"
 )
 
 func fixedClock() func() time.Time {
@@ -82,11 +84,34 @@ func TestCorruptJournalMakesDriverUnavailable(t *testing.T) {
 	if _, err := instance.Recover(context.Background()); !errors.Is(err, driver.ErrJournalCorrupt) {
 		t.Fatalf("recover over a corrupt journal: err = %v, want ErrJournalCorrupt", err)
 	}
-	request := driver.ApplyRequest{
-		PlanID: "plan", PlanRevision: 1, OperationID: "op", Target: "t", Timeout: time.Second,
+	request := validApplyRequest(t)
+	if err := request.Validate(); err != nil {
+		t.Fatalf("fixture request must be valid so the refusal is due to the journal alone: %v", err)
 	}
-	if _, err := instance.Apply(context.Background(), request); err == nil {
-		t.Fatal("apply over a corrupt journal succeeded")
+	before := backing.Rules()
+	if _, err := instance.Apply(context.Background(), request); !errors.Is(err, driver.ErrJournalCorrupt) {
+		t.Fatalf("valid apply over a corrupt journal: err = %v, want ErrJournalCorrupt", err)
+	}
+	if len(backing.Rules()) != len(before) {
+		t.Fatal("apply over a corrupt journal mutated the fake host")
+	}
+	rollback := driver.RollbackRequest{PlanID: "plan", PlanRevision: 1, OperationID: "op", OwnershipToken: strings.Repeat("a", 64), Timeout: time.Second}
+	if _, err := instance.Rollback(context.Background(), rollback); !errors.Is(err, driver.ErrJournalCorrupt) {
+		t.Fatalf("rollback over a corrupt journal: err = %v, want ErrJournalCorrupt", err)
+	}
+}
+
+func validApplyRequest(t *testing.T) driver.ApplyRequest {
+	t.Helper()
+	key := driver.ReservationKey{PlanID: "plan", PolicyRevision: 1, PlanRevision: 1, Nonce: "6e", Fingerprint: "fp"}
+	digest, err := key.Digest()
+	if err != nil {
+		t.Fatalf("key digest: %v", err)
+	}
+	return driver.ApplyRequest{
+		PlanID: "plan", PlanRevision: 1, OperationID: "op", Target: "protected-egress",
+		Operation:   &antiflockv1.PlanOperation{Id: "op", Type: antiflockv1.PlanOperationType_PLAN_OPERATION_TYPE_FIREWALL, Target: "protected-egress"},
+		Reservation: driver.ReservationToken{Key: key, Token: digest, IssuedAt: time.Unix(1, 0)}, Timeout: time.Second,
 	}
 }
 

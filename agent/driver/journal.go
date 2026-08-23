@@ -99,7 +99,10 @@ func (kind JournalKind) String() string {
 // JournalRecord is one append-only line of the crash-safe journal. Every
 // record is written before the action it describes takes effect on the host,
 // so an interrupted process leaves an open entry recovery can act on.
-// OwnershipToken and Digest are empty until the step that produces them.
+// OwnershipToken, Digest, Target and Reservation are empty until the step that
+// produces them; together they let a Lifecycle that crashed at any step
+// re-derive the ownership token, verify or roll back, and release the
+// reservation without any other state.
 type JournalRecord struct {
 	SchemaVersion  uint32
 	Kind           JournalKind
@@ -109,6 +112,8 @@ type JournalRecord struct {
 	Step           Step
 	OwnershipToken string
 	Digest         string
+	Target         string
+	Reservation    ReservationKey
 	At             time.Time
 }
 
@@ -137,6 +142,16 @@ func (record JournalRecord) Validate() error {
 	}
 	if record.Digest != "" && !validDigest(record.Digest) {
 		return fmt.Errorf("%w: journal record digest must be hex SHA-256", ErrInvalidRequest)
+	}
+	if record.Target != "" {
+		if err := ValidateTarget(record.Target); err != nil {
+			return err
+		}
+	}
+	if record.Reservation != (ReservationKey{}) {
+		if err := record.Reservation.Validate(); err != nil {
+			return err
+		}
 	}
 	if record.At.IsZero() {
 		return fmt.Errorf("%w: journal record at is required", ErrInvalidRequest)
@@ -175,8 +190,13 @@ var (
 	ErrJournalFull = errors.New("driver journal is full")
 )
 
-// MaxJournalRecords bounds every Journal implementation.
-const MaxJournalRecords = 4096
+// MaxJournalRecords bounds every Journal implementation. Finished entries are
+// compacted away once the journal exceeds JournalCompactionThreshold, so the
+// bound only limits simultaneously open work plus recent history.
+const (
+	MaxJournalRecords          = 4096
+	JournalCompactionThreshold = 1024
+)
 
 // Journal is the crash-safe state journal. Guarantee: every write is durable
 // before it returns; records are append-only; at most one open entry exists
@@ -272,7 +292,50 @@ func (state *journalState) append(record JournalRecord) error {
 		}
 	}
 	state.records = append(state.records, record)
+	if record.Kind == JournalKindFinish {
+		state.compact()
+	}
 	return nil
+}
+
+// compact drops the oldest finished entries once the journal exceeds
+// JournalCompactionThreshold, keeping every record of every open entry and
+// shrinking to half the threshold so compaction is not re-run on every write.
+func (state *journalState) compact() {
+	if len(state.records) <= JournalCompactionThreshold {
+		return
+	}
+	open := state.open()
+	counts := make(map[JournalIdentity]int)
+	for _, record := range state.records {
+		counts[record.Identity()]++
+	}
+	remaining := len(state.records)
+	dropped := make(map[JournalIdentity]struct{})
+	for _, record := range state.records {
+		if remaining <= JournalCompactionThreshold/2 {
+			break
+		}
+		identity := record.Identity()
+		if _, isOpen := open[identity]; isOpen {
+			continue
+		}
+		if _, done := dropped[identity]; done {
+			continue
+		}
+		dropped[identity] = struct{}{}
+		remaining -= counts[identity]
+	}
+	if len(dropped) == 0 {
+		return
+	}
+	kept := make([]JournalRecord, 0, remaining)
+	for _, record := range state.records {
+		if _, drop := dropped[record.Identity()]; !drop {
+			kept = append(kept, record)
+		}
+	}
+	state.records = kept
 }
 
 func (state *journalState) inFlight() []JournalRecord {

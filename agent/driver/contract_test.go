@@ -66,7 +66,7 @@ func TestSnapshotDigestIgnoresCaptureTimeAndRequiresOrder(t *testing.T) {
 
 func TestApplyRequestBindsTargetAndReservation(t *testing.T) {
 	t.Parallel()
-	key := driver.ReservationKey{PlanID: "plan", PlanRevision: 2, Nonce: "01", Fingerprint: "fp"}
+	key := driver.ReservationKey{PlanID: "plan", PolicyRevision: 1, PlanRevision: 2, Nonce: "01", Fingerprint: "fp"}
 	digest, _ := key.Digest()
 	token := driver.ReservationToken{Key: key, Token: digest, IssuedAt: time.Unix(1, 0)}
 	newOperation := func() *antiflockv1.PlanOperation {

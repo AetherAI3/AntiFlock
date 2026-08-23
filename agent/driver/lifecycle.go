@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -199,6 +200,10 @@ type lifecycleRun struct {
 // plan operation at a time. Every step is bounded by StepTimeouts, journalled
 // before it acts, and refused with ErrLifecycleOrder when invoked early.
 // Rollback is the universal abort and is permitted from any active state.
+//
+// The journal is also read: Begin refuses with ErrRecoveryPending while the
+// journal holds in-flight entries, Health surfaces them, and Recover finishes
+// or reverts each one deterministically from the journal alone.
 type Lifecycle struct {
 	config LifecycleConfig
 	mu     sync.Mutex
@@ -243,12 +248,19 @@ func (lifecycle *Lifecycle) require(expected LifecycleState) error {
 	return nil
 }
 
-func (lifecycle *Lifecycle) record(kind JournalKind, step Step, ownership, digest string) JournalRecord {
-	return JournalRecord{
+func (lifecycle *Lifecycle) record(run *lifecycleRun, kind JournalKind, step Step, ownership, digest string) JournalRecord {
+	record := JournalRecord{
 		SchemaVersion: ContractVersion, Kind: kind,
-		PlanID: lifecycle.run.ref.PlanID, PlanRevision: lifecycle.run.ref.PlanRevision, OperationID: lifecycle.run.ref.OperationID,
+		PlanID: run.ref.PlanID, PlanRevision: run.ref.PlanRevision, OperationID: run.ref.OperationID,
 		Step: step, OwnershipToken: ownership, Digest: digest, At: lifecycle.config.Clock().UTC(),
 	}
+	if run.operation != nil {
+		record.Target = run.operation.GetTarget()
+	}
+	if run.reserved {
+		record.Reservation = run.reservation.Key
+	}
+	return record
 }
 
 func bounded(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
@@ -256,7 +268,8 @@ func bounded(ctx context.Context, timeout time.Duration) (context.Context, conte
 }
 
 // Begin opens a run for ref. It fails with ErrPlanActive while a previous
-// run has not reached a terminal state.
+// run has not reached a terminal state and with ErrRecoveryPending while the
+// journal holds in-flight entries from an earlier process.
 func (lifecycle *Lifecycle) Begin(ctx context.Context, ref PlanRef) error {
 	if err := ref.Validate(); err != nil {
 		return err
@@ -266,15 +279,21 @@ func (lifecycle *Lifecycle) Begin(ctx context.Context, ref PlanRef) error {
 	if lifecycle.run != nil && !lifecycle.state.Terminal() {
 		return ErrPlanActive
 	}
-	lifecycle.run = &lifecycleRun{ref: ref}
-	lifecycle.state = StateBegun
 	ctx, cancel := bounded(ctx, lifecycle.config.Timeouts.Record)
 	defer cancel()
-	if err := lifecycle.config.Journal.Begin(ctx, lifecycle.record(JournalKindBegin, StepCapture, "", "")); err != nil {
-		lifecycle.run = nil
-		lifecycle.state = StateIdle
+	inFlight, err := lifecycle.config.Journal.InFlight(ctx)
+	if err != nil {
 		return err
 	}
+	if len(inFlight) > 0 {
+		return fmt.Errorf("%w: %d in-flight journal entries", ErrRecoveryPending, len(inFlight))
+	}
+	run := &lifecycleRun{ref: ref}
+	if err := lifecycle.config.Journal.Begin(ctx, lifecycle.record(run, JournalKindBegin, StepCapture, "", "")); err != nil {
+		return err
+	}
+	lifecycle.run = run
+	lifecycle.state = StateBegun
 	return nil
 }
 
@@ -309,7 +328,8 @@ func (lifecycle *Lifecycle) Capture(ctx context.Context, scope Scope) (Snapshot,
 
 // Simulate runs the pure simulation against the captured snapshot. A
 // simulation that predicts failure moves the run to StateFailed and returns
-// ErrSimulationRejected together with the result.
+// ErrSimulationRejected together with the result. The predicted after-digest
+// is journalled so recovery can verify an apply whose receipt was lost.
 func (lifecycle *Lifecycle) Simulate(ctx context.Context, operation *antiflockv1.PlanOperation) (SimulationResult, error) {
 	lifecycle.mu.Lock()
 	defer lifecycle.mu.Unlock()
@@ -324,9 +344,6 @@ func (lifecycle *Lifecycle) Simulate(ctx context.Context, operation *antiflockv1
 	}
 	ctx, cancel := bounded(ctx, lifecycle.config.Timeouts.Simulate)
 	defer cancel()
-	if err := lifecycle.config.Journal.Advance(ctx, lifecycle.record(JournalKindAdvance, StepSimulate, "", lifecycle.run.digest)); err != nil {
-		return SimulationResult{}, err
-	}
 	result, err := lifecycle.config.Driver.Simulate(ctx, lifecycle.run.snapshot, operation)
 	if err != nil {
 		lifecycle.state = StateFailed
@@ -345,6 +362,10 @@ func (lifecycle *Lifecycle) Simulate(ctx context.Context, operation *antiflockv1
 	if !result.WouldSucceed {
 		lifecycle.state = StateFailed
 		return result, ErrSimulationRejected
+	}
+	if err := lifecycle.config.Journal.Advance(ctx, lifecycle.record(lifecycle.run, JournalKindAdvance, StepSimulate, "", result.Diff.AfterDigest)); err != nil {
+		lifecycle.state = StateFailed
+		return SimulationResult{}, err
 	}
 	lifecycle.state = StateSimulated
 	return result, nil
@@ -368,7 +389,7 @@ func (lifecycle *Lifecycle) Approve(ctx context.Context, approval Approval) erro
 	}
 	ctx, cancel := bounded(ctx, lifecycle.config.Timeouts.Record)
 	defer cancel()
-	if err := lifecycle.config.Journal.Advance(ctx, lifecycle.record(JournalKindAdvance, StepApprove, "", approval.Digest)); err != nil {
+	if err := lifecycle.config.Journal.Advance(ctx, lifecycle.record(run, JournalKindAdvance, StepApprove, "", approval.Digest)); err != nil {
 		return err
 	}
 	run.approval = approval
@@ -376,7 +397,10 @@ func (lifecycle *Lifecycle) Approve(ctx context.Context, approval Approval) erro
 	return nil
 }
 
-// Reserve takes the durable replay reservation for the approved plan.
+// Reserve takes the durable replay reservation for the approved plan. A
+// redelivered reservation that already carries a terminal result is refused
+// with ErrAlreadyReserved at this level: the lifecycle never re-executes a
+// finished plan; the caller reads Reservation.Result from the store instead.
 func (lifecycle *Lifecycle) Reserve(ctx context.Context, key ReservationKey) (ReservationToken, error) {
 	lifecycle.mu.Lock()
 	defer lifecycle.mu.Unlock()
@@ -391,23 +415,29 @@ func (lifecycle *Lifecycle) Reserve(ctx context.Context, key ReservationKey) (Re
 	}
 	ctx, cancel := bounded(ctx, lifecycle.config.Timeouts.Reserve)
 	defer cancel()
-	token, err := lifecycle.config.Reservations.Reserve(ctx, key)
+	reservation, err := lifecycle.config.Reservations.Reserve(ctx, key)
 	if err != nil {
 		lifecycle.state = StateFailed
 		return ReservationToken{}, err
 	}
-	if err := lifecycle.config.Journal.Advance(ctx, lifecycle.record(JournalKindAdvance, StepReserve, "", token.Token)); err != nil {
+	if reservation.Replayed {
+		lifecycle.state = StateFailed
+		return ReservationToken{}, fmt.Errorf("%w: plan already has a terminal result", ErrAlreadyReserved)
+	}
+	lifecycle.run.reservation = reservation.Token
+	lifecycle.run.reserved = true
+	if err := lifecycle.config.Journal.Advance(ctx, lifecycle.record(lifecycle.run, JournalKindAdvance, StepReserve, "", reservation.Token.Token)); err != nil {
 		lifecycle.state = StateFailed
 		return ReservationToken{}, err
 	}
-	lifecycle.run.reservation = token
-	lifecycle.run.reserved = true
 	lifecycle.state = StateReserved
-	return token, nil
+	return reservation.Token, nil
 }
 
 // Apply re-captures the host, refuses on drift, journals, then crosses the
-// driver boundary with a request bound to the exact approved target.
+// driver boundary with a request bound to the exact approved target. The
+// receipt is journalled (ADVANCE VERIFY with the ownership token and applied
+// digest) before Apply returns so a crash afterwards is recoverable.
 func (lifecycle *Lifecycle) Apply(ctx context.Context) (ApplyReceipt, error) {
 	lifecycle.mu.Lock()
 	defer lifecycle.mu.Unlock()
@@ -423,11 +453,15 @@ func (lifecycle *Lifecycle) Apply(ctx context.Context) (ApplyReceipt, error) {
 		return ApplyReceipt{}, err
 	}
 	currentDigest, err := current.Digest()
-	if err != nil || currentDigest != run.digest {
+	if err != nil {
+		lifecycle.state = StateFailed
+		return ApplyReceipt{}, err
+	}
+	if currentDigest != run.digest {
 		lifecycle.state = StateFailed
 		return ApplyReceipt{}, ErrHostDrift
 	}
-	if err := lifecycle.config.Journal.Advance(ctx, lifecycle.record(JournalKindAdvance, StepApply, "", run.digest)); err != nil {
+	if err := lifecycle.config.Journal.Advance(ctx, lifecycle.record(run, JournalKindAdvance, StepApply, "", run.digest)); err != nil {
 		lifecycle.state = StateFailed
 		return ApplyReceipt{}, err
 	}
@@ -445,18 +479,25 @@ func (lifecycle *Lifecycle) Apply(ctx context.Context) (ApplyReceipt, error) {
 		lifecycle.state = StateFailed
 		return ApplyReceipt{}, err
 	}
-	if receipt.PlanID != run.ref.PlanID || receipt.PlanRevision != run.ref.PlanRevision || receipt.OperationID != run.ref.OperationID || receipt.Target != request.Target {
+	expectedToken := OwnershipTokenFor(run.ref.PlanID, run.ref.PlanRevision, run.ref.OperationID, request.Target, run.reservation.Token)
+	if receipt.PlanID != run.ref.PlanID || receipt.PlanRevision != run.ref.PlanRevision || receipt.OperationID != run.ref.OperationID ||
+		receipt.Target != request.Target || receipt.OwnershipToken != expectedToken {
 		lifecycle.state = StateFailed
 		return ApplyReceipt{}, fmt.Errorf("%w: apply receipt is not bound to the request", ErrInvalidRequest)
 	}
 	run.receipt = receipt
 	run.applied = true
+	if err := lifecycle.config.Journal.Advance(ctx, lifecycle.record(run, JournalKindAdvance, StepVerify, receipt.OwnershipToken, receipt.AppliedDigest)); err != nil {
+		lifecycle.state = StateFailed
+		return receipt, err
+	}
 	lifecycle.state = StateApplied
 	return receipt, nil
 }
 
 // Verify re-reads the host and compares it with the apply receipt. A
 // mismatch moves the run to StateFailed and returns ErrVerificationFailed.
+// Verify is read-only and writes nothing to the journal.
 func (lifecycle *Lifecycle) Verify(ctx context.Context) (VerificationResult, error) {
 	lifecycle.mu.Lock()
 	defer lifecycle.mu.Unlock()
@@ -466,10 +507,6 @@ func (lifecycle *Lifecycle) Verify(ctx context.Context) (VerificationResult, err
 	run := lifecycle.run
 	ctx, cancel := bounded(ctx, lifecycle.config.Timeouts.Verify)
 	defer cancel()
-	if err := lifecycle.config.Journal.Advance(ctx, lifecycle.record(JournalKindAdvance, StepVerify, run.receipt.OwnershipToken, run.receipt.AppliedDigest)); err != nil {
-		lifecycle.state = StateFailed
-		return VerificationResult{}, err
-	}
 	result, err := lifecycle.config.Driver.Verify(ctx, run.receipt)
 	if err != nil {
 		lifecycle.state = StateFailed
@@ -488,6 +525,33 @@ func (lifecycle *Lifecycle) Verify(ctx context.Context) (VerificationResult, err
 	return result, nil
 }
 
+func verifyReceipt(run *lifecycleRun, verification VerificationResult) Receipt {
+	return Receipt{
+		SchemaVersion: ContractVersion, Kind: ReceiptKindVerify,
+		PlanID: run.ref.PlanID, PlanRevision: run.ref.PlanRevision, OperationID: run.ref.OperationID,
+		Target: run.receipt.Target, OwnershipToken: run.receipt.OwnershipToken, Digest: verification.ObservedDigest,
+		ReasonCode: ReasonVerified, At: verification.At,
+	}
+}
+
+func commitReceipt(run *lifecycleRun, reason string, at time.Time) Receipt {
+	return Receipt{
+		SchemaVersion: ContractVersion, Kind: ReceiptKindCommit,
+		PlanID: run.ref.PlanID, PlanRevision: run.ref.PlanRevision, OperationID: run.ref.OperationID,
+		Target: run.receipt.Target, OwnershipToken: run.receipt.OwnershipToken, Digest: run.receipt.AppliedDigest,
+		ReasonCode: reason, At: at,
+	}
+}
+
+// appendReceipt tolerates a duplicate so recovery can re-run an interrupted
+// Record step.
+func (lifecycle *Lifecycle) appendReceipt(ctx context.Context, receipt Receipt) error {
+	if err := lifecycle.config.Receipts.Append(ctx, receipt); err != nil && !errors.Is(err, ErrReceiptDuplicate) {
+		return err
+	}
+	return nil
+}
+
 // Record appends the apply and verify receipts to the receipt store.
 func (lifecycle *Lifecycle) Record(ctx context.Context) error {
 	lifecycle.mu.Lock()
@@ -498,18 +562,12 @@ func (lifecycle *Lifecycle) Record(ctx context.Context) error {
 	run := lifecycle.run
 	ctx, cancel := bounded(ctx, lifecycle.config.Timeouts.Record)
 	defer cancel()
-	if err := lifecycle.config.Journal.Advance(ctx, lifecycle.record(JournalKindAdvance, StepRecord, run.receipt.OwnershipToken, run.receipt.AppliedDigest)); err != nil {
+	if err := lifecycle.config.Journal.Advance(ctx, lifecycle.record(run, JournalKindAdvance, StepRecord, run.receipt.OwnershipToken, run.receipt.AppliedDigest)); err != nil {
 		lifecycle.state = StateFailed
 		return err
 	}
-	verify := Receipt{
-		SchemaVersion: ContractVersion, Kind: ReceiptKindVerify,
-		PlanID: run.ref.PlanID, PlanRevision: run.ref.PlanRevision, OperationID: run.ref.OperationID,
-		Target: run.receipt.Target, OwnershipToken: run.receipt.OwnershipToken, Digest: run.verification.ObservedDigest,
-		ReasonCode: ReasonVerified, At: run.verification.At,
-	}
-	for _, receipt := range []Receipt{run.receipt.Receipt(), verify} {
-		if err := lifecycle.config.Receipts.Append(ctx, receipt); err != nil {
+	for _, receipt := range []Receipt{run.receipt.Receipt(), verifyReceipt(run, run.verification)} {
+		if err := lifecycle.appendReceipt(ctx, receipt); err != nil {
 			lifecycle.state = StateFailed
 			return err
 		}
@@ -518,36 +576,38 @@ func (lifecycle *Lifecycle) Record(ctx context.Context) error {
 	return nil
 }
 
-// Commit releases the reservation as committed and closes the journal.
+// Commit appends the commit receipt, releases the reservation as committed
+// with that receipt's content digest as the stored terminal result, and
+// closes the journal.
 func (lifecycle *Lifecycle) Commit(ctx context.Context) error {
 	lifecycle.mu.Lock()
 	defer lifecycle.mu.Unlock()
 	if err := lifecycle.require(StateRecorded); err != nil {
 		return err
 	}
-	run := lifecycle.run
 	ctx, cancel := bounded(ctx, lifecycle.config.Timeouts.Record)
 	defer cancel()
-	if err := lifecycle.config.Reservations.Release(ctx, run.reservation, StepCommit); err != nil {
-		lifecycle.state = StateFailed
-		return err
-	}
-	commit := Receipt{
-		SchemaVersion: ContractVersion, Kind: ReceiptKindCommit,
-		PlanID: run.ref.PlanID, PlanRevision: run.ref.PlanRevision, OperationID: run.ref.OperationID,
-		Target: run.receipt.Target, OwnershipToken: run.receipt.OwnershipToken, Digest: run.receipt.AppliedDigest,
-		ReasonCode: ReasonApplied, At: lifecycle.config.Clock().UTC(),
-	}
-	if err := lifecycle.config.Receipts.Append(ctx, commit); err != nil {
-		lifecycle.state = StateFailed
-		return err
-	}
-	if err := lifecycle.config.Journal.Finish(ctx, lifecycle.record(JournalKindFinish, StepCommit, run.receipt.OwnershipToken, run.receipt.AppliedDigest)); err != nil {
+	if err := lifecycle.commit(ctx, lifecycle.run, ReasonApplied); err != nil {
 		lifecycle.state = StateFailed
 		return err
 	}
 	lifecycle.state = StateCommitted
 	return nil
+}
+
+func (lifecycle *Lifecycle) commit(ctx context.Context, run *lifecycleRun, reason string) error {
+	receipt := commitReceipt(run, reason, lifecycle.config.Clock().UTC())
+	digest, err := receipt.ContentDigest()
+	if err != nil {
+		return err
+	}
+	if err := lifecycle.appendReceipt(ctx, receipt); err != nil {
+		return err
+	}
+	if err := lifecycle.config.Reservations.Release(ctx, run.reservation, StepCommit, []byte(digest)); err != nil {
+		return err
+	}
+	return lifecycle.config.Journal.Finish(ctx, lifecycle.record(run, JournalKindFinish, StepCommit, run.receipt.OwnershipToken, run.receipt.AppliedDigest))
 }
 
 // Rollback is the universal abort. From any active state it reverts an
@@ -563,10 +623,22 @@ func (lifecycle *Lifecycle) Rollback(ctx context.Context) (RollbackReceipt, erro
 	if lifecycle.state.Terminal() {
 		return RollbackReceipt{}, fmt.Errorf("%w: state is %s", ErrLifecycleOrder, lifecycle.state)
 	}
-	run := lifecycle.run
 	ctx, cancel := bounded(ctx, lifecycle.config.Timeouts.Rollback)
 	defer cancel()
+	receipt, err := lifecycle.rollback(ctx, lifecycle.run, ReasonRolledBack)
+	if err != nil {
+		lifecycle.state = StateFailed
+		return RollbackReceipt{}, err
+	}
+	lifecycle.state = StateRolledBack
+	return receipt, nil
+}
+
+// rollback reverts whatever run recorded. An ownership token the driver
+// does not know (nothing was ever applied) is tolerated.
+func (lifecycle *Lifecycle) rollback(ctx context.Context, run *lifecycleRun, reason string) (RollbackReceipt, error) {
 	var receipt RollbackReceipt
+	var result []byte
 	if run.applied {
 		request := RollbackRequest{
 			PlanID: run.ref.PlanID, PlanRevision: run.ref.PlanRevision, OperationID: run.ref.OperationID,
@@ -574,29 +646,193 @@ func (lifecycle *Lifecycle) Rollback(ctx context.Context) (RollbackReceipt, erro
 		}
 		var err error
 		receipt, err = lifecycle.config.Driver.Rollback(ctx, request)
-		if err != nil {
-			lifecycle.state = StateFailed
+		switch {
+		case errors.Is(err, ErrUnknownOwnership):
+			receipt = RollbackReceipt{}
+		case err != nil:
 			return RollbackReceipt{}, err
-		}
-		if err := receipt.Validate(); err != nil {
-			lifecycle.state = StateFailed
-			return RollbackReceipt{}, err
-		}
-		if err := lifecycle.config.Receipts.Append(ctx, receipt.Receipt()); err != nil && !errors.Is(err, ErrReceiptDuplicate) {
-			lifecycle.state = StateFailed
-			return RollbackReceipt{}, err
+		default:
+			if err := receipt.Validate(); err != nil {
+				return RollbackReceipt{}, err
+			}
+			record := receipt.Receipt()
+			record.ReasonCode = reason
+			digest, err := record.ContentDigest()
+			if err != nil {
+				return RollbackReceipt{}, err
+			}
+			result = []byte(digest)
+			if err := lifecycle.appendReceipt(ctx, record); err != nil {
+				return RollbackReceipt{}, err
+			}
 		}
 	}
 	if run.reserved {
-		if err := lifecycle.config.Reservations.Release(ctx, run.reservation, StepRollback); err != nil {
-			lifecycle.state = StateFailed
+		if err := lifecycle.config.Reservations.Release(ctx, run.reservation, StepRollback, result); err != nil {
 			return RollbackReceipt{}, err
 		}
 	}
-	if err := lifecycle.config.Journal.Finish(ctx, lifecycle.record(JournalKindFinish, StepRollback, run.receipt.OwnershipToken, receipt.RestoredDigest)); err != nil {
-		lifecycle.state = StateFailed
+	if err := lifecycle.config.Journal.Finish(ctx, lifecycle.record(run, JournalKindFinish, StepRollback, run.receipt.OwnershipToken, receipt.RestoredDigest)); err != nil {
 		return RollbackReceipt{}, err
 	}
-	lifecycle.state = StateRolledBack
 	return receipt, nil
+}
+
+// Health reports the lifecycle's view: a corrupt journal is UNAVAILABLE with
+// ReasonProbeJournalCorrupt, in-flight entries are DEGRADED with
+// ReasonRecoveryPending, otherwise the driver's own health.
+func (lifecycle *Lifecycle) Health(ctx context.Context) (HealthReport, error) {
+	if err := ctx.Err(); err != nil {
+		return HealthReport{}, err
+	}
+	inFlight, err := lifecycle.config.Journal.InFlight(ctx)
+	at := lifecycle.config.Clock().UTC()
+	if err != nil {
+		return HealthReport{Status: HealthUnavailable, ReasonCodes: []string{ReasonProbeJournalCorrupt}, At: at}, nil
+	}
+	if len(inFlight) > 0 {
+		return HealthReport{Status: HealthDegraded, ReasonCodes: []string{ReasonRecoveryPending}, At: at}, nil
+	}
+	return lifecycle.config.Driver.Health(ctx)
+}
+
+// Recover reads the journal and, for every in-flight entry, either finishes
+// it or reverts it, deterministically and idempotently:
+//
+//   - CAPTURE, SIMULATE, APPROVE: nothing reserved or applied; the entry is
+//     closed as ROLLBACK (ReasonRecoveryAborted).
+//   - RESERVE: the reservation is released as ROLLBACK and the entry closed.
+//   - APPLY, VERIFY, RECORD: the driver's own Recover runs first, then the
+//     ownership token is re-derived (OwnershipTokenFor) and the host is
+//     verified against the journalled applied digest (VERIFY/RECORD) or the
+//     simulated after-digest (APPLY). A verified host is completed: receipts
+//     appended, reservation released as COMMIT, entry closed
+//     (ReasonRecoveryCommit). Anything else is rolled back through the
+//     driver, released as ROLLBACK, and closed (ReasonRecoveryRollback).
+//
+// Recover never consults the host to decide what it owns; it reads the
+// host only through Verify, which is read-only. It refuses to run while this
+// Lifecycle has an active plan.
+func (lifecycle *Lifecycle) Recover(ctx context.Context) (RecoveryReport, error) {
+	lifecycle.mu.Lock()
+	defer lifecycle.mu.Unlock()
+	if lifecycle.run != nil && !lifecycle.state.Terminal() {
+		return RecoveryReport{}, ErrPlanActive
+	}
+	ctx, cancel := bounded(ctx, lifecycle.config.Timeouts.Rollback)
+	defer cancel()
+	report := RecoveryReport{At: lifecycle.config.Clock().UTC()}
+	inFlight, err := lifecycle.config.Journal.InFlight(ctx)
+	if err != nil {
+		return RecoveryReport{}, err
+	}
+	if len(inFlight) == 0 {
+		report.ReasonCodes = []string{ReasonRecoveryClean}
+		return report, nil
+	}
+	records, err := lifecycle.config.Journal.Records(ctx)
+	if err != nil {
+		return RecoveryReport{}, err
+	}
+	if _, err := lifecycle.config.Driver.Recover(ctx); err != nil {
+		return RecoveryReport{}, err
+	}
+	reasons := map[string]struct{}{}
+	for _, entry := range inFlight {
+		operation, reason, err := lifecycle.recoverEntry(ctx, entry, records)
+		if err != nil {
+			return RecoveryReport{}, err
+		}
+		reasons[reason] = struct{}{}
+		report.Operations = append(report.Operations, operation)
+	}
+	for reason := range reasons {
+		report.ReasonCodes = append(report.ReasonCodes, reason)
+	}
+	slices.Sort(report.ReasonCodes)
+	if err := report.Validate(); err != nil {
+		return RecoveryReport{}, err
+	}
+	return report, nil
+}
+
+func (lifecycle *Lifecycle) recoverEntry(ctx context.Context, entry JournalRecord, records []JournalRecord) (RecoveredOperation, string, error) {
+	run := &lifecycleRun{ref: PlanRef{PlanID: entry.PlanID, PlanRevision: entry.PlanRevision, OperationID: entry.OperationID}}
+	operation := RecoveredOperation{
+		PlanID: entry.PlanID, PlanRevision: entry.PlanRevision, OperationID: entry.OperationID, Step: entry.Step, OwnershipToken: "none",
+	}
+	if entry.Reservation != (ReservationKey{}) {
+		digest, err := entry.Reservation.Digest()
+		if err != nil {
+			return RecoveredOperation{}, "", err
+		}
+		run.reservation = ReservationToken{Key: entry.Reservation, Token: digest, IssuedAt: entry.At}
+		run.reserved = true
+	}
+	if entry.Target != "" {
+		run.operation = &antiflockv1.PlanOperation{Id: entry.OperationID, Target: entry.Target}
+	}
+	switch entry.Step {
+	case StepCapture, StepSimulate, StepApprove, StepReserve:
+		if _, err := lifecycle.rollback(ctx, run, ReasonRecoveryRollback); err != nil {
+			return RecoveredOperation{}, "", err
+		}
+		operation.Finished = true
+		return operation, ReasonRecoveryAborted, nil
+	}
+	// APPLY, VERIFY or RECORD: an apply may have happened.
+	if !run.reserved || entry.Target == "" {
+		return RecoveredOperation{}, "", fmt.Errorf("%w: apply entry lacks reservation or target", ErrJournalCorrupt)
+	}
+	token := OwnershipTokenFor(entry.PlanID, entry.PlanRevision, entry.OperationID, entry.Target, run.reservation.Token)
+	expected := entry.Digest
+	before := entry.Digest
+	for _, record := range records {
+		if record.Identity() != entry.Identity() {
+			continue
+		}
+		if entry.Step == StepApply && record.Step == StepSimulate {
+			expected = record.Digest
+		}
+		if entry.Step != StepApply && record.Step == StepApply {
+			before = record.Digest
+		}
+	}
+	operation.OwnershipToken = token
+	run.receipt = ApplyReceipt{
+		PlanID: entry.PlanID, PlanRevision: entry.PlanRevision, OperationID: entry.OperationID, Target: entry.Target,
+		OwnershipToken: token, BeforeDigest: before, AppliedDigest: expected, ReasonCode: ReasonApplied,
+		StartedAt: entry.At, CompletedAt: entry.At,
+	}
+	run.applied = true
+	verified := false
+	if run.receipt.Validate() == nil {
+		verification, err := lifecycle.config.Driver.Verify(ctx, run.receipt)
+		switch {
+		case err == nil && verification.Validate() == nil && verification.Verified && verification.ExpectedDigest == expected:
+			run.verification = verification
+			verified = true
+		case err != nil && !errors.Is(err, ErrUnknownOwnership):
+			return RecoveredOperation{}, "", err
+		}
+	}
+	if verified {
+		for _, receipt := range []Receipt{run.receipt.Receipt(), verifyReceipt(run, run.verification)} {
+			if err := lifecycle.appendReceipt(ctx, receipt); err != nil {
+				return RecoveredOperation{}, "", err
+			}
+		}
+		if err := lifecycle.commit(ctx, run, ReasonRecoveryCommit); err != nil {
+			return RecoveredOperation{}, "", err
+		}
+		operation.Finished = true
+		return operation, ReasonRecoveryCommit, nil
+	}
+	receipt, err := lifecycle.rollback(ctx, run, ReasonRecoveryRollback)
+	if err != nil {
+		return RecoveredOperation{}, "", err
+	}
+	operation.Reverted = receipt.ReasonCode == ReasonRolledBack || receipt.AlreadyRolledBack
+	operation.Finished = true
+	return operation, ReasonRecoveryRollback, nil
 }
