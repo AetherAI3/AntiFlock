@@ -142,7 +142,7 @@ func TestQueuePoisonEntryDoesNotBlockDeliveryForever(t *testing.T) {
 			defer queue.Close()
 			batch, err := queue.Batch(context.Background(), 16)
 			if err != nil {
-				t.Skipf("KNOWN-GAP AF-GAP-006: agent/runtime queue accepts a %s entry at open, then Batch fails for the whole queue (%v); healthy events behind it are never delivered", name, err)
+				t.Skipf("KNOWN-GAP AF-GAP-005: agent/runtime queue accepts a %s entry at open, then Batch fails for the whole queue (%v); healthy events behind it are never delivered", name, err)
 			}
 			if len(batch) != 1 || batch[0].GetId() != "e1" {
 				t.Fatalf("%s: batch = %v", name, batch)
