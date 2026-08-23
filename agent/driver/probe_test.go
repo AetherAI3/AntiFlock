@@ -66,7 +66,7 @@ func TestProbeResultValidateRejectsEveryInvariantBreach(t *testing.T) {
 		"bad reason":           func(r *ProbeResult) { r.ReasonCodes = []string{"ok"} },
 		"lower reason":         func(r *ProbeResult) { r.ReasonCodes = []string{"AF-probe-ok"} },
 		"too many reasons":     func(r *ProbeResult) { r.ReasonCodes = make([]string, MaxProbeReasonCodes+1) },
-		"constraint bidi":      func(r *ProbeResult) { r.Constraints = []string{"‮table"} },
+		"constraint bidi":      func(r *ProbeResult) { r.Constraints = []string{"\u202etable"} },
 		"constraint empty":     func(r *ProbeResult) { r.Constraints = []string{""} },
 		"zero probed":          func(r *ProbeResult) { r.ProbedAt = time.Time{} },
 		"zero expires":         func(r *ProbeResult) { r.ExpiresAt = time.Time{} },
