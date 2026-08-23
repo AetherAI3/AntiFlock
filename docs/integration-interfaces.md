@@ -129,8 +129,8 @@ and expects `200`/`201` with at most 64 KiB of:
 the signature covers the ASCII hex of `sha256` of the canonical JSON
 `{"version":1,"witnessId","checkpointDigest","witnessedAt","keyId"}`.
 `409`/`422` map to `ErrInvalidInput` (refused, e.g. sequence regression);
-`429`/`5xx` map to `ErrUnavailable`. Unknown fields and trailing data are
-rejected. HTTPS is mandatory except for loopback hosts; an optional pinned CA
+`401`/`403` map to `ErrUnauthenticated`; `429`/`5xx` map to `ErrUnavailable`. Unknown fields and trailing data are
+rejected. HTTPS is mandatory except for literal loopback IPs (`127.0.0.0/8`, `::1`; `localhost` by name does not qualify); an optional pinned CA
 replaces the system roots; redirects are disabled; a bearer token, when
 configured, is sent and never appears in `DryRun()`.
 

@@ -96,12 +96,13 @@ func TestHTTPWitnessTransportGuards(t *testing.T) {
 		"query":                    "https://witness.example/witness?x=1",
 		"relative":                 "/witness",
 		"plaintext loopback-alike": "http://127.0.0.1.example/witness",
+		"plaintext localhost name": "http://localhost/witness",
 	} {
 		if _, err := witnesshttp.NewClient(witnesshttp.Config{URL: url, WitnessPublicKey: key}); !errors.Is(err, integration.ErrInvalidInput) {
 			t.Errorf("%s: NewClient() = %v, want ErrInvalidInput", name, err)
 		}
 	}
-	for _, url := range []string{"http://127.0.0.1:8080/witness", "http://localhost/witness", "http://[::1]/witness", "https://witness.example/witness"} {
+	for _, url := range []string{"http://127.0.0.1:8080/witness", "http://[::1]/witness", "http://127.0.0.2/witness", "https://witness.example/witness"} {
 		if _, err := witnesshttp.NewClient(witnesshttp.Config{URL: url, WitnessPublicKey: key}); err != nil {
 			t.Errorf("%s: NewClient() = %v, want success", url, err)
 		}
@@ -186,6 +187,8 @@ func TestHTTPWitnessHostileResponses(t *testing.T) {
 		"empty":        {response{200, func() []byte { return nil }}, integration.ErrInvalidReceipt},
 		"server error": {response{503, func() []byte { return []byte("down") }}, integration.ErrUnavailable},
 		"refused":      {response{409, func() []byte { return nil }}, integration.ErrInvalidInput},
+		"unauthorized": {response{401, func() []byte { return nil }}, integration.ErrUnauthenticated},
+		"forbidden":    {response{403, func() []byte { return nil }}, integration.ErrUnauthenticated},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {

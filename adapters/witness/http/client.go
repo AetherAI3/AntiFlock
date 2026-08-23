@@ -3,7 +3,7 @@
 // under a witness public key the operator configured out of band.
 //
 // Transport rules follow the headscale adapter: HTTPS is required except on
-// an explicit loopback address, redirects are disabled, the response body is
+// a literal loopback IP, redirects are disabled, the response body is
 // bounded, and an optional pinned CA replaces the system roots. The wire
 // format is deliberately minimal so any party can implement the server side
 // from docs/integration-interfaces.md without sharing code with this
@@ -24,7 +24,6 @@ import (
 	"net"
 	nethttp "net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/DBarr3/AntiFlock/core/integration"
@@ -46,7 +45,7 @@ type HTTPDoer interface {
 // Config configures the client.
 type Config struct {
 	// URL is the absolute endpoint the checkpoint is POSTed to. HTTPS is
-	// required unless the host is a loopback address.
+	// required unless the host is a literal loopback IP (127.0.0.0/8, ::1).
 	URL string
 	// WitnessPublicKey verifies receipts. It is mandatory: a witness whose
 	// key the operator does not hold cannot produce evidence.
@@ -223,6 +222,8 @@ func (client *Client) Submit(ctx context.Context, checkpoint integration.Checkpo
 	case response.StatusCode == nethttp.StatusOK || response.StatusCode == nethttp.StatusCreated:
 	case response.StatusCode == nethttp.StatusConflict || response.StatusCode == nethttp.StatusUnprocessableEntity:
 		return integration.WitnessReceipt{}, fmt.Errorf("%w: witness refused the checkpoint (HTTP %d)", integration.ErrInvalidInput, response.StatusCode)
+	case response.StatusCode == nethttp.StatusUnauthorized || response.StatusCode == nethttp.StatusForbidden:
+		return integration.WitnessReceipt{}, fmt.Errorf("%w: witness rejected the credential (HTTP %d)", integration.ErrUnauthenticated, response.StatusCode)
 	case response.StatusCode >= 500 || response.StatusCode == nethttp.StatusTooManyRequests:
 		return integration.WitnessReceipt{}, fmt.Errorf("%w: witness returned HTTP %d", integration.ErrUnavailable, response.StatusCode)
 	default:
@@ -304,10 +305,10 @@ func Factory(_ context.Context, options integration.Options) (any, error) {
 	})
 }
 
+// isLoopbackHost accepts only literal loopback addresses (127.0.0.0/8, ::1).
+// A name such as "localhost" goes through the host resolver and is not
+// trusted for the plaintext exception.
 func isLoopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
 }

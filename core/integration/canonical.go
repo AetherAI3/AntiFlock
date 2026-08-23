@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -93,21 +92,6 @@ func canonicalJSON(payload any) ([]byte, error) {
 		return nil, fmt.Errorf("%w: encode canonical payload: %v", ErrInvalidInput, err)
 	}
 	return encoded, nil
-}
-
-// sortedUnique returns a sorted copy of values without duplicates.
-func sortedUnique(values []string) []string {
-	result := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		if _, exists := seen[value]; exists {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-	}
-	sort.Strings(result)
-	return result
 }
 
 // validStringList reports whether values is bounded, sorted, unique, and every

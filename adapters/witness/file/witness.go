@@ -188,6 +188,8 @@ func (witness *Witness) appendRecord(record journalRecord) error {
 	if err := checkPrivateFile(witness.journalPath, true); err != nil {
 		return err
 	}
+	_, statErr := os.Lstat(witness.journalPath)
+	creating := errors.Is(statErr, os.ErrNotExist)
 	handle, err := os.OpenFile(witness.journalPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("open witness journal: %w", err)
@@ -204,7 +206,30 @@ func (witness *Witness) appendRecord(record journalRecord) error {
 		handle.Close()
 		return fmt.Errorf("sync witness journal: %w", err)
 	}
-	return handle.Close()
+	if err := handle.Close(); err != nil {
+		return fmt.Errorf("close witness journal: %w", err)
+	}
+	if creating {
+		return syncDirectory(filepath.Dir(witness.journalPath))
+	}
+	return nil
+}
+
+// syncDirectory makes a newly created journal entry durable. Directory
+// handles cannot be fsynced on Windows, so it is a no-op there.
+func syncDirectory(path string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	directory, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open witness directory for sync: %w", err)
+	}
+	if err := directory.Sync(); err != nil {
+		directory.Close()
+		return fmt.Errorf("sync witness directory: %w", err)
+	}
+	return directory.Close()
 }
 
 // replay verifies every journal line under the witness's own key and
