@@ -130,3 +130,44 @@ func TestDriverRejectsEmptyRecoveryPathsInProbe(t *testing.T) {
 		t.Fatalf("probe with no recovery paths = %+v (%v), want RecoveryReady=false", results, err)
 	}
 }
+
+// unreadableJournal accepts appends but cannot be read: the shape of a journal
+// whose earlier records were damaged after the write path still works. The
+// driver must refuse to mutate on the read failure, not rely on Begin failing.
+type unreadableJournal struct {
+	*driver.MemoryJournal
+}
+
+func (journal unreadableJournal) InFlight(context.Context) ([]driver.JournalRecord, error) {
+	return nil, driver.ErrJournalCorrupt
+}
+
+func (journal unreadableJournal) Records(context.Context) ([]driver.JournalRecord, error) {
+	return nil, driver.ErrJournalCorrupt
+}
+
+func TestApplyRefusesWhenJournalCannotBeRead(t *testing.T) {
+	t.Parallel()
+	backing, err := memory.NewBacking(unreadableJournal{driver.NewMemoryJournal()})
+	if err != nil {
+		t.Fatalf("backing: %v", err)
+	}
+	instance, err := memory.New(memory.Config{Backing: backing, Clock: fixedClock()})
+	if err != nil {
+		t.Fatalf("driver: %v", err)
+	}
+	request := validApplyRequest(t)
+	if err := request.Validate(); err != nil {
+		t.Fatalf("fixture request must be valid: %v", err)
+	}
+	if _, err := instance.Apply(context.Background(), request); !errors.Is(err, driver.ErrJournalCorrupt) {
+		t.Fatalf("valid apply over an unreadable journal: err = %v, want ErrJournalCorrupt", err)
+	}
+	if len(backing.Rules()) != 0 {
+		t.Fatal("apply over an unreadable journal mutated the fake host")
+	}
+	health, err := instance.Health(context.Background())
+	if err != nil || health.Status != driver.HealthUnavailable {
+		t.Fatalf("health = %s (%v), want UNAVAILABLE", health.Status, err)
+	}
+}
