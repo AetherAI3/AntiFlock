@@ -16,7 +16,7 @@ type RenderMode uint8
 // RenderMode values.
 const (
 	// RenderEscape replaces each hostile byte or rune with a printable ASCII
-	// escape such as \x1b or ‮. Whole terminal sequences are escaped
+	// escape such as \x1b or \u202e. Whole terminal sequences are escaped
 	// byte by byte so an operator can see exactly what was sent.
 	RenderEscape RenderMode = iota
 	// RenderStrip drops hostile runes and whole terminal sequences.
