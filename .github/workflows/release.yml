@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Build, scan, checksum, and sign, but do not create a GitHub Release. Gate failures become warnings."
+        description: "Build, scan, checksum, and sign, but do not create a GitHub Release. Gate failures become warnings. A manual run never creates a release regardless of this input; push a tag to release."
         type: boolean
         default: true
 
@@ -69,6 +69,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Resolve the release commit and version
         id: resolve
@@ -224,7 +225,27 @@ jobs:
         run: |
           set -euo pipefail
           cd "$DIST"
-          sha256sum -- antiflock-* > SHA256SUMS
+          # Enumerate the artifact set explicitly: a glob silently drops files
+          # whose names do not match (antiflockctl has no hyphen) and the doc
+          # promise is that SHA256SUMS covers every binary plus the SBOM.
+          artifacts=()
+          for arch in amd64 arm64; do
+            for bin in antiflock-agent antiflock-core antiflockctl; do
+              artifacts+=("${bin}_${VERSION}_linux_${arch}")
+            done
+          done
+          artifacts+=("antiflock_${VERSION}.cdx.json")
+          for f in "${artifacts[@]}"; do
+            test -s "$f" || { echo "::error::missing artifact $f"; exit 1; }
+          done
+          sha256sum -- "${artifacts[@]}" > SHA256SUMS
+          expected=$(( ${#artifacts[@]} ))
+          actual=$(wc -l < SHA256SUMS)
+          if [ "$actual" -ne "$expected" ]; then
+            echo "::error::SHA256SUMS has $actual lines, expected $expected"
+            exit 1
+          fi
+          sha256sum -c --strict SHA256SUMS
           cat SHA256SUMS
 
       - name: Sign SHA256SUMS and attest provenance (keyless)
@@ -280,6 +301,7 @@ jobs:
             --certificate-identity "$identity" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             SHA256SUMS
+          sha256sum -c --strict SHA256SUMS
           ls -l "$DIST"
 
       - name: Upload the artifact set for inspection
@@ -291,7 +313,9 @@ jobs:
           retention-days: 14
 
       - name: Create the DRAFT GitHub Release
-        if: needs.gate.outputs.dry_run != 'true' && github.ref_type == 'tag'
+        # Only a real tag push creates a release. A workflow_dispatch on a tag
+        # ref with dry_run=false still stops here; cut releases by pushing a tag.
+        if: github.event_name == 'push' && github.ref_type == 'tag' && needs.gate.outputs.dry_run != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}

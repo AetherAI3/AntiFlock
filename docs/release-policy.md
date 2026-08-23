@@ -40,10 +40,11 @@ checks fail the gate.
    publishes. Publishing is the only manual step and is the authority-bearing
    act; a draft is not a release.
 
-A manual `workflow_dispatch` with `dry_run: true` runs the whole pipeline on
-any ref, downgrades gate failures to warnings, uploads the artifact set as a
-workflow artifact, and creates no release. Use it to validate the pipeline
-itself.
+A manual `workflow_dispatch` runs the whole pipeline on any ref, uploads the
+artifact set as a workflow artifact, and never creates a release, whatever
+the `dry_run` input says; with `dry_run: true` gate failures are downgraded to
+warnings. Only a pushed tag creates a draft release. Use the manual run to
+validate the pipeline itself.
 
 ## Tag format
 

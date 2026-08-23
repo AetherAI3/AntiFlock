@@ -111,9 +111,9 @@ the change:
 - Two accounts operated by the same person are one reviewer. Approval from
   `dbarrante` on a pull request authored by `AetherAI3` (or the reverse) satisfies
   the ruleset mechanically but is **not** independent security review, and is
-  recorded as self-review in the merge history. Until a second, unaffiliated
-  maintainer exists, every merge to `main` is self-reviewed and the project
-  says so plainly in `SECURITY.md` and `docs/release-status.md`.
+  recorded as self-review in the controller ledger that accompanies each
+  merge train. Until a second, unaffiliated maintainer exists, every merge to
+  `main` is self-reviewed and the project says so plainly in `SECURITY.md`.
 - Reviews produced by AI agents or automated reviewers are **advisory
   evidence**. They may be attached to a pull request and cited, but they are
   never the approving review and never substitute for a human maintainer.
