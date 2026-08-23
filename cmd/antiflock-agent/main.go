@@ -61,10 +61,12 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 			return runEnroll(ctx, arguments[1:], stdout, stderr)
 		case "observe":
 			arguments = arguments[1:]
+		case "plan":
+			return runPlan(ctx, arguments[1:], stdout, stderr)
 		case "status":
 			return runStatus(arguments[1:], stdout, stderr)
 		default:
-			return errors.New("unknown agent command; use enroll or observe")
+			return errors.New("unknown agent command; use enroll, observe, plan, or status")
 		}
 	}
 	flags := flag.NewFlagSet("antiflock-agent", flag.ContinueOnError)

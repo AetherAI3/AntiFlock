@@ -109,6 +109,41 @@ Core, opts into executing simulation evidence for its controlled callback,
 then removes the bridge and restores the prior stack state. Normal SDK callers
 deny simulation evidence by default.
 
+## Inspect a signed endpoint plan without executing it
+
+The Linux agent can inspect a plan locally without reserving replay state,
+running host checks, or invoking a driver:
+
+```powershell
+antiflock-agent plan verify `
+  --plan .\plan.json `
+  --deployment-id <expected-deployment-id> `
+  --node-id <expected-node-id> `
+  --plan-key-id <expected-policy-key-id> `
+  --plan-public-key .\policy-public-key.pem `
+  --capabilities .\node-capabilities.json `
+  --format human
+```
+
+The public-key file must contain exactly one PKIX Ed25519 `PUBLIC KEY` PEM
+block. Plan and capability inputs must be bounded regular files; symbolic links
+and unknown protobuf JSON fields are rejected.
+
+Verification reports these facts separately:
+
+- `valid`: signature, target, expiry, schema, layout, and signed parameter
+  checks passed;
+- `capabilityCompatible`: the supplied node-bound manifest declares every
+  capability required by the plan; and
+- `executable`: always `false` in this release.
+
+A valid signature proves provenance and integrity only. It does not prove that
+content is safe or true, grant authorization, establish driver health, or make
+the plan executable. The JSON form (`--format json`, the default) is stable as
+`antiflock.plan-verification/v1`. Firewall, mesh, route, DNS, and recovery
+readiness are included explicitly and currently report unavailable. Do not
+bypass these results by invoking the library adapter directly.
+
 ## Stop, reset, and recover
 
 Stop services while preserving the SQLite database and simulator identity:

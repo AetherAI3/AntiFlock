@@ -322,6 +322,10 @@ func (err *validationError) Error() string { return err.reasonCode }
 func reject(reason string) *validationError { return &validationError{reasonCode: reason} }
 
 func (enforcer *Enforcer) validatePlan(plan *antiflockv1.Plan, now time.Time) *validationError {
+	return enforcer.validatePlanMode(plan, now, true)
+}
+
+func (enforcer *Enforcer) validatePlanMode(plan *antiflockv1.Plan, now time.Time, requireCapabilities bool) *validationError {
 	if proto.Size(plan) > maximumPlanBytes || model.RejectUnknownFields(plan) != nil {
 		return reject("AF-PLAN-WIRE-INVALID")
 	}
@@ -379,7 +383,7 @@ func (enforcer *Enforcer) validatePlan(plan *antiflockv1.Plan, now time.Time) *v
 				return reject("AF-PLAN-DUPLICATE-ID")
 			}
 			ids[check.Id] = struct{}{}
-			if !enforcer.supportsAll(check.RequiredCapabilities) {
+			if requireCapabilities && !enforcer.supportsAll(check.RequiredCapabilities) {
 				return reject("AF-PLAN-CAPABILITY-UNSUPPORTED")
 			}
 		}
@@ -396,7 +400,7 @@ func (enforcer *Enforcer) validatePlan(plan *antiflockv1.Plan, now time.Time) *v
 			if !validOperationParameters(operation, operationSetIndex == 1, plan.RecoveryAllowlist) {
 				return reject("AF-PLAN-OPERATION-PARAMETERS-INVALID")
 			}
-			if !enforcer.supportsAll(operation.RequiredCapabilities) {
+			if requireCapabilities && !enforcer.supportsAll(operation.RequiredCapabilities) {
 				return reject("AF-PLAN-CAPABILITY-UNSUPPORTED")
 			}
 		}

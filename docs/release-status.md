@@ -1,6 +1,6 @@
 # Reference vertical-slice release status
 
-Status date: 2026-07-23
+Status date: 2026-08-23
 
 The repository implements the locked, local, simulation-backed protected-action
 vertical slice. This is an engineering completion boundary, not a claim of
@@ -14,7 +14,7 @@ production network protection or public-launch readiness.
 | Event and projection spine | Immutable idempotent events, SQLite projections, replay cursors, retention, signed hash-chained audit | Local relational store; no hosted replication claim |
 | Decision plane | Deterministic posture, findings, policy compilation, signed expiring plans, secure-action gate | Decisions use available evidence and remain fail-closed on missing or stale inputs |
 | Agent observation | Enrolled mTLS agent, signed durable queue, continuous Linux network/route/DNS collection, opt-in socket metadata, Tailscale read-only CLI probe, and Headscale BYOK read | Host observations are `DETECTED`; no packet/application payload, provider mutation, or process attribution is claimed |
-| Enforcement transaction | Validate, snapshot, apply, verify, commit or roll back; durable local transaction state | The executable agent does not enable production host mutation in this release |
+| Enforcement transaction | Validate, snapshot, apply, verify, commit or roll back; durable local transaction state; non-mutating `antiflock-agent plan verify` inspection of signed plan identity, target, expiry, layout, parameters, and declared capabilities | The executable verifier always reports `executable: false`; mandatory mesh, route, DNS, durable nftables ownership, and independently verified recovery drivers are absent, so production host mutation remains disabled |
 | Secure Action SDK | Request binding, callback isolation, hold/block/allow, durable single-use grant consumption, mandatory execution-start audit, evidence-provenance enforcement | Reference TypeScript SDK and Aether demonstration only; simulation callbacks require an explicit per-call test opt-in |
 | Android Guard | Pure Kotlin/JVM fail-closed state machine, platform ports, recording adapters, deterministic reference app | No APK, `VpnService`, real packet transport, or real-device validation |
 | Third-Eye dashboard | Authenticated same-origin Core proxy, live projections/stream, locked views, and explicit enrolled-agent/flow/mesh/Nano setup cards | Private/local operator surface; Core credentials never enter browser JavaScript |
