@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "antiflock"
+version = "0.1.0"
+description = "Bootstrap and run AntiFl0ck locally: self-hosted counter-surveillance for the networks you control."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Aether AI", email = "aetherai@aethersystems.net" }]
+keywords = [
+  "antiflock",
+  "counter-surveillance",
+  "privacy",
+  "tailscale",
+  "headscale",
+  "wireguard",
+  "mesh",
+  "self-hosted",
+  "security",
+  "cli",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: System Administrators",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Security",
+  "Topic :: System :: Networking :: Monitoring",
+]
+
+[project.urls]
+Homepage = "https://github.com/AetherAI3/AntiFlock"
+Repository = "https://github.com/AetherAI3/AntiFlock"
+Issues = "https://github.com/AetherAI3/AntiFlock/issues"
+
+[project.scripts]
+antiflock = "antiflock.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/antiflock"]
