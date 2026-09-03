@@ -2,9 +2,11 @@
 # signed Go binary releases from a `v*` tag): this ships the pip/pipx CLI
 # wrapper, an independent package with its own version.
 #
-# Manual trigger only. The `pypi` environment gates access to SECRET_TOKEN
-# (a PyPI API token) and lets a repo maintainer require review before the
-# job runs, from the environment's own protection rules.
+# Manual trigger only. Authenticates via PyPI Trusted Publishing (OIDC) --
+# no token, nothing to rotate or leak. The `pypi` environment scopes which
+# GitHub identity PyPI will accept: its Trusted Publisher must be registered
+# with owner AetherAI3, repo AntiFlock, workflow publish-pypi.yml, and
+# environment name "pypi" (Manage project -> Publishing on pypi.org).
 name: Publish PyPI package
 
 on:
@@ -12,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write # PyPI Trusted Publishing (OIDC)
 
 jobs:
   publish:
@@ -42,4 +45,3 @@ jobs:
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: packages/pypi-cli/dist
-          password: ${{ secrets.SECRET_TOKEN }}
