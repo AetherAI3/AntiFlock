@@ -1,0 +1,45 @@
+# Publishes packages/pypi-cli to PyPI. Separate from release.yml (which cuts
+# signed Go binary releases from a `v*` tag): this ships the pip/pipx CLI
+# wrapper, an independent package with its own version.
+#
+# Manual trigger only. The `pypi` environment gates access to SECRET_TOKEN
+# (a PyPI API token) and lets a repo maintainer require review before the
+# job runs, from the environment's own protection rules.
+name: Publish PyPI package
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build and publish antiflock to PyPI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: pypi
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist and wheel
+        working-directory: packages/pypi-cli
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build twine
+          python -m build
+          twine check dist/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: packages/pypi-cli/dist
+          password: ${{ secrets.SECRET_TOKEN }}
