@@ -1,0 +1,43 @@
+{
+  "name": "antiflock",
+  "version": "0.1.0",
+  "description": "Bootstrap and run AntiFl0ck locally: self-hosted counter-surveillance for the networks you control.",
+  "type": "module",
+  "bin": {
+    "antiflock": "src/antiflock.mjs"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AetherAI3/AntiFlock.git"
+  },
+  "homepage": "https://github.com/AetherAI3/AntiFlock#readme",
+  "bugs": {
+    "url": "https://github.com/AetherAI3/AntiFlock/issues"
+  },
+  "keywords": [
+    "antiflock",
+    "counter-surveillance",
+    "privacy",
+    "tailscale",
+    "headscale",
+    "wireguard",
+    "mesh",
+    "self-hosted",
+    "security",
+    "cli"
+  ],
+  "author": "Aether AI <aetherai@aethersystems.net>",
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  }
+}
