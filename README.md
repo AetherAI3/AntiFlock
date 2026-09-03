@@ -7,6 +7,7 @@
 Map your exposure. Verify your route. Gate sensitive actions.
 
 [![npm](https://img.shields.io/npm/v/antiflock.svg?logo=npm&color=cb3837)](https://www.npmjs.com/package/antiflock)
+[![PyPI](https://img.shields.io/pypi/v/antiflock.svg?logo=pypi&logoColor=white&color=3775a9)](https://pypi.org/project/antiflock/)
 [![CI](https://github.com/AetherAI3/AntiFlock/actions/workflows/ci.yml/badge.svg)](https://github.com/AetherAI3/AntiFlock/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-2dd4bf.svg)](LICENSE)
 [![Status: pre-alpha](https://img.shields.io/badge/Status-pre--alpha-e0a84e.svg)](docs/release-status.md)
@@ -76,7 +77,7 @@ AntiFl0ck explores what the *defensive* side should look like.
 Fully simulated coffee-shop scenario. Needs **Docker**, **git**, and **Node 20+**;
 no VPN account or real data.
 
-### npm (fastest — no clone required)
+### npm or pip (fastest — no clone required)
 
 ```bash
 npx antiflock init   # clones the repo + generates local config
@@ -84,8 +85,16 @@ npx antiflock dev    # builds and starts Core, the simulator, and the dashboard
 npx antiflock lab    # runs the scripted coffee-shop simulation
 ```
 
-`npx antiflock --help` lists every command (`build`, `down`, `clean`, `--dir`,
-`--ref`). [Package details →](https://www.npmjs.com/package/antiflock)
+```bash
+pipx install antiflock
+antiflock init
+antiflock dev
+antiflock lab
+```
+
+`--help` lists every command (`build`, `down`, `clean`, `--dir`, `--ref`) on
+either one. [npm package →](https://www.npmjs.com/package/antiflock) ·
+[PyPI package →](https://pypi.org/project/antiflock/)
 
 ### From a clone
 
