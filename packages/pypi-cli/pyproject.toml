@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "antiflock"
-version = "0.1.0"
+version = "0.1.1"
 description = "Bootstrap and run AntiFl0ck locally: self-hosted counter-surveillance for the networks you control."
 readme = "README.md"
 requires-python = ">=3.9"
