@@ -6,6 +6,7 @@
 
 Map your exposure. Verify your route. Gate sensitive actions.
 
+[![npm](https://img.shields.io/npm/v/antiflock.svg?logo=npm&color=cb3837)](https://www.npmjs.com/package/antiflock)
 [![CI](https://github.com/AetherAI3/AntiFlock/actions/workflows/ci.yml/badge.svg)](https://github.com/AetherAI3/AntiFlock/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-2dd4bf.svg)](LICENSE)
 [![Status: pre-alpha](https://img.shields.io/badge/Status-pre--alpha-e0a84e.svg)](docs/release-status.md)
@@ -72,8 +73,21 @@ AntiFl0ck explores what the *defensive* side should look like.
 
 ## Run the demo
 
-Fully simulated coffee-shop scenario. Needs **Docker** and **Node 24+**; no VPN
-account or real data.
+Fully simulated coffee-shop scenario. Needs **Docker**, **git**, and **Node 20+**;
+no VPN account or real data.
+
+### npm (fastest — no clone required)
+
+```bash
+npx antiflock init   # clones the repo + generates local config
+npx antiflock dev    # builds and starts Core, the simulator, and the dashboard
+npx antiflock lab    # runs the scripted coffee-shop simulation
+```
+
+`npx antiflock --help` lists every command (`build`, `down`, `clean`, `--dir`,
+`--ref`). [Package details →](https://www.npmjs.com/package/antiflock)
+
+### From a clone
 
 ```bash
 make dev
@@ -83,9 +97,12 @@ make dev
 make lab
 ```
 
-Then open <http://127.0.0.1:4173> — username `operator`, token from
-`.antiflock/dev.env`. On Windows without `make`: `npm run dev` / `npm run lab`.
-Full guide: [operator runbook](docs/operator-runbook.md).
+On Windows without `make`: `npm run dev` / `npm run lab`.
+
+### Either way
+
+Open <http://127.0.0.1:4173> — username `operator`, token from
+`.antiflock/dev.env`. Full guide: [operator runbook](docs/operator-runbook.md).
 
 ## Working today vs. open
 
