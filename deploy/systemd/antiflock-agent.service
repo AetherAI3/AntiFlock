@@ -1,0 +1,68 @@
+# AntiFlock endpoint agent, observe mode.
+#
+# This unit runs the read-only observer as the dedicated, unprivileged
+# "antiflock" user. It needs no capabilities: it reads /proc/net, the
+# resolver configuration, and interface metadata, signs events with the node
+# key under /var/lib/antiflock, and submits them to Core over mTLS.
+#
+# Enforcement (nftables, routes, DNS) is NOT available in this binary and is
+# deliberately impossible under this unit: the capability bounding set is
+# empty and NoNewPrivileges is on. A future enforcement unit is a separate,
+# reviewed file, never an edit that widens this one.
+[Unit]
+Description=AntiFlock endpoint agent (observe mode, read-only)
+Documentation=https://github.com/AetherAI3/AntiFlock/blob/main/docs/agent-lifecycle.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/antiflock/agent.yaml
+
+[Service]
+Type=simple
+User=antiflock
+Group=antiflock
+DynamicUser=no
+ExecStart=/usr/bin/antiflock-agent observe --config /etc/antiflock/agent.yaml --submit
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=20s
+KillSignal=SIGTERM
+UMask=0077
+
+# Writable state is confined to the agent's own directories.
+StateDirectory=antiflock
+StateDirectoryMode=0700
+LogsDirectory=antiflock
+LogsDirectoryMode=0700
+ReadWritePaths=/var/lib/antiflock
+ReadOnlyPaths=/etc/antiflock
+
+# Hardening. Every directive below is compatible with a read-only observer.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @reboot @swap @obsolete @cpu-emulation @debug
+SystemCallErrorNumber=EPERM
+RemoveIPC=yes
+
+[Install]
+WantedBy=multi-user.target

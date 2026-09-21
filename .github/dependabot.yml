@@ -1,3 +1,12 @@
+# Dependabot configuration.
+#
+# Every ecosystem entry points at a directory that owns a lockfile. There is
+# deliberately NO npm entry for the repository root: the root package.json is a
+# private workspace manifest with no dependencies and no package-lock.json, and
+# an entry there made Dependabot open lockfile-less duplicates of the
+# per-workspace updates (for example #37, #38, #55), which can never pass the
+# "Node.js 24 workspaces" gate. Each workspace below is grouped so one PR per
+# workspace per week is the steady state.
 version: 2
 updates:
   # Go modules (single go.work module at the repo root).
@@ -11,19 +20,12 @@ updates:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 
-  # JavaScript workspaces (root + each npm workspace).
-  - package-ecosystem: npm
-    directory: "/"
-    schedule:
-      interval: weekly
-    groups:
-      js-root:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+  # JavaScript workspaces: one entry per workspace that owns a package-lock.json.
   - package-ecosystem: npm
     directory: "/apps/web"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
     groups:
       web-deps:
         patterns: ["*"]
@@ -32,6 +34,7 @@ updates:
     directory: "/apps/aether-demo"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
     groups:
       demo-deps:
         patterns: ["*"]
@@ -40,6 +43,7 @@ updates:
     directory: "/sdk/typescript"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
     groups:
       sdk-deps:
         patterns: ["*"]
@@ -50,6 +54,7 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 3
     groups:
       actions:
         patterns: ["*"]
@@ -59,3 +64,4 @@ updates:
     directory: "/deploy/docker"
     schedule:
       interval: weekly
+    open-pull-requests-limit: 2

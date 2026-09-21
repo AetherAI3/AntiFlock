@@ -1,28 +1,27 @@
 # Code ownership and review routing.
-# Every merge into a security- or privacy-sensitive surface requires maintainer review.
-# TODO(governance): add dedicated security/privacy maintainers per GOVERNANCE.md.
+# Every merge into a security- or privacy-sensitive surface requires independent maintainer review.
 
 # Default owner for everything in the repo.
-*                             @AetherAI3
+*                             @AetherAI3 @dbarrante
 
 # Control, policy, and intelligence plane.
-/core/                        @AetherAI3
-/agent/                       @AetherAI3
-/adapters/                    @AetherAI3
+/core/                        @AetherAI3 @dbarrante
+/agent/                       @AetherAI3 @dbarrante
+/adapters/                    @AetherAI3 @dbarrante
 
 # Wire contracts — protobuf fields are published once released.
-/api/                         @AetherAI3
+/api/                         @AetherAI3 @dbarrante
 
 # Deployment, supply chain, and CI.
-/deploy/                      @AetherAI3
-/.github/                     @AetherAI3
+/deploy/                      @AetherAI3 @dbarrante
+/.github/                     @AetherAI3 @dbarrante
 
 # Locked safety, privacy, and governance documents.
-/SECURITY.md                  @AetherAI3
-/GOVERNANCE.md                @AetherAI3
-/CODE_OF_CONDUCT.md           @AetherAI3
-/docs/threat-model.md         @AetherAI3
-/docs/evidence-model.md       @AetherAI3
-/docs/privacy-invariants.md   @AetherAI3
-/docs/signing-contracts.md    @AetherAI3
-/docs/community-intelligence-policy.md  @AetherAI3
+/SECURITY.md                  @AetherAI3 @dbarrante
+/GOVERNANCE.md                @AetherAI3 @dbarrante
+/CODE_OF_CONDUCT.md           @AetherAI3 @dbarrante
+/docs/threat-model.md         @AetherAI3 @dbarrante
+/docs/evidence-model.md       @AetherAI3 @dbarrante
+/docs/privacy-invariants.md   @AetherAI3 @dbarrante
+/docs/signing-contracts.md    @AetherAI3 @dbarrante
+/docs/community-intelligence-policy.md  @AetherAI3 @dbarrante

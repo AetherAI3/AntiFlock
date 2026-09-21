@@ -97,6 +97,7 @@ type fixture struct {
 	plan           *antiflockv1.Plan
 	manifest       *antiflockv1.CapabilityManifest
 	planPublicKey  ed25519.PublicKey
+	planPrivateKey ed25519.PrivateKey
 	nodePublicKey  ed25519.PublicKey
 	nodePrivateKey ed25519.PrivateKey
 	now            time.Time
@@ -122,7 +123,7 @@ func newFixture(t *testing.T) fixture {
 		t.Fatalf("compile plan: %v, %#v", err, violations)
 	}
 	return fixture{
-		plan: plan, manifest: manifest, planPublicKey: planPrivateKey.Public().(ed25519.PublicKey),
+		plan: plan, manifest: manifest, planPublicKey: planPrivateKey.Public().(ed25519.PublicKey), planPrivateKey: planPrivateKey,
 		nodePublicKey: nodePrivateKey.Public().(ed25519.PublicKey), nodePrivateKey: nodePrivateKey,
 		now: plan.CreatedAt.AsTime().Add(time.Second),
 	}
@@ -271,6 +272,68 @@ func TestEnforcerRejectsWrongTargetAndUnsupportedCapabilitiesWithoutMutation(t *
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestEnforcerRejectsValidlySignedCapabilitySubstitutionWithoutMutation(t *testing.T) {
+	t.Parallel()
+	fixture := newFixture(t)
+	plan := proto.Clone(fixture.plan).(*antiflockv1.Plan)
+	substitute := func(requirements []*antiflockv1.CapabilityRequirement) {
+		for index := range requirements {
+			requirements[index] = &antiflockv1.CapabilityRequirement{
+				Key: "network.metadata.observe",
+				RequiredOperations: []antiflockv1.CapabilityOperation{
+					antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_OBSERVE,
+				},
+				MinimumSupportLevel: antiflockv1.CapabilitySupportLevel_CAPABILITY_SUPPORT_LEVEL_FULL,
+			}
+		}
+	}
+	for _, check := range append(append([]*antiflockv1.PlanCheck(nil), plan.Preconditions...), plan.Verifications...) {
+		substitute(check.RequiredCapabilities)
+	}
+	for _, operation := range append(append([]*antiflockv1.PlanOperation(nil), plan.Actions...), plan.Rollback...) {
+		substitute(operation.RequiredCapabilities)
+	}
+	resignPlanForTest(t, plan, fixture.planPrivateKey)
+	if err := policy.VerifyPlan(plan, fixture.planPublicKey, fixture.now); err != nil {
+		t.Fatalf("substitution fixture is not validly signed: %v", err)
+	}
+	manifest := proto.Clone(fixture.manifest).(*antiflockv1.CapabilityManifest)
+	manifest.Capabilities = append(manifest.Capabilities, &antiflockv1.Capability{
+		Key: "network.metadata.observe",
+		Operations: []antiflockv1.CapabilityOperation{
+			antiflockv1.CapabilityOperation_CAPABILITY_OPERATION_OBSERVE,
+		},
+		SupportLevel: antiflockv1.CapabilitySupportLevel_CAPABILITY_SUPPORT_LEVEL_FULL,
+	})
+	verified, err := VerifyPlan(PlanVerificationConfig{
+		DeploymentID: "deployment", NodeID: "node", PlanKeyID: "policy-key",
+		PlanPublicKey: fixture.planPublicKey, Capabilities: manifest,
+		Clock: func() time.Time { return fixture.now },
+	}, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.Valid || verified.CapabilityCompatible || verified.Executable || verified.ReasonCode != "AF-PLAN-LAYOUT-UNSUPPORTED" {
+		t.Fatalf("substituted plan verification = %#v", verified)
+	}
+	driver := &fakeDriver{observedAt: fixture.now}
+	enforcer, err := New(Config{
+		DeploymentID: "deployment", NodeID: "node", PlanKeyID: "policy-key", PlanPublicKey: fixture.planPublicKey,
+		NodePrivateKey: fixture.nodePrivateKey, Capabilities: manifest, Driver: driver,
+		StateStore: NewMemoryStateStore(0, 0), Clock: func() time.Time { return fixture.now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := enforcer.Apply(context.Background(), plan)
+	if !errors.Is(err, ErrPlanRejected) || result == nil || result.ReasonCode != "AF-PLAN-LAYOUT-UNSUPPORTED" {
+		t.Fatalf("substituted plan rejection = %#v, %v", result, err)
+	}
+	if len(driver.Calls()) != 0 {
+		t.Fatal("substituted plan reached the mutation driver")
 	}
 }
 
