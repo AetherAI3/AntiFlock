@@ -1,0 +1,1 @@
+The gateway at 10.0.0.1 answered in 12ms; route unchanged.
