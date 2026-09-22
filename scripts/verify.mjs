@@ -26,7 +26,7 @@ import {
   versions,
 } from "./tooling.mjs";
 
-const allowedSections = new Set(["proto", "go", "javascript", "android", "acceptance"]);
+const allowedSections = new Set(["proto", "go", "javascript", "android", "adversarial", "acceptance"]);
 const requestedSections = new Set();
 let install = false;
 let lintOnly = false;
@@ -53,7 +53,7 @@ const fullVerification = requestedSections.size === 0 && !lintOnly;
 if (requestedSections.size === 0) {
   const defaults = lintOnly
     ? ["proto", "go", "javascript"]
-    : ["proto", "go", "javascript", "android", "acceptance"];
+    : ["proto", "go", "javascript", "android", "adversarial", "acceptance"];
   defaults.forEach((section) => requestedSections.add(section));
 }
 if (fullVerification) install = true;
@@ -187,6 +187,58 @@ function verifyGo() {
   }
 }
 
+// Adversarial qualification: the hostile, fuzz, replay, and netns suites under
+// tests/ plus a bounded fuzzing pass per target. "Unavailable" (no Go, no
+// targets, a target that cannot start) is a failure, never a pass. See
+// docs/adversarial-qualification.md.
+const adversarialPackages = Object.freeze(["./tests/..."]);
+const fuzzPackage = "./tests/fuzz/";
+const fuzzTime = process.env.ANTIFLOCK_FUZZTIME ?? "20s";
+
+function listFuzzTargets() {
+  const directory = join(root, "tests", "fuzz");
+  if (!existsSync(directory) || !statSync(directory).isDirectory()) return [];
+  const targets = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith("_test.go")) continue;
+    const source = readFileSync(join(directory, entry.name), "utf8");
+    for (const match of source.matchAll(/^func (Fuzz[A-Za-z0-9_]+)\(/gm)) targets.push(match[1]);
+  }
+  return targets.sort();
+}
+
+function verifyAdversarial() {
+  check(
+    "Adversarial suites (race)",
+    runGoStep("Adversarial suites (race)", ["test", "-race", "-count=1", ...adversarialPackages], { timeout: 900_000 }),
+  );
+  check(
+    "Queue saturation",
+    runGoStep(
+      "Queue saturation",
+      ["test", "-race", "-count=1", "-run", "^TestQueueSaturationUnderConcurrentWriters$", "./tests/hostile/"],
+      { timeout: 300_000 },
+    ),
+  );
+  const targets = listFuzzTargets();
+  process.stdout.write(`\n==> Fuzz targets discovered: ${targets.length}\n`);
+  if (targets.length === 0) {
+    process.stderr.write("No fuzz targets found under tests/fuzz; parser fuzzing is unavailable, which is not a pass.\n");
+    failures.push("Fuzz targets");
+    return;
+  }
+  for (const target of targets) {
+    check(
+      `Fuzz ${target}`,
+      runGoStep(
+        `Fuzz ${target} (${fuzzTime})`,
+        ["test", "-run", "^$", `-fuzz=^${target}$`, `-fuzztime=${fuzzTime}`, "-parallel=2", fuzzPackage],
+        { timeout: 600_000 },
+      ),
+    );
+  }
+}
+
 function verifyJavascript() {
   const nodeMajor = Number.parseInt(process.versions.node.split(".")[0], 10);
   if (nodeMajor < 24) {
@@ -232,6 +284,7 @@ if (requestedSections.has("javascript")) verifyJavascript();
 if (requestedSections.has("android") && !lintOnly) {
   check("Android JVM tests", runAndroidTests());
 }
+if (requestedSections.has("adversarial") && !lintOnly) verifyAdversarial();
 if (requestedSections.has("acceptance") && !lintOnly) {
   check(
     "Acceptance",
