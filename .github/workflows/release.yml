@@ -1,0 +1,350 @@
+# Release pipeline. See docs/release-policy.md for the policy this workflow
+# implements and GOVERNANCE.md for the gate it enforces.
+#
+# Trigger: a `v*` tag push, or a manual dry run. Every third-party action is
+# pinned to an immutable commit; Dependabot maintains the pins.
+#
+# Guarantees:
+#   - the tagged commit must be on `main` and every required status check must
+#     have succeeded on that exact SHA (the `gate` job), or the run fails;
+#   - binaries are built with -trimpath -buildvcs=true and CGO disabled
+#     (deploy/docker/core.Dockerfile uses the same flags minus -buildvcs);
+#   - a CycloneDX SBOM, SHA256SUMS, a cosign keyless signature, and a cosign
+#     provenance attestation are produced for every artifact set;
+#   - the GitHub Release is created as a DRAFT; a human publishes it;
+#   - no secrets beyond the ephemeral GITHUB_TOKEN and the OIDC identity
+#     token are used; `contents: write` and `id-token: write` are granted
+#     only to the `release` job.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build, scan, checksum, and sign, but do not create a GitHub Release. Gate failures become warnings. A manual run never creates a release regardless of this input; push a tag to release."
+        type: boolean
+        default: true
+
+# One release at a time per ref; never cancel a release run that is in flight.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CI: "1"
+  GO_VERSION: 1.26.6
+  # Required status-check contexts on the `main` ruleset. Keep in sync with
+  # GOVERNANCE.md and the job names in ci.yml, codeql.yml, and gitleaks.yml.
+  REQUIRED_CONTEXTS: |
+    Protobuf contracts
+    Go 1.26.6
+    Node.js 24 workspaces
+    Android reference JVM tests
+    Strict acceptance gates
+    analyze (go)
+    analyze (javascript-typescript)
+    scan
+
+jobs:
+  gate:
+    name: Release gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: read
+    outputs:
+      commit: ${{ steps.resolve.outputs.commit }}
+      version: ${{ steps.resolve.outputs.version }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+      dry_run: ${{ steps.resolve.outputs.dry_run }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the release commit and version
+        id: resolve
+        env:
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            dry_run="${DRY_RUN_INPUT:-true}"
+          else
+            dry_run="false"
+          fi
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+            if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-(rc|canary)\.[0-9]+)?$'; then
+              echo "::error::tag '$tag' does not match vMAJOR.MINOR.PATCH[-rc.N|-canary.N]"
+              exit 1
+            fi
+            commit="$(git rev-parse "${tag}^{commit}")"
+            version="${tag#v}"
+          else
+            commit="$(git rev-parse HEAD)"
+            version="0.0.0-dryrun.$(git rev-parse --short=12 HEAD)"
+          fi
+          prerelease="false"
+          case "$version" in *-*) prerelease="true" ;; esac
+          {
+            echo "commit=$commit"
+            echo "version=$version"
+            echo "prerelease=$prerelease"
+            echo "dry_run=$dry_run"
+          } >> "$GITHUB_OUTPUT"
+          echo "commit=$commit version=$version prerelease=$prerelease dry_run=$dry_run"
+
+      - name: Require the commit to be on main with every required check green
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ steps.resolve.outputs.commit }}
+          DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          failures=0
+          fail() {
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "::warning::(dry run) $1"
+            else
+              echo "::error::$1"
+            fi
+            failures=$((failures + 1))
+          }
+
+          git fetch --no-tags origin main
+          if git merge-base --is-ancestor "$COMMIT" origin/main; then
+            echo "commit $COMMIT is reachable from origin/main"
+          else
+            fail "commit $COMMIT is not on main; releases are cut only from main"
+          fi
+
+          # Every required context must have a successful check run bound to
+          # this exact SHA. A missing, skipped, cancelled, or still-running
+          # check is a failure, never a pass.
+          runs="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${COMMIT}/check-runs?per_page=100" \
+            --jq '.check_runs[] | "\(.name)\t\(.status)\t\(.conclusion // "none")"')"
+          printf '%s\n' "$REQUIRED_CONTEXTS" | sed '/^[[:space:]]*$/d' | while IFS= read -r ctx; do
+            if printf '%s\n' "$runs" | awk -F'\t' -v c="$ctx" '$1 == c && $2 == "completed" && $3 == "success" { found = 1 } END { exit found ? 0 : 1 }'; then
+              echo "ok   $ctx"
+            else
+              echo "MISS $ctx"
+            fi
+          done | tee "$RUNNER_TEMP/gate.txt"
+          if grep -q '^MISS ' "$RUNNER_TEMP/gate.txt"; then
+            fail "one or more required status checks did not succeed on $COMMIT"
+          fi
+
+          if [ "$failures" -gt 0 ] && [ "$DRY_RUN" != "true" ]; then
+            exit 1
+          fi
+
+  release:
+    name: Build, attest, and draft release
+    needs: [gate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: write # create the draft GitHub Release and upload its assets
+      id-token: write # sigstore keyless signing via GitHub OIDC
+    env:
+      COMMIT: ${{ needs.gate.outputs.commit }}
+      VERSION: ${{ needs.gate.outputs.version }}
+      PRERELEASE: ${{ needs.gate.outputs.prerelease }}
+      DRY_RUN: ${{ needs.gate.outputs.dry_run }}
+    steps:
+      - name: Prepare the artifact directory
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dist"
+          echo "DIST=$RUNNER_TEMP/dist" >> "$GITHUB_ENV"
+
+      - name: Check out the release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.gate.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: false
+          cache: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.0.6
+
+      - name: Build Linux binaries reproducibly
+        env:
+          CGO_ENABLED: "0"
+          GOFLAGS: -trimpath -buildvcs=true
+        run: |
+          set -euo pipefail
+          mkdir -p "$DIST"
+          # The working tree must be clean so -buildvcs records vcs.modified=false.
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::working tree is dirty; refusing to stamp a release build"
+            git status --porcelain
+            exit 1
+          fi
+          for target in linux/amd64 linux/arm64; do
+            GOOS="${target%/*}"
+            GOARCH="${target#*/}"
+            export GOOS GOARCH
+            for bin in antiflock-agent antiflock-core antiflockctl; do
+              out="$DIST/${bin}_${VERSION}_${GOOS}_${GOARCH}"
+              go build -ldflags="-s -w" -o "$out" "./cmd/${bin}"
+              echo "built $out"
+            done
+          done
+          go version -m "$DIST/antiflock-core_${VERSION}_linux_amd64" | grep -E 'vcs\.(revision|modified)|-trimpath' || true
+
+      - name: Generate the CycloneDX SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: ${{ runner.temp }}/dist/antiflock_${{ needs.gate.outputs.version }}.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Write SHA256SUMS
+        run: |
+          set -euo pipefail
+          cd "$DIST"
+          # Enumerate the artifact set explicitly: a glob silently drops files
+          # whose names do not match (antiflockctl has no hyphen) and the doc
+          # promise is that SHA256SUMS covers every binary plus the SBOM.
+          artifacts=()
+          for arch in amd64 arm64; do
+            for bin in antiflock-agent antiflock-core antiflockctl; do
+              artifacts+=("${bin}_${VERSION}_linux_${arch}")
+            done
+          done
+          artifacts+=("antiflock_${VERSION}.cdx.json")
+          for f in "${artifacts[@]}"; do
+            test -s "$f" || { echo "::error::missing artifact $f"; exit 1; }
+          done
+          sha256sum -- "${artifacts[@]}" > SHA256SUMS
+          expected=$(( ${#artifacts[@]} ))
+          actual=$(wc -l < SHA256SUMS)
+          if [ "$actual" -ne "$expected" ]; then
+            echo "::error::SHA256SUMS has $actual lines, expected $expected"
+            exit 1
+          fi
+          sha256sum -c --strict SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Sign SHA256SUMS and attest provenance (keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          cd "$DIST"
+          cosign sign-blob --bundle SHA256SUMS.sigstore.json SHA256SUMS
+
+          # Minimal SLSA v1 provenance predicate binding the artifact set to the
+          # source commit, the workflow that built it, and the toolchain.
+          cat > "$RUNNER_TEMP/provenance.json" <<EOF
+          {
+            "buildDefinition": {
+              "buildType": "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}",
+              "externalParameters": {
+                "repository": "https://github.com/${GITHUB_REPOSITORY}",
+                "ref": "${GITHUB_REF}",
+                "version": "${VERSION}"
+              },
+              "internalParameters": {
+                "go": "$(go version | awk '{print $3}')",
+                "goflags": "-trimpath -buildvcs=true",
+                "cgo_enabled": "0"
+              },
+              "resolvedDependencies": [
+                { "uri": "git+https://github.com/${GITHUB_REPOSITORY}@${GITHUB_REF}", "digest": { "gitCommit": "${COMMIT}" } }
+              ]
+            },
+            "runDetails": {
+              "builder": { "id": "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" },
+              "metadata": { "invocationId": "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" }
+            }
+          }
+          EOF
+          cosign attest-blob \
+            --type slsaprovenance1 \
+            --predicate "$RUNNER_TEMP/provenance.json" \
+            --bundle SHA256SUMS.provenance.sigstore.json \
+            SHA256SUMS
+
+          # Verify what we just produced before it leaves the runner.
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@${GITHUB_REF}"
+          cosign verify-blob \
+            --bundle SHA256SUMS.sigstore.json \
+            --certificate-identity "$identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            SHA256SUMS
+          cosign verify-blob-attestation \
+            --bundle SHA256SUMS.provenance.sigstore.json \
+            --type slsaprovenance1 \
+            --certificate-identity "$identity" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            SHA256SUMS
+          sha256sum -c --strict SHA256SUMS
+          ls -l "$DIST"
+
+      - name: Upload the artifact set for inspection
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: antiflock-${{ needs.gate.outputs.version }}
+          path: ${{ runner.temp }}/dist/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create the DRAFT GitHub Release
+        # Only a real tag push creates a release. A workflow_dispatch on a tag
+        # ref with dry_run=false still stops here; cut releases by pushing a tag.
+        if: github.event_name == 'push' && github.ref_type == 'tag' && needs.gate.outputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          prerelease_flag=""
+          if [ "$PRERELEASE" = "true" ]; then
+            prerelease_flag="--prerelease"
+          fi
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          AntiFl0ck ${TAG} — DRAFT, not yet published.
+
+          Source commit: ${COMMIT}
+
+          Verify before use (see docs/release-policy.md):
+
+              sha256sum -c SHA256SUMS
+              cosign verify-blob --bundle SHA256SUMS.sigstore.json \\
+                --certificate-identity https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${TAG} \\
+                --certificate-oidc-issuer https://token.actions.githubusercontent.com SHA256SUMS
+
+          Release notes: fill in from CHANGELOG.md before publishing.
+          EOF
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --verify-tag \
+            $prerelease_flag \
+            --title "AntiFl0ck $TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            "$DIST"/*
+          echo "draft release created for $TAG; a maintainer must publish it"

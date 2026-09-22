@@ -49,6 +49,25 @@ A pull request should state:
 Maintainers may request focused security, privacy, accessibility, or abuse-case
 review. Use private vulnerability reporting for exploitable issues.
 
+## Review and merge
+
+`main` is protected by a repository ruleset with no bypass actors: one
+approving review of the last push, every thread resolved, linear history, and
+eight required status checks that must pass on the exact commit being merged
+(`GOVERNANCE.md` lists them). Merges are squash or rebase only; keep your
+branch rebased on `main` because the checks are strict (up to date required).
+
+Do not rename the CI jobs in `.github/workflows/ci.yml`, `codeql.yml`, or
+`gitleaks.yml`: their job names are the required status-check contexts, and a
+rename silently detaches the gate until the ruleset is edited.
+
+Reviews from AI agents or automated tools are welcome as advisory evidence on
+a pull request; they never count as the approving review. Two accounts
+operated by the same person are one reviewer. Dependency additions (Go
+modules, npm packages, new GitHub Actions) are called out explicitly in the
+pull request; every action is pinned to a full commit SHA with a version
+comment. See `docs/supply-chain.md` and `docs/release-policy.md`.
+
 By intentionally submitting a contribution, you agree that it is licensed
 under the repository's Apache License 2.0 unless you conspicuously mark it as
 not a contribution before submission.

@@ -1,0 +1,32 @@
+# Dependency review on pull requests: fails the job when a PR introduces a
+# dependency with a known vulnerability of high or critical severity, or a
+# license outside the allowlist. Advisory until added to the main ruleset;
+# see GOVERNANCE.md. Every third-party action is pinned to an immutable
+# commit; Dependabot maintains the pins.
+name: Dependency review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: never
+          allow-licenses: >-
+            Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0,
+            0BSD, Unlicense, CC0-1.0, BlueOak-1.0.0, Python-2.0, PSF-2.0

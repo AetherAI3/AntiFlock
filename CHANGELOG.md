@@ -7,11 +7,36 @@ is cut.
 
 ## [Unreleased]
 
+### Added
+- Release governance: `GOVERNANCE.md` now documents the real `main` gate
+  (repository ruleset `21237783`, the eight required status-check contexts,
+  the one-approval/last-push rule, no bypass actors), the reviewer
+  independence rule, the keyless release-signing policy, the SBOM and
+  checksum policy, and the release baseline statement. `SECURITY.md` gains
+  private-advisory reporting, response targets, supported versions, and
+  release-integrity verification. New `docs/release-policy.md`
+  (candidate → canary → release, artifact set, tag format, rollback, external
+  adversarial gate rule) and `docs/supply-chain.md`.
+- `.github/workflows/release.yml`: tag-triggered (`v*`) and dry-run release
+  pipeline that gates on the exact SHA being on `main` with all required
+  checks green, builds Linux agent/core/ctl binaries with
+  `-trimpath -buildvcs=true`, emits a CycloneDX SBOM and `SHA256SUMS`, signs
+  and attests with cosign keyless, and opens a draft GitHub Release.
+- `.github/workflows/dependency-review.yml`: advisory dependency review on
+  pull requests.
+
 ### Changed
+- `.github/dependabot.yml` drops the lockfile-less root npm entry that
+  produced duplicate workspace PRs; one grouped PR per workspace remains.
+- `CONTRIBUTING.md` documents the review and merge mechanics.
 - Public name is now **AntiFl0ck** (chosen to avoid a documented naming collision).
   Internal identifiers migrate via `scripts/rebrand-antifl0ck.mjs`; see
   [docs/REBRAND.md](docs/REBRAND.md). The module path `github.com/DBarr3/AntiFlock`
   is preserved.
+
+### Removed
+- `_loopstate/**` internal agent-loop run artifacts are no longer in the
+  repository.
 
 ## [0.1.0] — reference vertical slice
 

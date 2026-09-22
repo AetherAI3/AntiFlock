@@ -1,0 +1,40 @@
+# Publishes packages/npm-cli to npm. Independent of publish-pypi.yml and
+# release.yml (signed Go binaries from a `v*` tag) -- its own ecosystem, own
+# version, own trigger.
+#
+# Manual trigger only. Authenticates via npm Trusted Publishing (OIDC) -- no
+# token, nothing to rotate or leak. Its Trusted Publisher must be registered
+# on npmjs.com (package antiflock -> Settings -> Trusted Publisher) with
+# owner AetherAI3, repo AntiFlock, and workflow publish-npm.yml.
+name: Publish npm package
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write # npm Trusted Publishing (OIDC)
+
+jobs:
+  publish:
+    name: Build and publish antiflock to npm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Update npm to a Trusted-Publishing-capable version
+        run: npm install -g npm@latest
+
+      - name: Publish to npm
+        working-directory: packages/npm-cli
+        run: npm publish --provenance --access public
