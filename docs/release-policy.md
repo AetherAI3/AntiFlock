@@ -74,7 +74,7 @@ Each release produces, for `linux/amd64` and `linux/arm64`:
 | `SHA256SUMS.provenance.sigstore.json`      | cosign attestation bundle (SLSA v1 provenance predicate) over `SHA256SUMS` |
 
 Build flags: `CGO_ENABLED=0 go build -trimpath -buildvcs=true -ldflags="-s -w"`,
-Go `1.26.6` (the same version as the `Go 1.26.6` required check). The
+Go `1.26.8` (the same toolchain used by the required Go check). The
 workflow refuses to build from a dirty tree so `vcs.modified` is always
 `false` in a release binary. `antiflock-sim` and the container image are not
 release artifacts in this policy revision; the image remains a lab/dev

@@ -8,7 +8,7 @@ this is the inventory.
 
 | Input                        | Control                                                                 |
 | ---------------------------- | ----------------------------------------------------------------------- |
-| Go modules (`go.mod`, `go.sum`) | `go mod tidy -diff` and `govulncheck` in the `Go 1.26.6` required check; new modules need maintainer sign-off in the pull request; Dependabot group `go-dependencies` weekly |
+| Go modules (`go.mod`, `go.sum`) | `go mod tidy -diff` and `govulncheck` in the required Go check; new modules need maintainer sign-off in the pull request; Dependabot group `go-dependencies` weekly |
 | npm workspaces (`apps/web`, `apps/aether-demo`, `sdk/typescript`) | lockfiles required (`scripts/install-js.mjs` installs with `npm ci`); Dependabot one group per workspace; there is no root npm entry because the root has no lockfile |
 | GitHub Actions               | every `uses:` pinned to a full commit SHA with a `# vX.Y.Z` comment; Dependabot group `actions` weekly; `dependency-review.yml` reviews every pull request for vulnerable or disallowed-license additions |
 | Container base images        | `deploy/docker/core.Dockerfile` pins `golang` and `distroless` by digest; Dependabot `docker` entry weekly |
@@ -23,7 +23,7 @@ Dependabot PR is not auto-merged.
 Release binaries are built by `.github/workflows/release.yml` on GitHub-hosted
 `ubuntu-24.04` runners with:
 
-- Go `1.26.6`, the same toolchain as the required `Go 1.26.6` check;
+- Go `1.26.8`, the same toolchain as the required Go check;
 - `CGO_ENABLED=0`, `-trimpath`, `-buildvcs=true`, `-ldflags="-s -w"`;
 - a clean checkout of the exact tagged commit (the workflow refuses a dirty
   tree).
