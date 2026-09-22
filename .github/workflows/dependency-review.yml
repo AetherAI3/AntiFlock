@@ -30,3 +30,8 @@ jobs:
           allow-licenses: >-
             Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0,
             0BSD, Unlicense, CC0-1.0, BlueOak-1.0.0, Python-2.0, PSF-2.0
+          # Go's x/net and x/sys modules are BSD-3-Clause and also ship the
+          # Go project's royalty-free patent grant. Scope the exception to
+          # these two module PURLs; vulnerability review remains enabled.
+          allow-dependencies-licenses: >-
+            pkg:golang/golang.org/x/net, pkg:golang/golang.org/x/sys
