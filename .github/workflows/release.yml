@@ -38,7 +38,7 @@ permissions:
 
 env:
   CI: "1"
-  GO_VERSION: 1.26.6
+  GO_VERSION: 1.26.8
   # Required status-check contexts on the `main` ruleset. Keep in sync with
   # GOVERNANCE.md and the job names in ci.yml, codeql.yml, and gitleaks.yml.
   REQUIRED_CONTEXTS: |
