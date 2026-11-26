@@ -57,6 +57,8 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 	}
 	if len(arguments) > 0 && !strings.HasPrefix(arguments[0], "-") {
 		switch arguments[0] {
+		case "capture-rotation":
+			return runCaptureRotation(ctx, arguments[1:], stdout, stderr)
 		case "enroll":
 			return runEnroll(ctx, arguments[1:], stdout, stderr)
 		case "observe":
@@ -66,7 +68,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) erro
 		case "status":
 			return runStatus(arguments[1:], stdout, stderr)
 		default:
-			return errors.New("unknown agent command; use enroll, observe, plan, or status")
+			return errors.New("unknown agent command; use capture-rotation, enroll, observe, plan, or status")
 		}
 	}
 	flags := flag.NewFlagSet("antiflock-agent", flag.ContinueOnError)

@@ -492,6 +492,10 @@ func NewTelemetryBuilder(deploymentID, nodeID, bootID string, sequences Sequence
 // Build creates and validates one signed event. It never upgrades the supplied
 // evidence class; VERIFIED still requires real supporting provenance.
 func (builder *TelemetryBuilder) Build(ctx context.Context, observation Observation) (*antiflockv1.EventEnvelope, QueuePriority, error) {
+	return builder.build(ctx, observation, "")
+}
+
+func (builder *TelemetryBuilder) build(ctx context.Context, observation Observation, correlationID string) (*antiflockv1.EventEnvelope, QueuePriority, error) {
 	if builder == nil {
 		return nil, 0, errors.New("telemetry builder is required")
 	}
@@ -520,6 +524,7 @@ func (builder *TelemetryBuilder) Build(ctx context.Context, observation Observat
 		Kind: observation.Kind, ObservedAt: observation.ObservedAt.UTC(), Sequence: sequence, BootID: builder.bootID,
 		Classification: observation.Classification, Confidence: observation.Confidence, Sensitivity: observation.Sensitivity,
 		PayloadTypeURL: typeURL, Payload: payload, Evidence: append([]model.EvidenceReference(nil), observation.Evidence...),
+		CorrelationID: correlationID,
 	}
 	event.ID = eventID(event)
 	if err := model.ValidateEvidenceAt(event, builder.clock().UTC()); err != nil {
