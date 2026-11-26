@@ -125,6 +125,30 @@ configured) and passes every other flag through. Output is the existing
 observation document, not the envelope. The flag-only form without
 `--config` is unchanged.
 
+### `capture-rotation`
+
+```text
+antiflock-agent capture-rotation --config OBSERVER.yaml --intent intent.json \
+  --owner-id OWNER --workload-id WORKLOAD --intent-public-key OWNER_ED25519_HEX \
+  --output /private/run/route.pb
+```
+
+The Linux one-shot captures a single active default IPv4 route from the main
+route table. Pin the owner ID, workload ID and Ed25519 public key in the local
+supervisor. The intent must be the signed canonical
+`predator.gen4.rotation-intent.v1` receipt. Capture refuses early, expired or
+ambiguous observations. The native event binds the approved intent identifier
+before the node signature; the actual observed route remains independent of
+the planned route. The receiver can then compare route profiles.
+
+Use owner-local input and output directories with mode `0700`. The command
+writes a new private protobuf file (`0600`) for the receiver to consume. Use a
+separate enrolled capture node and its own queue while the ordinary observer
+is active; the queue lock prevents concurrent writers. The capture reserves
+a native sequence from that queue. It makes no Core request, changes no
+route, and grants no network or response authority. Application health
+evidence must come from a separate observer.
+
 ### `status`
 
 ```
