@@ -141,10 +141,12 @@ ambiguous observations. The native event binds the approved intent identifier
 before the node signature; the actual observed route remains independent of
 the planned route. The receiver can then compare route profiles.
 
-Use owner-local input and output directories with mode `0700`. The command
-writes a new private protobuf file (`0600`) for the receiver to consume. Use a
-separate enrolled capture node and its own queue while the ordinary observer
-is active; the queue lock prevents concurrent writers. The capture reserves
+Use input and output directories owned by the capture user with mode `0700`.
+The command confirms the new protobuf file (`0600`) and its directory entry are
+durable before reporting success. Existing output paths are refused. If
+publication or directory sync fails, retry with a fresh output path.
+Use a separate enrolled capture node and its own queue while the ordinary
+observer is active. The capture reserves
 a native sequence from that queue. It makes no Core request, changes no
 route, and grants no network or response authority. Application health
 evidence must come from a separate observer.
